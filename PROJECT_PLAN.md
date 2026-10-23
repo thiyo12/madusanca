@@ -1,7 +1,7 @@
 # Wisdom Driving Academy — Living Production Project Plan
 
 **Updated:** 2026-10-23  
-**Status:** Phase 1 — local-first development, NOT ready to launch  
+**Status:** Fresh-start reset — local-first development, NOT ready to launch  
 **Repository:** https://github.com/thiyo12/madusanca  
 **Policy:** This is an official business website, not a demo. This plan is editable at any time; checkboxes mean *verified*, never assumed.
 
@@ -27,8 +27,9 @@ Even if the repository is private, treat every commit as potentially permanent o
 - Enforce staff MFA, server-side authorization, least privilege, RLS, rate limits, secure sessions, HTTPS, backups and audit logs. GitHub access and Dokploy access must be independently protected.
 
 ## Current verified state
-- [x] Repository exists; Phase 1 scaffold and README committed.
-- [x] Starter includes Next.js, initial pages, preliminary Supabase login/roles, Dockerfile and placeholders.
+- [x] Repository exists and a backup of the previous scaffold is preserved at `backup/phase1-starter-2026-10-23`.
+- [x] Previous application scaffold removed from `main` for a clean local rebuild.
+- [ ] Recreate the application locally, test it, then push reviewed code to `main`.
 - [ ] Local npm install, lint, typecheck, production build verified.
 - [ ] Supabase RLS and authentication reviewed and tested.
 - [ ] Production-strength MFA, rate limiting and other protections enforced.
@@ -41,11 +42,12 @@ Even if the repository is private, treat every commit as potentially permanent o
 ## Delivery workflow — always local first
 ### Stage 1: Local development (current)
 1. Clone: `git clone https://github.com/thiyo12/madusanca.git && cd madusanca`.
-2. Install Node.js 22 and run `npm install`.
-3. Copy `.env.example` to `.env.local` and enter only required configuration locally. Never paste private values into chat or GitHub.
-4. Run `npm run dev` and visit http://localhost:3000.
-5. Run `npm run typecheck`, `npm run lint`, and `npm run build`. Fix failures before feature work.
-6. Work in VS Code/OpenCode. Make small scoped changes; ensure each feature is tested.
+2. Create the new Next.js app in this folder using OpenCode; the reset repository currently has no `package.json` or runnable site.
+3. Install Node.js 22 and run `npm install` once the new application files exist.
+4. Create `.env.example` with placeholders only; copy it to `.env.local` and enter actual values locally. Never paste private values into chat or GitHub.
+5. Run `npm run dev` and visit http://localhost:3000.
+6. Run `npm run typecheck`, `npm run lint`, and `npm run build`. Fix failures before feature work.
+7. Work in VS Code/OpenCode. Make small scoped changes; ensure each feature is tested.
 
 ### Stage 2: Core design and public pages
 - Real brand identity and licensing claims verified with school.
