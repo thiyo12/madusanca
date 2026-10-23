@@ -93,3 +93,7 @@ For any new request, update this document's date, status, decisions, scope and c
 ## Mandatory coding and maintenance rules
 
 All AI and human developers **MUST read and follow [CODING_RULES.md](./CODING_RULES.md)**. Update existing code rather than creating duplicates or unnecessary rewrites; preserve existing functionality, eliminate obsolete/dead code carefully, test every change and keep the complete application working. No change is finished until verification and documentation are updated.
+
+## Source design references and developer kickoff
+
+Before Phase 1 coding, read [REFERENCE_BRIEF.md](./REFERENCE_BRIEF.md) for the original uploaded prototype and BookingTimes reference limitations, then [OPENCODE_START_HERE.md](./OPENCODE_START_HERE.md) for the complete local-first coder prompt. The original screenshot contains credentials and **must not** be committed.
