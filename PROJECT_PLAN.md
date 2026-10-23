@@ -89,3 +89,7 @@ Even if the repository is private, treat every commit as potentially permanent o
 
 ## Change process
 For any new request, update this document's date, status, decisions, scope and checklist. Do not silently treat roadmap features as already built. GitHub commits represent code changes; Supabase and Dokploy manage private production configuration separately.
+
+## Mandatory coding and maintenance rules
+
+All AI and human developers **MUST read and follow [CODING_RULES.md](./CODING_RULES.md)**. Update existing code rather than creating duplicates or unnecessary rewrites; preserve existing functionality, eliminate obsolete/dead code carefully, test every change and keep the complete application working. No change is finished until verification and documentation are updated.
