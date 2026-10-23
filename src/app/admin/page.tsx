@@ -1,0 +1,3 @@
+import {redirect} from 'next/navigation';
+import {createClient} from '@/lib/supabase/server';
+export default async function Admin(){if(!process.env.NEXT_PUBLIC_SUPABASE_URL)redirect('/admin/login');const sb=await createClient();const {data:{user}}=await sb.auth.getUser();if(!user)redirect('/admin/login');const {data:role}=await sb.from('staff_roles').select('role').eq('user_id',user.id).eq('role','admin').maybeSingle();if(!role)redirect('/admin/login');return <main className="section"><h1>Admin dashboard</h1><p>Secure staff area. Booking calendar and student management are upcoming phases.</p></main>}
