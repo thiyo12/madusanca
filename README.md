@@ -7,3 +7,7 @@ Official Canadian driving school website and secure booking platform.
 Previous Phase 1 scaffold preserved in Git branch [`backup/phase1-starter-2026-10-23`](https://github.com/thiyo12/madusanca/tree/backup/phase1-starter-2026-10-23).
 
 **Security:** Never commit API secrets, environment files, student/customer details, payment records, backups, credentials, or private documents. GitHub is for application code and safe documentation only.
+
+## For the coder
+
+Start with [OPENCODE_START_HERE.md](./OPENCODE_START_HERE.md) and [REFERENCE_BRIEF.md](./REFERENCE_BRIEF.md), then follow the [living plan](./PROJECT_PLAN.md) and [mandatory coding rules](./CODING_RULES.md). Reference source files are intentionally not stored in this repository.
