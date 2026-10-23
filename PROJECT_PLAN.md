@@ -1,6 +1,6 @@
 # WISDOM DRIVING ACADEMY — MASTER PROJECT PLAN
 
-**Version:** 1.0 • **Last updated:** 2026-10-23  
+**Version:** 1.1 • **Last updated:** 2026-10-23  
 **Project:** Official Canadian driving-school website and booking management system  
 **Repository:** https://github.com/thiyo12/madusanca  
 **Status:** Planning and local-first build. NOT deployed or production-ready.  
@@ -28,7 +28,32 @@ Build a premium, fast, accessible Canadian driving-school website with a REAL se
 | Budget | Lean self-built Option A; monitor expenses, never cut essential security |
 | Scope control | Build reliable essentials first; advanced extras only after MVP works |
 
-## 3. Visual design — using original reference
+## 3. Official school details — required before public launch
+
+Use only business-owner-confirmed values. Do not invent details or publish guessed placeholders as factual contact information.
+
+| Detail | Current value | Status |
+|---|---|---|
+| Public website / school name | Wisdom Driving Academy | Working name; confirm legal/public name |
+| Registered business / legal entity name | Not provided | Await owner confirmation |
+| Canadian province and city | Canada only | Await confirmation |
+| Official business / service address | Not provided | Await confirmation; publish only if approved |
+| Public phone number | Not provided | Await confirmation |
+| Public contact email | Not provided | Await confirmation |
+| Official domain name | Not provided | Await confirmation |
+| Logo and brand assets | Original prototype is design reference | Request official, usable files / permissions |
+| Driving course types and durations | Beginner, road-test preparation and refresher are concept examples | Confirm actual offerings |
+| Course / lesson pricing in CAD | Not provided | Await approved rate card |
+| Instructor names / qualifications | Not provided | Publish only with approval |
+| Operating hours and Canadian business timezone | Not provided | Required before real booking engine |
+| Service areas / pickup locations | Not provided | Confirm |
+| Cancellation, refund and rescheduling windows | Not provided | Obtain school policy and legal review |
+| Licensing / government approval claims | Not verified | Do not publish without evidence |
+| Privacy contact and legal policy details | Not provided | Confirm before production |
+
+**Implementation rule:** Keep these values in configurable content/settings, not scattered hard-coded components. Approved *public* business details may appear on the website, but personal/private owner details, customer records, credentials and business-sensitive documents must never go into GitHub. For unknown values, omit public-facing claims/fields until confirmed; use clearly marked local-only sample content if essential for layout testing. The developer may continue Phase 1 design without blocking on these details.
+
+## 4. Visual design — using original reference
 
 The owner supplied **wisdom-academy-netlify-ready.zip** containing a single HTML interactive website prototype. Use its helpful information architecture and ideas for hero, course cards, program sections and student lesson-selection/booking steps, but do NOT copy its insecure demo mechanics or present simulated appointments as real. Rebuild as clean reusable Next.js components.
 
