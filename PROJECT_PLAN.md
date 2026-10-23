@@ -1,99 +1,146 @@
-# Wisdom Driving Academy — Living Production Project Plan
+# WISDOM DRIVING ACADEMY — MASTER PROJECT PLAN
 
-**Updated:** 2026-10-23  
-**Status:** Fresh-start reset — local-first development, NOT ready to launch  
+**Version:** 1.0 • **Last updated:** 2026-10-23  
+**Project:** Official Canadian driving-school website and booking management system  
 **Repository:** https://github.com/thiyo12/madusanca  
-**Policy:** This is an official business website, not a demo. This plan is editable at any time; checkboxes mean *verified*, never assumed.
+**Status:** Planning and local-first build. NOT deployed or production-ready.  
+**Plan rule:** This is the **single source of truth**. It can change as requirements evolve. Update this file when a decision changes, and mark features complete ONLY after testing.
 
-## Product
-Build a premium Canadian driving-school website with an advanced real booking system, a protected admin calendar, guest booking management via short-lived emailed links, and optional Stripe payments. Avoid misleading sample bookings, fake testimonials or invented certifications on production pages. Public content must be confirmed with the business.
+## 1. Project goal
 
-## Technology decisions
-- Next.js / TypeScript frontend and server routes.
-- Supabase hosted PostgreSQL and Supabase Auth for staff login.
-- Stripe Checkout and signed webhooks for CAD payments (test mode until launch).
-- Production: Hostinger VPS with Dokploy; development: localhost.
-- GitHub: **SOURCE CODE ONLY** (plus documentation, database schema/migrations and safe template config).
-- Business province, timezone, service area, pricing, booking policies, official contact details and legal jurisdiction require confirmation.
+Build a premium, fast, accessible Canadian driving-school website with a REAL secure booking system and a practical administrative calendar. This is a real business product, **not a demo**. Aim for a clean Option A / starter MVP first, then add advanced capabilities in stages. Do not overengineer.
 
-## Absolutely no confidential information in GitHub
-Even if the repository is private, treat every commit as potentially permanent or exposable.
-- NEVER commit: Supabase database password, service_role/secret keys, Stripe secret/webhook keys, session secrets, emails/phone numbers of real students, addresses/driver-licence records, payment data, customer exports, booking database snapshots, private business documents, real credentials, token-bearing URLs, logs with personal data or production backups.
-- **Public Supabase project URL and publishable keys can be safe for browser use only with strict RLS**, but prefer to leave even project-specific configuration out of code and use environment variables.
-- Local secrets belong in ignored `.env.local`; deployment secrets belong in restricted Dokploy environment settings. Store backups securely outside GitHub with access controls.
-- Commit `.env.example` with **placeholders only**. Store schema migrations with **no real data**. Use synthetic fixtures.
-- No passwords, tokens or private account details in screenshots, screenshots' metadata, issues, PR discussions, or this plan. Immediately rotate any exposed credentials; removing a later commit alone does not undo exposure.
-- Review `git status`, `git diff --cached` and secret scan before every push; require CI secret scanning before production.
-- Enforce staff MFA, server-side authorization, least privilege, RLS, rate limits, secure sessions, HTTPS, backups and audit logs. GitHub access and Dokploy access must be independently protected.
+## 2. Agreed decisions
 
-## Current verified state
-- [x] Repository exists and a backup of the previous scaffold is preserved at `backup/phase1-starter-2026-10-23`.
-- [x] Previous application scaffold removed from `main` for a clean local rebuild.
-- [ ] Recreate the application locally, test it, then push reviewed code to `main`.
-- [ ] Local npm install, lint, typecheck, production build verified.
-- [ ] Supabase RLS and authentication reviewed and tested.
-- [ ] Production-strength MFA, rate limiting and other protections enforced.
-- [ ] Booking engine, rescheduling, notifications and Stripe implemented.
-- [ ] Canadian legal pages reviewed for actual province/business.
-- [ ] Deployment and live tests completed.
+| Area | Decision |
+|---|---|
+| Brand (working name) | Wisdom Driving Academy; confirm official name before launch |
+| Target market | Canada; exact province and city still need confirmation |
+| Frontend | Next.js + React + TypeScript + Tailwind CSS |
+| Backend / database | Supabase managed PostgreSQL |
+| Staff login | Supabase Auth; admin-only initially; MFA required before launch |
+| Student login | None initially; guest booking and secure, expiring management links |
+| Payments | Stripe Checkout in CAD; test mode during development; optional for MVP launch |
+| Customer emails | Confirmation and rescheduling notifications via transactional email service |
+| Production host | Hostinger VPS + Dokploy; purchase only when application is tested |
+| Development | OpenCode / VS Code locally, then GitHub, then deployment |
+| GitHub use | Source code, safe migrations, tests, documentation and placeholder configuration ONLY |
+| Budget | Lean self-built Option A; monitor expenses, never cut essential security |
+| Scope control | Build reliable essentials first; advanced extras only after MVP works |
 
-**Do not collect real customer data or accept actual payments until launch gates pass.**
+## 3. Visual design — using original reference
 
-## Delivery workflow — always local first
-### Stage 1: Local development (current)
-1. Clone: `git clone https://github.com/thiyo12/madusanca.git && cd madusanca`.
-2. Create the new Next.js app in this folder using OpenCode; the reset repository currently has no `package.json` or runnable site.
-3. Install Node.js 22 and run `npm install` once the new application files exist.
-4. Create `.env.example` with placeholders only; copy it to `.env.local` and enter actual values locally. Never paste private values into chat or GitHub.
-5. Run `npm run dev` and visit http://localhost:3000.
-6. Run `npm run typecheck`, `npm run lint`, and `npm run build`. Fix failures before feature work.
-7. Work in VS Code/OpenCode. Make small scoped changes; ensure each feature is tested.
+The owner supplied **wisdom-academy-netlify-ready.zip** containing a single HTML interactive website prototype. Use its helpful information architecture and ideas for hero, course cards, program sections and student lesson-selection/booking steps, but do NOT copy its insecure demo mechanics or present simulated appointments as real. Rebuild as clean reusable Next.js components.
 
-### Stage 2: Core design and public pages
-- Real brand identity and licensing claims verified with school.
-- Cinematic driving/road hero, contemporary restrained animation, responsive navigation, accessibility and SEO.
-- Course, pricing, instructors, FAQ, contact, legal pages; never use fake claims as actual content.
+**Design requirements:**
+- Cinematic road / driving-related hero image, premium automotive feel.
+- Dark navy, clean white and blue accents, strong typography, clear calls to action.
+- Polished responsive mobile/tablet/desktop design; fast loading and SEO.
+- Tasteful scroll/hover transitions, reduced-motion support and accessible color contrast.
+- Public pages: Home, Courses/Lessons, About, How It Works, FAQ, Contact, Booking entry, and approved legal pages.
+- Never invent official certification, testimonials, address, pricing, instructor credentials or reviews. Use clearly marked internal placeholders until the business approves real content.
+- Images must be appropriately licensed.
 
-### Stage 3: Secure data and admin
-- Review database migrations and RLS; server-side RBAC on every endpoint.
-- Staff-only login; MFA before live operation; secure staff provisioning.
-- Calendar views, instructor/service/vehicle availability, closures and conflict checking.
-- Immutable event/audit records with strict access controls.
+**BookingTimes image:** Owner supplied a screenshot of the **login screen**, not a screenshot of the calendar itself. It exposed credentials. Never copy, publish, use, attempt to log in with or commit those credentials or that screenshot. Owner should rotate the exposed password. Future sanitized calendar screenshots can guide UI after being supplied locally; no dependency on the existing account.
 
-### Stage 4: Real bookings and payment
-- Available slots based on actual instructors, durations, buffers and vehicle conflicts.
-- Atomic reservations with expiration holds and transaction-level double-booking protection.
-- Guest booking and policy-aware rescheduling through expiring single-use links.
-- Email notices without leaking customer data to logs.
-- Stripe Checkout: idempotent, signature-verified webhooks, paid/pending states and refund handling.
-- Appointment timestamps in UTC and explicit local Canadian IANA timezone for daylight saving.
+**Reference availability:** Attached original files from the ChatGPT conversation are NOT automatically in your local OpenCode repository. If a sanitized prototype is placed locally, inspect it. Otherwise use these written requirements; do not pretend you opened unavailable files. Keep sensitive reference files out of GitHub.
 
-### Stage 5: Tests → GitHub → Hosting
-1. Test locally: unit/integration/E2E, concurrency, auth, accessibility, mobile, performance.
-2. Inspect staged files for secrets and personal data; commit to feature branch.
-3. Push to GitHub, open PR, verify checks, merge to main only when safe.
-4. Purchase Hostinger VPS when needed; harden firewall, SSH, Dokploy and HTTPS.
-5. Configure production env variables **only in Dokploy**, separate from local/test values.
-6. Set up monitored deployment, backups and restore test; staging verification before production launch.
+## 4. Functional scope
 
-## Launch checklist (must all pass)
-- [ ] Real school details and Canadian province confirmed; qualified legal review of privacy, terms, cancellation/refunds, CASL and any provincial regulations.
-- [ ] No credentials/PII committed or exposed; secret scan and dependency checks clean.
-- [ ] MFA/authorization/RLS, login rate limits, secure session lifecycle verified.
-- [ ] Student cannot view or modify another student's booking.
-- [ ] Atomic booking/rescheduling passes concurrent requests and daylight-saving tests.
-- [ ] Payment webhook signature/idempotency and reconciliation pass tests.
-- [ ] Automated tests and production build pass.
-- [ ] Real backups, successful restore test, monitoring, documented rollback.
-- [ ] Business owner approves real pricing/content before launch.
+### MVP (Option A — must be REAL and usable)
+1. Professional public website, responsive and accessible.
+2. Staff-only admin authentication and server-validated authorization.
+3. Services and lesson durations, instructor availability and schedule exceptions.
+4. Genuine student booking form with available date/time, validation and confirmation.
+5. Admin calendar: day/week views initially, appointment detail/edit/cancel, instructor filtering and status indicators.
+6. Reliable conflict prevention so two students cannot book the same instructor/vehicle slot.
+7. Guest student rescheduling/cancellation using short-lived signed or securely stored one-time email links and policy checks.
+8. Confirmation/change emails, logging and failure handling.
+9. Basic security, audit history, testing, privacy and business policy pages.
 
-## Change process
-For any new request, update this document's date, status, decisions, scope and checklist. Do not silently treat roadmap features as already built. GitHub commits represent code changes; Supabase and Dokploy manage private production configuration separately.
+### Next after MVP is tested
+- Stripe Checkout with CAD prices; safe pending appointment holds; verified and idempotent Stripe webhooks, receipts/refunds.
+- Month view, drag-and-drop, instructor/vehicle management, waitlist, reminders, simple reporting, lesson packages.
+- Do not ship these as unfinished or fake features. Prioritize by business value.
 
-## Mandatory coding and maintenance rules
+## 5. How bookings MUST work
 
-All AI and human developers **MUST read and follow [CODING_RULES.md](./CODING_RULES.md)**. Update existing code rather than creating duplicates or unnecessary rewrites; preserve existing functionality, eliminate obsolete/dead code carefully, test every change and keep the complete application working. No change is finished until verification and documentation are updated.
+Availability considers instructor, service duration, opening hours, buffers, closures, already booked lessons and vehicle availability where relevant. Store timestamps in UTC and display in the school's actual Canadian IANA timezone, including daylight-saving changes.
 
-## Source design references and developer kickoff
+Guest books a slot → backend validates it → database atomically reserves it with overlap protection → send confirmation. For rescheduling, validate secure token, policy and current availability; atomically move appointment and retain original slot if anything fails; update history and notify both parties. Implement rate limiting to protect public actions. Browser-only checks do not count.
 
-Before Phase 1 coding, read [REFERENCE_BRIEF.md](./REFERENCE_BRIEF.md) for the original uploaded prototype and BookingTimes reference limitations, then [OPENCODE_START_HERE.md](./OPENCODE_START_HERE.md) for the complete local-first coder prompt. The original screenshot contains credentials and **must not** be committed.
+For Stripe later, use secure temporary holds during checkout, confirm from signed webhooks (never from success-page redirect alone), and handle duplicates and failures safely.
+
+## 6. Security, privacy and legal — NON-NEGOTIABLE
+
+- **GitHub is CODE ONLY.** No real student/customer data, business-private details, database dumps, backups, uploaded private images, log exports, passwords, Supabase service-role/secret keys, Stripe secret/webhook keys, session tokens or `.env.local` files in GitHub, design JSON, docs, CI logs, issues or commits.
+- `.env.example` has fake placeholders only. Real secrets live in ignored local `.env.local` or protected Dokploy environment variables. Use synthetic test data.
+- Enforce RLS / least privilege on Supabase, server-side RBAC, MFA for staff, secure sessions, CSRF/XSS defenses, validation, rate limits and encrypted HTTPS transport. Rotate any exposed credential.
+- Never collect real customer data or accept live payment while tests/security gates are incomplete.
+- Apply relevant Canadian privacy law after identifying province, CASL marketing consent, provincial driver-education requirements, accessibility, cancellation/refund policies and business-approved Terms and Privacy Policy. Have legal text reviewed before production.
+- Backup/restore and monitoring are launch requirements.
+
+## 7. Mandatory engineering rules — for OpenCode, GPT and all developers
+
+1. READ the current repository and this plan before editing. Understand existing flows and dependencies.
+2. CONTINUE working code. Prefer small targeted edits over rewrites. Never duplicate applications, components, auth, database logic or routes.
+3. NO OVERCODING: use simple maintainable components and minimal necessary dependencies.
+4. NO DEAD CODE: safely remove unused functions, duplicate implementations, unreachable routes and obsolete assets only after verifying no feature depends on them.
+5. NEVER casually delete data, break existing working features, overwrite applied database migrations, or introduce insecure shortcuts.
+6. Every modification must be integrated, functional and regression tested. Run lint, TypeScript checks, applicable automated tests and production build; report anything not run.
+7. Never claim a placeholder/demo, untested screen or TODO is working production functionality.
+8. Update this living plan with verified progress after each completed milestone. Provide a concise change report and test results.
+9. Keep secrets out of all output and source control. Review staged diff before any push.
+10. Don't push to GitHub or deploy without owner approval.
+
+`CODING_RULES.md` contains extended engineering standards; this master plan takes precedence if older docs conflict.
+
+## 8. Delivery sequence — LOCAL FIRST
+
+### Phase 1 — Foundation and polished public website (CURRENT)
+- [ ] Clone repository to local development machine (existing main is intentionally planning-only).
+- [ ] Inspect plan and existing files. Create ONE new Next.js/TypeScript/Tailwind app in this repository, not a nested duplicate.
+- [ ] Set up project folders, reusable components, Git ignore and `.env.example` placeholders.
+- [ ] Build responsive homepage, road-image hero, navigation, footer, course cards, about, booking-process explanation and clear CTA.
+- [ ] Include subtle modern animations and accessibility basics; use approved or placeholder business content.
+- [ ] Set up Supabase public environment placeholders only; NO real credentials committed.
+- [ ] Run `npm install`, `npm run dev`, lint, typecheck and production build. Fix failures. Review responsive behavior.
+- [ ] Update checked items only when verified; show owner local site for review. **NO GitHub push until approval.**
+
+### Phase 2 — Secure Supabase foundation
+- [ ] Supabase tables/migrations for staff, students, services, instructors, schedules, bookings and audit records.
+- [ ] Review strict RLS, server-side authorization and secure staff provisioning; enforce MFA for launch.
+- [ ] Verify authorized/unauthorized access and data minimization.
+
+### Phase 3 — Booking MVP and admin calendar
+- [ ] Actual availability and database-level conflict protection, including concurrent requests.
+- [ ] Live booking form + admin day/week calendar and appointment management.
+- [ ] Secure expiring guest reschedule links, policy checks and change email notifications.
+- [ ] Integration tests for timezones, failures and unauthorized actions.
+
+### Phase 4 — Payments, legal and launch readiness
+- [ ] Stripe test checkout and signed webhook lifecycle if business approves in-scope.
+- [ ] Confirm province, business details, terms, privacy, refund/cancellation and notification consent requirements.
+- [ ] Accessibility, security, performance, backups and restoration tests.
+- [ ] All applicable launch gates verified.
+
+### Phase 5 — Push, stage and deploy (ONLY after local review)
+- [ ] Review `git status`, staged diff, dependency and secret scans; create reviewed feature branch, then push and open PR.
+- [ ] Purchase and secure Hostinger VPS, configure Dokploy, Docker build, restricted env vars, HTTPS/domain and backups.
+- [ ] Test staging with test data; promote production only when approved. Monitor, verify rollback and restore.
+
+## 9. Current confirmed status
+
+- [x] Existing starter was intentionally removed for fresh local development.
+- [x] Previous starter preserved in GitHub branch `backup/phase1-starter-2026-10-23`.
+- [x] Master plan and coding rules maintained in repository.
+- [ ] New application implemented.
+- [ ] Local build tested.
+- [ ] Live booking system implemented and verified.
+- [ ] Production deployed.
+
+**Today’s immediate task:** OpenCode creates and tests **Phase 1 only** locally. Do not build all future features, push code, or deploy until owner review.
+
+## 10. Required coder completion report
+
+Summarize: files changed, working features, any reused or safely removed code, checks and actual results, security concerns, open requirements and instructions to view on localhost. Update this plan to match reality.
