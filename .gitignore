@@ -1,8 +1,31 @@
-node_modules
-.next
+# Build and local development
+node_modules/
+.next/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Environment and credentials
 .env
 .env.*
 !.env.example
 *.pem
 *.key
-.DS_Store
+*.p12
+*.pfx
+*.crt
+*service-account*.json
+*credentials*.json
+*secret*.json
+
+# Business and personal data (not for source control)
+backups/
+database-backups/
+exports/
+private/
+customer-data/
+student-data/
+*.sql.gz
+*.dump
+*.backup
