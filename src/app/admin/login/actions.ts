@@ -1,0 +1,4 @@
+'use server';
+import {redirect} from 'next/navigation';
+import {createClient} from '@/lib/supabase/server';
+export async function login(data:FormData){const email=data.get('email');const password=data.get('password');if(typeof email!=='string'||typeof password!=='string'||!email.includes('@')||!password||password.length>256)redirect('/admin/login?error=1');if(!process.env.NEXT_PUBLIC_SUPABASE_URL||!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)redirect('/admin/login?error=1');const sb=await createClient();const auth=await sb.auth.signInWithPassword({email,password});if(auth.error)redirect('/admin/login?error=1');const {data:{user}}=await sb.auth.getUser();if(!user)redirect('/admin/login?error=1');const {data:role}=await sb.from('staff_roles').select('role').eq('user_id',user.id).eq('role','admin').maybeSingle();if(!role){await sb.auth.signOut();redirect('/admin/login?error=1')}redirect('/admin')}
