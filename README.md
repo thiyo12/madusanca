@@ -1,13 +1,35 @@
 # Wisdom Driving Academy
 
-Official Canadian driving school website and secure booking platform.
+Website and booking application for a driving school. Built with Next.js, React, TypeScript, and Tailwind CSS.
 
-**Current state:** Fresh source-code reset. No runnable application is present on `main` yet. Start with [PROJECT_PLAN.md](./PROJECT_PLAN.md) and build locally first, test, then push reviewed work.
+## Local development
 
-Previous Phase 1 scaffold preserved in Git branch [`backup/phase1-starter-2026-10-23`](https://github.com/thiyo12/madusanca/tree/backup/phase1-starter-2026-10-23).
+Requirements: Node.js and npm.
 
-**Security:** Never commit API secrets, environment files, student/customer details, payment records, backups, credentials, or private documents. GitHub is for application code and safe documentation only.
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
-## For the coder
+Open `http://localhost:3000`. Keep `.env.local` private and replace placeholders only in your local environment. Do not put personal contact details, credentials, student information, or private business data in this README or other public documentation.
 
-Start with [OPENCODE_START_HERE.md](./OPENCODE_START_HERE.md) and [REFERENCE_BRIEF.md](./REFERENCE_BRIEF.md), then follow the [living plan](./PROJECT_PLAN.md) and [mandatory coding rules](./CODING_RULES.md). Reference source files are intentionally not stored in this repository.
+## Checks
+
+```bash
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+## Project notes
+
+- `PLAN.md` records current technical decisions; `PROJECT_PLAN.md` tracks project work and launch tasks.
+- `.env.example` contains placeholders only. Configure real secrets outside source control.
+- Local booking data and Supabase CLI link state are excluded from Git.
+- Public indexing remains disabled until the approved production HTTPS origin is configured.
+- This repository is source code only. A GitHub push does not deploy the application.
+
+## Privacy and security
+
+Never commit environment files, API keys, credentials, customer or student records, database exports, backups, logs, private documents, or personal data. Use synthetic data for development and protected environment variables for deployment.

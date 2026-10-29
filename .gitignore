@@ -1,10 +1,17 @@
 # Build and local development
 node_modules/
 .next/
+out/
+build/
 dist/
 coverage/
 *.log
 .DS_Store
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+/.agents/
+/.data/
 
 # Environment and credentials
 .env
@@ -29,3 +36,14 @@ student-data/
 *.sql.gz
 *.dump
 *.backup
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Local application data and Supabase CLI state
+supabase/.temp/
+
+# Common private exports and uploads
+uploads/
+documents/
