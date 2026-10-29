@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand palette */
+  --color-ink: #111315;
+  --color-ink-700: #1a1d21;
+  --color-ink-600: #24272c;
+  --color-gold: #e3a721;
+  --color-gold-light: #ffcf63;
+  --color-gold-deep: #a47612;
+  --color-gold-soft: #fff8e6;
+  --color-paper: #ffffff;
+  --color-mist: #f6f7f8;
+  --color-line: #e8e9ec;
+  --color-soft: #5b616c;
+
+  --font-display: var(--font-manrope), "Manrope", system-ui, sans-serif;
+  --font-sans: var(--font-dm-sans), "DM Sans", system-ui, sans-serif;
+
+  --shadow-card: 0 18px 58px rgba(12, 18, 28, 0.055);
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #111315;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.035em;
+}
+
+/* Gold CTA glow button */
+.btn-gold {
+  background: linear-gradient(120deg, #ffd976, #e8aa26);
+  color: #15120a;
+  box-shadow: 0 7px 19px rgba(207, 142, 25, 0.15);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.btn-gold:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+  box-shadow: 0 12px 26px rgba(207, 142, 25, 0.28);
+}
+.btn-gold:active {
+  transform: translateY(0);
+  filter: brightness(0.97);
+}
+
+/* Public brand treatment; the admin retains its established gold palette. */
+.public-site {
+  --color-ink: #10212e;
+  --color-ink-700: #18303d;
+  --color-ink-600: #243b48;
+  --color-gold: #c2ee84;
+  --color-gold-light: #d9f5b3;
+  --color-gold-deep: #426a2c;
+  --color-gold-soft: #eaf5df;
+  --color-mist: #f7f7f3;
+  --color-line: #e3e8e6;
+  --color-soft: #626f7a;
+  --shadow-card: 0 18px 50px rgba(11, 27, 41, 0.07);
+}
+
+.public-site .btn-gold {
+  background: #c2ee84;
+  color: #10212e;
+  box-shadow: none;
+}
+.public-site .btn-gold:hover {
+  background: #d4f4a8;
+  box-shadow: 0 14px 30px rgba(11, 27, 41, 0.16);
+}
+.public-site .site-button {
+  border-radius: 9999px;
+}
+/* Hide scrollbars on swipeable carousels (mobile) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Reduced motion: kill all motion, keep state changes instant */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
