@@ -2,7 +2,7 @@
 
 **Review date:** 2026-11-01
 **Scope:** Source-level review guided by the attached Pre-Launch Security Toolkit (Checks 01–27).
-**Mode:** Source review with follow-up application hardening; no production settings, secrets, or database records were changed.
+**Mode:** Source review with follow-up hardening and read-only production verification; production database migrations and one unique OTP secret were intentionally updated as authorized below.
 **Confidence:** Medium for the code findings below; low for deployment/provider settings that cannot be proven from source.
 
 ## Executive summary
@@ -91,3 +91,16 @@ The app has meaningful baseline protections: Supabase validates admin identity s
 ## Limitations
 
 This review did not access or query Supabase tables, alter provider settings, inspect secret values, conduct a live penetration test, exercise production customer/payment flows, test real card charges, scan Git history with a dedicated secrets scanner, or verify Dokploy/Stripe/Supabase dashboard policies. A passing build or dependency audit is not proof that the app is secure. An independent application-security review is recommended before processing live customer payments.
+
+## Post-deployment verification — 2026-11-01
+
+This update supersedes earlier status notes above where they conflict:
+
+- Supabase migrations `0009`–`0013` were applied to the linked production project and confirmed present with `supabase migration list --linked`.
+- A fresh, unique `OTP_HASH_SECRET` was generated and saved in Dokploy. Its value was not displayed or inspected; Dokploy confirmed the save request succeeded and exactly one variable is configured.
+- Commits `d50fca2` and `b4cf149` were pushed to `main`; Dokploy reported both deployments **done**. The latter contains a CSP fix for observed style-attribute violations.
+- Read-only checks of `/`, `/booking`, `/booking/manage`, and `/admin/login` confirmed pages render. Unauthenticated `/admin/bookings` redirected to `/admin/login?next=%2Fadmin%2Fbookings`. No console errors were present on the final checked booking/manage/login pages.
+- Live responses include nonce-based `script-src`, nonce-only `style-src`, `style-src-attr 'unsafe-inline'`, `Strict-Transport-Security: max-age=31536000`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, and `X-Content-Type-Options: nosniff`.
+- Local checks after the CSP fix passed: 13 security tests, ESLint, TypeScript, production build, and `git diff --check`. `npm audit` previously reported zero vulnerabilities.
+- No booking, OTP, Checkout, payment, or admin login form was submitted during production verification; no real charges were made.
+- **Critical unresolved risk:** the exposed Supabase service-role key was not rotated, per the owner's explicit decision. It remains compromised and must be treated as such. This review does not certify production safe for live payments; keep the key risk and Stripe/provider configuration under review.
