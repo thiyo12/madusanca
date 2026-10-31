@@ -15,6 +15,7 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { getStripe } from "@/lib/stripe/server";
 import { getManageToken, MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
+import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
@@ -107,6 +108,9 @@ async function expireUpgradeCheckout(booking: BookingRecord): Promise<boolean> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!hasTrustedRequestOrigin(request)) {
+    return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
+  }
   if (await isIpRateLimitedShared(request, "manage", 15, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Please try again later." },

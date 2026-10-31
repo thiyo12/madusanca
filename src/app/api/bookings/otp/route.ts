@@ -8,6 +8,7 @@ import type { BookingRecord } from "@/lib/booking/types";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
+import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 4_096;
@@ -25,6 +26,9 @@ const MAX_BODY_BYTES = 4_096;
  *    verifies — payment remains available even inside the 48-hour change cutoff.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!hasTrustedRequestOrigin(request)) {
+    return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
+  }
   if (await isIpRateLimitedShared(request, "otp", 20, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Please try again later." },

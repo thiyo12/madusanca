@@ -11,6 +11,7 @@ import { getStripe, stripeTaxCode, stripeTaxReady } from "@/lib/stripe/server";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { isTestModeStripeSecretKey } from "@/lib/stripe/payment-validation";
+import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 2_048;
@@ -18,6 +19,9 @@ const MAX_BODY_BYTES = 2_048;
 const checkoutSchema = z.object({}).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!hasTrustedRequestOrigin(request)) {
+    return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
+  }
   if (process.env.NODE_ENV === "production" && !isTestModeStripeSecretKey(process.env.STRIPE_SECRET_KEY)) {
     return NextResponse.json({ ok: false, error: "Online payments are disabled until test-mode checkout is configured." }, { status: 503 });
   }

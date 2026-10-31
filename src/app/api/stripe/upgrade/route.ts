@@ -11,11 +11,15 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { getManageToken } from "@/lib/booking/manage-cookie";
 import { isTestModeStripeSecretKey } from "@/lib/stripe/payment-validation";
+import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
 const schema = z.object({ targetLessonId: z.string().trim().min(1).max(100) }).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!hasTrustedRequestOrigin(request)) {
+    return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
+  }
   if (process.env.NODE_ENV === "production" && !isTestModeStripeSecretKey(process.env.STRIPE_SECRET_KEY)) {
     return NextResponse.json({ ok: false, error: "Online payments are disabled until test-mode checkout is configured." }, { status: 503 });
   }

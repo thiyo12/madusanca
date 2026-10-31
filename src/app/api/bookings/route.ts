@@ -9,11 +9,15 @@ import { manageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
+import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!hasTrustedRequestOrigin(request)) {
+    return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
+  }
   if (await isIpRateLimitedShared(request, "bookings", 5, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many booking attempts. Please try again later." },

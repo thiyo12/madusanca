@@ -19,6 +19,7 @@ import {
   manageSchema,
 } from "../src/lib/validation/booking.ts";
 import { contactSchema } from "../src/lib/validation/contact.ts";
+import { hasTrustedRequestOrigin } from "../src/lib/server/request-origin.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -114,6 +115,27 @@ test("unknown client IP skips its bucket instead of sharing a global limit", asy
   } finally {
     if (previous === undefined) delete process.env.TRUST_PROXY_IP;
     else process.env.TRUST_PROXY_IP = previous;
+  }
+});
+
+test("mutation origin validation rejects cross-origin and missing production origins", () => {
+  const previousSite = process.env.NEXT_PUBLIC_SITE_URL;
+  const previousNodeEnv = process.env.NODE_ENV;
+  try {
+    process.env.NEXT_PUBLIC_SITE_URL = "https://wisdomdrivingacademy.com";
+    process.env.NODE_ENV = "production";
+    assert.equal(hasTrustedRequestOrigin(new Request("https://wisdomdrivingacademy.com/api", {
+      method: "POST", headers: { origin: "https://wisdomdrivingacademy.com" },
+    })), true);
+    assert.equal(hasTrustedRequestOrigin(new Request("https://wisdomdrivingacademy.com/api", {
+      method: "POST", headers: { origin: "https://attacker.example" },
+    })), false);
+    assert.equal(hasTrustedRequestOrigin(new Request("https://wisdomdrivingacademy.com/api", { method: "POST" })), false);
+  } finally {
+    if (previousSite === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+    else process.env.NEXT_PUBLIC_SITE_URL = previousSite;
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
   }
 });
 

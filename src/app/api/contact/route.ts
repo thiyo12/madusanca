@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { contactSchema } from "@/lib/validation/contact";
 import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
+import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 import { escapeHtml } from "@/lib/email/send";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 
@@ -47,6 +48,9 @@ async function sendViaResend(params: {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!hasTrustedRequestOrigin(request)) {
+    return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
+  }
   if (await isIpRateLimitedShared(request, "contact", 5, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many messages. Please try again later." },
