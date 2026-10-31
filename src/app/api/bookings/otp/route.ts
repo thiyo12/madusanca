@@ -2,15 +2,15 @@ import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
 import { otpSchema } from "@/lib/validation/booking";
 import { generateOtpCode, hashOtp, otpExpiry, OTP_TTL_MIN } from "@/lib/booking/otp";
-import { isRateLimited, clientIp } from "@/lib/server/rate-limit";
+import { isRateLimitedShared, clientIp } from "@/lib/server/rate-limit";
 import { sendBookingOtpEmail } from "@/lib/email/booking-emails";
 import type { BookingRecord } from "@/lib/booking/types";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
+import { logSafeError } from "@/lib/server/safe-log";
+import { MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 4_096;
-
-const SELF_SERVICE_CUTOFF_MS = 48 * 60 * 60 * 1000;
 
 /**
  * Self-service booking finder.
@@ -22,11 +22,11 @@ const SELF_SERVICE_CUTOFF_MS = 48 * 60 * 60 * 1000;
  *  - Codes expire after 10 minutes and lock after 5 wrong attempts.
  *  - Per-IP and per-email rate limits slow down abuse and email bombing.
  *  - A manage token (30 days, hashed, rotated) is only issued after the code
- *    verifies — same token path the confirmation email uses.
+ *    verifies — payment remains available even inside the 48-hour change cutoff.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const ip = clientIp(request);
-  if (isRateLimited(`otp-ip:${ip}`, 20, 10 * 60 * 1000)) {
+  if (await isRateLimitedShared(`otp-ip:${ip}`, 20, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Please try again later." },
       { status: 429 },
@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const { action, email, code, reference } = parsed.data;
   const genericSend = {
     ok: true,
-    message: `If an active booking at that email is eligible for online changes (more than 48 hours away), a 6-digit code has been requested; it expires in ${OTP_TTL_MIN} minutes. Up to 3 requests are allowed per day, at least 2 minutes apart. If a code does not arrive, call Shan. Lessons within 48 hours need a phone call.`,
+    message: `If an active booking exists for that email, a 6-digit code has been requested; it expires in ${OTP_TTL_MIN} minutes. Use it to view your booking and payment options. Online date changes close 48 hours before the lesson.`,
     retryAfterSeconds: 120,
   };
 
@@ -67,8 +67,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       const found = await store.findBookingsByEmail(email);
       const eligible = found.filter(
         (booking) =>
-          (booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled") &&
-          Date.parse(booking.startsAt) - Date.now() >= SELF_SERVICE_CUTOFF_MS,
+          booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
       );
       const target = eligible[0];
       if (target) {
@@ -89,7 +88,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     // verify / token both require the code.
-    const verification = await store.verifyOtp(email, hashOtp(email, code ?? ""));
+    const verification = await store.verifyOtp(email, hashOtp(email, code ?? ""), action === "token");
     if (!verification.ok) {
       const message =
         verification.reason === "locked"
@@ -103,10 +102,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     const found = await store.findBookingsByEmail(email);
 
     if (action === "verify") {
-      const now = Date.now();
       return NextResponse.json({
         ok: true,
-        bookings: found.slice(0, 10).map((booking) => safeListItem(booking, now)),
+        bookings: found.slice(0, 10).map((booking) => safeListItem(booking)),
       });
     }
 
@@ -121,16 +119,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         { status: 404 },
       );
     }
-    if (
-      (target.status === "pending_payment" || target.status === "confirmed" || target.status === "rescheduled") &&
-      Date.parse(target.startsAt) - Date.now() < SELF_SERVICE_CUTOFF_MS
-    ) {
-      return NextResponse.json({
-        ok: false,
-        error: "Online changes close 48 hours before the lesson. Call Shan at +1 236-234-3229 for help.",
-      }, { status: 409 });
-    }
-
     const token = await store.issueManageToken(target.id);
     if (!token) {
       return NextResponse.json(
@@ -138,10 +126,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         { status: 500 },
       );
     }
-    await store.deleteOtp(email);
-    return NextResponse.json({ ok: true, token });
+    const response = NextResponse.json({ ok: true });
+    response.cookies.set(MANAGE_COOKIE_NAME, token, manageCookieOptions);
+    return response;
   } catch (error) {
-    console.error("[otp] failed", error);
+    logSafeError("[otp] failed", error);
     return NextResponse.json(
       { ok: false, error: "Could not process the request. Please try again." },
       { status: 500 },
@@ -149,14 +138,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
-function safeListItem(booking: BookingRecord, now: number): {
+function safeListItem(booking: BookingRecord): {
   reference: string;
   lessonName: string;
   durationMin: number;
   priceCad: number;
   startsAt: string;
   status: BookingRecord["status"];
-  canSelfManage: boolean;
+  canOpen: boolean;
 } {
   return {
     reference: booking.reference,
@@ -165,8 +154,6 @@ function safeListItem(booking: BookingRecord, now: number): {
     priceCad: booking.priceCad,
     startsAt: booking.startsAt,
     status: booking.status,
-    canSelfManage:
-      (booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled") &&
-      Date.parse(booking.startsAt) - now >= SELF_SERVICE_CUTOFF_MS,
+    canOpen: booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
   };
 }

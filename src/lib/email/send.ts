@@ -1,3 +1,5 @@
+import "server-only";
+
 import { formatSlotFull } from "@/lib/booking/format";
 
 export function escapeHtml(value: string): string {
@@ -27,6 +29,7 @@ export async function sendEmail(payload: EmailPayload): Promise<boolean> {
   if (apiKey && from) {
     try {
       const response = await fetch("https://api.resend.com/emails", {
+        signal: AbortSignal.timeout(10_000),
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -40,23 +43,25 @@ export async function sendEmail(payload: EmailPayload): Promise<boolean> {
         }),
       });
       if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        console.error("[email] Resend rejected the message", response.status, detail);
+        console.error("[email] Resend rejected the message", response.status);
         return false;
       }
       return true;
     } catch (error) {
-      console.error("[email] Resend request failed", error);
+      console.error("[email] Resend request failed", error instanceof Error ? error.name : "unknown error");
       return false;
     }
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    console.error("[email] delivery unavailable because provider configuration is incomplete");
+    return false;
   }
 
   console.info("[email:dev] not configured — logged instead", {
     to: payload.to,
     subject: payload.subject,
-    ...(payload.devHint && process.env.NODE_ENV !== "production"
-      ? { devHint: payload.devHint }
-      : {}),
+    ...(payload.devHint ? { devHint: payload.devHint } : {}),
   });
   return false;
 }

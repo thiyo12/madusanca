@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { getStore } from "@/lib/booking/store";
 import type { AvailabilityRule } from "@/lib/booking/types";
+import { dateOnlySchema } from "@/lib/validation/booking";
 
 function back(error?: string, success?: string): never {
   const params = new URLSearchParams();
@@ -50,9 +51,9 @@ export async function saveRulesAction(formData: FormData): Promise<void> {
 }
 
 const blackoutSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date."),
+  date: dateOnlySchema,
   reason: z.string().trim().max(120).optional().or(z.literal("")),
-});
+}).strict();
 
 export async function addBlackoutAction(formData: FormData): Promise<void> {
   await requireAdmin("/admin/settings");
@@ -72,7 +73,7 @@ export async function addBlackoutAction(formData: FormData): Promise<void> {
 
 export async function removeBlackoutAction(date: string): Promise<void> {
   await requireAdmin("/admin/settings");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (!dateOnlySchema.safeParse(date).success) {
     back("Invalid date.");
   }
 

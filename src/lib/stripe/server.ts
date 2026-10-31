@@ -8,7 +8,7 @@ export function getStripe(): Stripe {
   if (stripeClient) return stripeClient;
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) throw new Error("Set STRIPE_SECRET_KEY in the server environment.");
-  stripeClient = new Stripe(secretKey);
+  stripeClient = new Stripe(secretKey, { timeout: 20_000, maxNetworkRetries: 2 });
   return stripeClient;
 }
 
@@ -26,4 +26,12 @@ export function stripeTaxCode(): string {
   const taxCode = process.env.STRIPE_DRIVING_LESSON_TAX_CODE;
   if (!taxCode) throw new Error("Set STRIPE_DRIVING_LESSON_TAX_CODE after confirming the correct Stripe Tax category.");
   return taxCode;
+}
+
+export function stripeMode(): "live" | "test" | "unconfigured" | "unknown" {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return "unconfigured";
+  if (/^(sk|rk)_live_/.test(key)) return "live";
+  if (/^(sk|rk)_test_/.test(key)) return "test";
+  return "unknown";
 }

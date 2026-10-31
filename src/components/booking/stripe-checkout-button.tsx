@@ -10,7 +10,7 @@ interface CheckoutResponse {
   error?: string;
 }
 
-export function StripeCheckoutButton({ token }: { token: string }) {
+export function StripeCheckoutButton() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +22,7 @@ export function StripeCheckoutButton({ token }: { token: string }) {
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({}),
       });
       const result = (await response.json()) as CheckoutResponse;
       if (result.paid) {

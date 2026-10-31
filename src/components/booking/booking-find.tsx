@@ -13,7 +13,7 @@ interface FoundBooking {
   priceCad: number;
   startsAt: string;
   status: "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed";
-  canSelfManage: boolean;
+  canOpen: boolean;
 }
 
 interface OtpResponse {
@@ -21,7 +21,6 @@ interface OtpResponse {
   error?: string;
   message?: string;
   bookings?: FoundBooking[];
-  token?: string;
   retryAfterSeconds?: number;
 }
 
@@ -114,8 +113,8 @@ export function BookingFind() {
     setError(null);
     try {
       const result = await callOtp({ action: "token", code, reference });
-      if (result.ok && result.token) {
-        router.push(`/booking/manage?token=${encodeURIComponent(result.token)}`);
+      if (result.ok) {
+        router.push("/booking/manage");
         return;
       }
       setError(result.error ?? "Could not open that booking.");
@@ -185,16 +184,12 @@ export function BookingFind() {
       {step === "code" && (
         <form onSubmit={verifyCode} className="grid gap-3.5">
           <p className="text-[13px] leading-relaxed text-soft">
-            If your email has a booking more than 48 hours away, a code was
-            requested for <strong className="text-ink">{email}</strong>. It
-            expires in 10 minutes. Check spam; if no code arrives, contact the
-            school.
+            If an active booking exists, a code was requested for <strong className="text-ink">{email}</strong>. It
+            expires in 10 minutes. Use it to view booking and payment options. Check spam if it doesn&rsquo;t arrive.
           </p>
           <p className="rounded-[12px] bg-[#eaf5df] px-3 py-2 text-[12px] leading-relaxed text-[#31543a]">
-            For a lesson within 48 hours, online rescheduling is closed. Call{" "}
-            <a href="tel:+12362343229" className="font-extrabold underline underline-offset-2">
-              Shan at +1 236-234-3229
-            </a>.
+            You can still view or pay for your booking. Online date changes close 48 hours before the lesson; for a late change, call{" "}
+            <a href="tel:+12362343229" className="font-extrabold underline underline-offset-2">Shan at +1 236-234-3229</a>.
           </p>
           <label className="grid gap-1.5 text-[12px] font-bold text-ink">
             Verification code
@@ -270,7 +265,7 @@ export function BookingFind() {
                     {formatSlotFull(booking.startsAt)} · {booking.reference}
                   </p>
                 </div>
-                {booking.canSelfManage || booking.status === "cancelled" || booking.status === "completed" ? (
+                {booking.canOpen || booking.status === "cancelled" || booking.status === "completed" ? (
                   <button
                     type="button"
                     onClick={() => openBooking(booking.reference)}

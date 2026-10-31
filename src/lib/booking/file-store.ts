@@ -1,3 +1,5 @@
+import "server-only";
+
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -18,6 +20,7 @@ import type {
   OtpSendPermit,
   PaymentStatus,
   StripeCheckoutEvent,
+  StripeUpgradeCheckoutEvent,
   StoreResult,
 } from "@/lib/booking/types";
 
@@ -406,6 +409,7 @@ export const fileStore: BookingStore = {
   verifyOtp(
     email: string,
     codeHash: string,
+    consume = false,
   ): Promise<{ ok: true } | { ok: false; reason: "mismatch" | "expired" | "locked" }> {
     return withLock((): Promise<{ ok: true } | { ok: false; reason: "mismatch" | "expired" | "locked" }> => {
       const data = load();
@@ -424,6 +428,10 @@ export const fileStore: BookingStore = {
         entry.attempts += 1;
         save(data);
         return Promise.resolve({ ok: false, reason: "mismatch" });
+      }
+      if (consume) {
+        data.otps = data.otps.filter((otp) => otp.email !== key);
+        save(data);
       }
       return Promise.resolve({ ok: true });
     });
@@ -512,19 +520,55 @@ export const fileStore: BookingStore = {
     return load().bookings.find((booking) => booking.stripeCheckoutSessionId === sessionId) ?? null;
   },
 
+  setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt) {
+    return withLock(async () => {
+      const data = load();
+      const booking = data.bookings.find((item) => item.id === bookingId);
+      if (!booking || !["confirmed", "rescheduled"].includes(booking.status) || booking.paymentStatus !== "paid" || booking.startsAt !== expectedStartsAt || targetLesson.priceCad <= booking.priceCad) {
+        throw new Error("Booking is no longer eligible for an upgrade.");
+      }
+      booking.stripeUpgradeCheckoutSessionId = sessionId;
+      booking.stripeUpgradeAttempt ??= 0;
+      booking.stripeUpgradeFromPriceCad = fromPriceCad;
+      booking.stripeUpgradeTargetLessonId = targetLesson.id;
+      booking.stripeUpgradeTargetLessonName = targetLesson.name;
+      booking.stripeUpgradeTargetDurationMin = targetLesson.durationMin;
+      booking.stripeUpgradeTargetPriceCad = targetLesson.priceCad;
+      booking.stripeUpgradeAmountCad = amountCad;
+      save(data);
+    });
+  },
+
+  async getBookingByUpgradeCheckoutSession(sessionId) {
+    return load().bookings.find((booking) => booking.stripeUpgradeCheckoutSessionId === sessionId) ?? null;
+  },
+
   handleStripeCheckoutEvent(event: StripeCheckoutEvent): Promise<void> {
     return withLock((): Promise<void> => {
       const data = load();
       if (data.stripeWebhookEvents.includes(event.eventId)) return Promise.resolve();
-      data.stripeWebhookEvents.push(event.eventId);
       const booking = data.bookings.find((item) => item.id === event.bookingId);
-      if (booking && event.eventType === "paid") {
+      const paymentTotalsMatch = event.subtotalCents === Math.round((booking?.priceCad ?? -1) * 100) &&
+        event.taxCents !== undefined && event.taxCents >= 0 &&
+        event.totalCents === event.subtotalCents + event.taxCents &&
+        event.currency?.toLowerCase() === "cad";
+      if (event.eventType === "paid" && (
+        !booking || booking.stripeCheckoutSessionId !== event.sessionId ||
+        booking.paymentStatus !== "due" || !paymentTotalsMatch
+      )) {
+        throw new Error("Stripe Checkout event does not match the stored booking payment.");
+      }
+      data.stripeWebhookEvents.push(event.eventId);
+      if (
+        booking && event.eventType === "paid" &&
+        booking.stripeCheckoutSessionId === event.sessionId &&
+        booking.paymentStatus === "due" && paymentTotalsMatch
+      ) {
         booking.paymentStatus = "paid";
         booking.stripeCheckoutExpiresAt = booking.status === "pending_payment"
           ? new Date().toISOString()
           : undefined;
         if (booking.status === "pending_payment") booking.status = "confirmed";
-        booking.stripeCheckoutSessionId = event.sessionId;
         booking.stripePaymentIntentId = event.paymentIntentId;
         booking.stripeInvoiceId = event.invoiceId;
         booking.stripeInvoiceUrl = event.invoiceUrl;
@@ -545,6 +589,49 @@ export const fileStore: BookingStore = {
       }
       save(data);
       return Promise.resolve();
+    });
+  },
+
+  handleStripeUpgradeCheckoutEvent(event: StripeUpgradeCheckoutEvent): Promise<void> {
+    return withLock(async () => {
+      const data = load();
+      if (data.stripeWebhookEvents.includes(event.eventId)) return;
+      data.stripeWebhookEvents.push(event.eventId);
+      const booking = data.bookings.find((item) => item.id === event.bookingId);
+      if (!booking) { save(data); return; }
+      const totalsMatch = event.subtotalCents === Math.round((booking.stripeUpgradeAmountCad ?? -1) * 100) &&
+        event.taxCents !== undefined && event.taxCents >= 0 &&
+        event.totalCents === event.subtotalCents + event.taxCents &&
+        event.currency?.toLowerCase() === "cad";
+      if (
+        event.eventType === "paid" && booking.stripeUpgradeCheckoutSessionId === event.sessionId &&
+        booking.paymentStatus === "paid" && ["confirmed", "rescheduled"].includes(booking.status) &&
+        booking.stripeUpgradeFromPriceCad === event.fromPriceCad &&
+        booking.stripeUpgradeTargetLessonId === event.targetLessonId &&
+        booking.stripeUpgradeTargetLessonName === event.targetLessonName &&
+        booking.stripeUpgradeTargetDurationMin === event.targetDurationMin &&
+        booking.stripeUpgradeTargetPriceCad === event.targetPriceCad && totalsMatch
+      ) {
+        booking.lessonId = event.targetLessonId;
+        booking.lessonName = event.targetLessonName;
+        booking.durationMin = event.targetDurationMin;
+        booking.priceCad = event.targetPriceCad;
+        booking.stripePaymentIntentId = event.paymentIntentId;
+        booking.stripeInvoiceId = event.invoiceId;
+        booking.stripeInvoiceUrl = event.invoiceUrl;
+        booking.stripeSubtotalCad = centsToCad(event.subtotalCents);
+        booking.stripeTaxCad = centsToCad(event.taxCents);
+        booking.stripeTotalCad = centsToCad(event.totalCents);
+        booking.stripeCurrency = event.currency?.toUpperCase();
+        booking.stripeUpgradeCheckoutSessionId = undefined;
+        booking.stripeUpgradeAttempt = (booking.stripeUpgradeAttempt ?? 0) + 1;
+        booking.updatedAt = new Date().toISOString();
+      } else if (event.eventType === "expired" && booking.stripeUpgradeCheckoutSessionId === event.sessionId) {
+        booking.stripeUpgradeCheckoutSessionId = undefined;
+        booking.stripeUpgradeAttempt = (booking.stripeUpgradeAttempt ?? 0) + 1;
+        booking.updatedAt = new Date().toISOString();
+      }
+      save(data);
     });
   },
 };

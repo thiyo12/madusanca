@@ -1,8 +1,11 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
+import { logSafeError } from "@/lib/server/safe-log";
 
 export interface LoginState {
   error: string | null;
@@ -13,11 +16,18 @@ const loginSchema = z.object({
   email: z.email("Enter a valid email address."),
   password: z.string().min(6, "Password must be at least 6 characters.").max(128),
   next: z.string().max(300).optional().or(z.literal("")),
-});
+}).strict();
 
 const resetSchema = z.object({
   email: z.email("Enter a valid email address."),
-});
+}).strict();
+
+function publicSiteUrl(): string {
+  // Never let a stale production environment value send recovery links to localhost.
+  if (process.env.NODE_ENV === "production") return "https://wisdomdrivingacademy.com";
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+  return configured || "http://localhost:3000";
+}
 
 function safeNext(next: string | undefined): string {
   if (next && next.startsWith("/admin") && !next.startsWith("//")) return next;
@@ -33,26 +43,26 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Check the form and try again." };
   }
+  if (await isRateLimitedShared(`admin-login:${parsed.data.email.trim().toLowerCase()}`, 10, 15 * 60 * 1000)) {
+    return { error: "Too many sign-in attempts. Please wait and try again." };
+  }
+  // A shared IP limit adds friction against password spraying. Only trust the
+  // proxy-provided address when deployment explicitly enables that setting.
+  const requestHeaders = await headers();
+  const ip = clientIp(new Request("http://localhost", { headers: requestHeaders }));
+  if (ip !== "unknown" && await isRateLimitedShared(`admin-login-ip:${ip}`, 30, 15 * 60 * 1000)) {
+    return { error: "Too many sign-in attempts from this network. Please wait and try again." };
+  }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email,
+    email: parsed.data.email.trim().toLowerCase(),
     password: parsed.data.password,
   });
 
   if (error) {
-    const code = (error as { code?: string }).code;
-    if (code === "email_not_confirmed" || error.message.includes("Email not confirmed")) {
-      return {
-        error: "Confirm your email first — open the confirmation link Supabase sent you, then sign in again.",
-      };
-    }
-    console.error("[admin/login] Supabase sign-in failed", {
-      code: (error as { code?: string }).code,
-      status: (error as { status?: number }).status,
-      message: error.message,
-    });
-    return { error: "Invalid email or password. Confirm this user exists in the linked Supabase project's Authentication → Users, and use its current password." };
+    logSafeError("[admin/login] Supabase sign-in failed", error);
+    return { error: "Invalid email or password." };
   }
 
   redirect(safeNext(parsed.data.next));
@@ -66,14 +76,21 @@ export async function requestPasswordReset(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Enter your account email." };
   }
+  if (await isRateLimitedShared(`admin-reset:${parsed.data.email.trim().toLowerCase()}`, 3, 60 * 60 * 1000)) {
+    return { error: null, message: "If an account exists for that email, Supabase will send a password-reset link. Check your inbox and spam folder." };
+  }
+  const requestHeaders = await headers();
+  const ip = clientIp(new Request("http://localhost", { headers: requestHeaders }));
+  if (ip !== "unknown" && await isRateLimitedShared(`admin-reset-ip:${ip}`, 10, 60 * 60 * 1000)) {
+    return { error: null, message: "If an account exists for that email, Supabase will send a password-reset link. Check your inbox and spam folder." };
+  }
 
   try {
     const supabase = await createSupabaseServerClient();
-    const redirectTo = new URL("/auth/confirm?next=/admin/reset-password", process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").toString();
+    const redirectTo = new URL("/auth/confirm?next=/admin/reset-password", publicSiteUrl()).toString();
     const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, { redirectTo });
     if (error) {
       const code = (error as { code?: string }).code;
-      const status = (error as { status?: number }).status;
       if (
         code === "over_email_send_rate_limit" ||
         code === "email_rate_limit_exceeded" ||
@@ -84,14 +101,12 @@ export async function requestPasswordReset(
           error: "Supabase temporarily rate-limited password recovery emails. Wait for its cooldown, then request one more link. Avoid repeated requests; the latest sent link is the one to use.",
         };
       }
-      console.error("[admin/password-reset] Supabase request failed", {
-        status,
-        code,
-        message: error.message,
-      });
+      logSafeError("[admin/password-reset] Supabase request failed", error);
+      return { error: "Supabase could not send the reset link. Check the Auth email provider and redirect URL settings, then try again." };
     }
   } catch (error) {
-    console.error("[admin/password-reset] request failed", error);
+    logSafeError("[admin/password-reset] request failed", error);
+    return { error: "Password recovery is temporarily unavailable. Please try again later." };
   }
 
   // Avoid revealing whether an email belongs to an account.
@@ -105,7 +120,7 @@ export async function updatePassword(
   const parsed = z.object({
     password: z.string().min(8, "Use at least 8 characters.").max(128),
     confirmPassword: z.string().min(8).max(128),
-  }).safeParse({
+  }).strict().safeParse({
     password: formData.get("password"),
     confirmPassword: formData.get("confirmPassword"),
   });
@@ -124,12 +139,17 @@ export async function updatePassword(
 
   const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
   if (error) {
-    console.error("[admin/password-reset] password update failed", {
-      status: (error as { status?: number }).status,
-      code: (error as { code?: string }).code,
-      message: error.message,
-    });
+    logSafeError("[admin/password-reset] password update failed", error);
     return { error: "Could not update the password. Request a new reset link and try again." };
+  }
+
+  const { error: revokeError } = await supabase.auth.signOut({ scope: "global" });
+  if (revokeError) {
+    logSafeError("[admin/password-reset] global session revocation failed", revokeError);
+    await supabase.auth.signOut({ scope: "local" });
+    return {
+      error: "Your password was updated, but Supabase could not confirm sign-out on other devices. Contact the site administrator to revoke existing sessions.",
+    };
   }
 
   redirect("/admin/login?passwordUpdated=1");

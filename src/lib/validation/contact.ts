@@ -20,7 +20,7 @@ export const contactSchema = z.object({
   consent: z.literal(true, {
     message: "You must agree to the privacy policy.",
   }),
-});
+}).strict();
 
 export type ContactInput = z.input<typeof contactSchema>;
 export type ContactData = z.output<typeof contactSchema>;

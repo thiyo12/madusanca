@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { contactSchema } from "@/lib/validation/contact";
-import { clientIp, isRateLimited } from "@/lib/server/rate-limit";
+import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { escapeHtml } from "@/lib/email/send";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 
@@ -27,6 +27,7 @@ async function sendViaResend(params: {
   `;
 
   const response = await fetch("https://api.resend.com/emails", {
+    signal: AbortSignal.timeout(10_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -48,7 +49,7 @@ async function sendViaResend(params: {
 export async function POST(request: Request): Promise<NextResponse> {
   const ip = clientIp(request);
 
-  if (isRateLimited(`contact:${ip}`, 5, 10 * 60 * 1000)) {
+  if (await isRateLimitedShared(`contact:${ip}`, 5, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many messages. Please try again later." },
       { status: 429 },
@@ -95,17 +96,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (hasResend) {
       await sendViaResend({ name, email, phone, subject, message });
     } else {
+      if (process.env.NODE_ENV === "production") {
+        return NextResponse.json({ ok: false, error: "Contact service is temporarily unavailable. Please call the school." }, { status: 503 });
+      }
       // Local/dev fallback: no email account configured yet.
-      console.info("[contact] message received (email not configured)", {
-        name,
-        email,
-        subject: subject || "(none)",
-        messageLength: message.length,
-      });
+      console.warn("[contact] message not delivered because email is not configured");
     }
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    console.error("[contact] delivery failed", error instanceof Error ? error.name : "unknown error");
     return NextResponse.json(
       { ok: false, error: "Could not send your message. Please try again." },
       { status: 500 },

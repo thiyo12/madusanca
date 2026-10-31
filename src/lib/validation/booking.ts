@@ -1,25 +1,31 @@
 import { z } from "zod";
 
-const isoDateTime = z
-  .string()
-  .refine((value) => !Number.isNaN(Date.parse(value)), "Please choose a valid date and time.");
+export const isoDateTimeSchema = z.iso.datetime({ offset: true });
+
+export function isValidDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+export const dateOnlySchema = z.string().refine(isValidDateOnly, "Please choose a valid date.");
 
 export const availabilityQuerySchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
   /** YYYY-MM-DD (Vancouver); defaults server-side to today. */
   from: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date.")
+    .refine(isValidDateOnly, "Invalid date.")
     .optional(),
   to: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date.")
+    .refine(isValidDateOnly, "Invalid date.")
     .optional(),
-});
+}).strict();
 
 export const createBookingSchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
-  startsAt: isoDateTime,
+  startsAt: isoDateTimeSchema,
   studentName: z.string().trim().min(2, "Please enter your name.").max(80),
   email: z.email("Please enter a valid email address.").max(160),
   phone: z
@@ -33,13 +39,13 @@ export const createBookingSchema = z.object({
   consent: z.literal(true, {
     message: "You must agree to the privacy policy.",
   }),
-});
+}).strict();
 
 export const manageSchema = z.object({
   action: z.enum(["get", "reschedule", "cancel"]),
-  token: z.string().trim().min(32).max(128),
-  startsAt: isoDateTime.optional(),
-});
+  startsAt: isoDateTimeSchema.optional(),
+}).strict();
+
 
 /**
  * Self-service booking finder: prove email ownership with a one-time code,
@@ -60,7 +66,7 @@ export const otpSchema = z
       .regex(/^WDA-[A-Z0-9]{6}$/i, "Reference looks like WDA-XXXXXX.")
       .optional()
       .or(z.literal("")),
-  })
+  }).strict()
   .refine((data) => data.action === "send" || Boolean(data.code), {
     message: "Enter the 6-digit code.",
     path: ["code"],

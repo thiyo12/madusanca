@@ -3,6 +3,9 @@ import { getStore } from "@/lib/booking/store";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
 import { setBookingPaymentAction } from "../bookings/actions";
+import { listPaidCheckoutSessions, paymentReportRange } from "@/lib/stripe/payment-report";
+import { stripeMode } from "@/lib/stripe/server";
+import { logSafeError } from "@/lib/server/safe-log";
 
 export const metadata: Metadata = {
   title: "Payments — Wisdom Driving Academy Admin",
@@ -29,12 +32,19 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
     ? paymentStatusParam
     : undefined;
 
-  const nowIso = new Date().toISOString();
   const store = getStore();
   const bookings = await store.listBookings({
     search: q || undefined,
-    fromIso: nowIso,
   });
+  const mode = stripeMode();
+  let reportSessions: Awaited<ReturnType<typeof listPaidCheckoutSessions>> | null = null;
+  if (mode !== "unconfigured") {
+    try {
+      reportSessions = await listPaidCheckoutSessions(paymentReportRange("month"));
+    } catch (error) {
+      logSafeError("[admin/payments] monthly Stripe summary unavailable", error);
+    }
+  }
 
   const filtered = paymentStatus
     ? bookings.filter((b) => b.paymentStatus === paymentStatus)
@@ -42,16 +52,13 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
 
   const totals = filtered.reduce(
     (acc, b) => {
-      if (b.paymentStatus === "paid") {
-        acc.paidCount += 1;
-        acc.paidTotal += b.stripeTotalCad ?? b.priceCad;
-      } else if (b.paymentStatus === "due") {
+      if (b.paymentStatus === "due") {
         acc.dueCount += 1;
         acc.dueTotal += b.priceCad;
       }
       return acc;
     },
-    { paidCount: 0, paidTotal: 0, dueCount: 0, dueTotal: 0 },
+    { dueCount: 0, dueTotal: 0 },
   );
 
   return (
@@ -65,8 +72,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
             Payments
           </h1>
           <p className="mt-1 text-[12.5px] text-soft">
-            Stripe confirms successful payments and refunds automatically.
-            Admin actions here can waive a balance or restore it to due status.
+            Stripe confirms Checkout payments. Use Stripe Dashboard for refunds; this page can waive or restore an unpaid balance.
           </p>
         </div>
       </div>
@@ -74,22 +80,24 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-[16px] border border-line bg-white p-5">
           <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-soft">
-            Collected
+            Collected this month
           </p>
           <p className="mt-1 font-display text-2xl font-extrabold text-ink">
-            ${totals.paidTotal.toLocaleString("en-CA", {
-              style: "currency",
-              currency: "CAD",
-            })}
+            {reportSessions === null
+              ? "Unavailable"
+              : (reportSessions.reduce((sum, session) => sum + (session.amount_total ?? 0), 0) / 100)
+                .toLocaleString("en-CA", { style: "currency", currency: "CAD" })}
           </p>
-          <p className="mt-2 text-[12px] text-soft">{totals.paidCount} paid</p>
+          <p className="mt-2 text-[12px] text-soft">
+            {reportSessions === null ? "Stripe report could not be loaded" : `${reportSessions.length} successful Stripe Checkout payments`}
+          </p>
         </div>
         <div className="rounded-[16px] border border-line bg-white p-5">
           <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-soft">
             Outstanding
           </p>
           <p className="mt-1 font-display text-2xl font-extrabold text-ink">
-            ${totals.dueTotal.toLocaleString("en-CA", {
+            {totals.dueTotal.toLocaleString("en-CA", {
               style: "currency",
               currency: "CAD",
             })}
@@ -109,6 +117,33 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
           </p>
         </div>
       </div>
+
+      <section className="mt-6 rounded-[16px] border border-line bg-white p-5 sm:p-6" aria-labelledby="payment-reports-title">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 id="payment-reports-title" className="font-display text-lg font-extrabold text-ink">Download payment reports</h2>
+            <p className="mt-1 max-w-2xl text-[12.5px] leading-relaxed text-soft">
+              Download successful Stripe Checkout payments for the current Pacific Time week or month. Reports show customer-paid gross totals and GST, before Stripe processing fees; they are not payout or refund reports.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide ${mode === "live" ? "bg-[#e6f6ec] text-[#1f7a45]" : "bg-[#fff9e9] text-[#735c1e]"}`}>
+            Stripe {mode === "live" ? "Live" : mode === "test" ? "Test mode" : mode === "unconfigured" ? "Not configured" : "Mode unknown"}
+          </span>
+        </div>
+        {mode === "test" && (
+          <p className="mt-3 rounded-[10px] bg-[#fff9e9] px-3.5 py-2.5 text-[12px] font-semibold text-[#735c1e]">
+            Test mode only: these are sandbox payments. Customers will not be charged real money.
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap gap-3">
+          <a href="/admin/payments/report?period=week" className="btn-gold inline-flex h-10 items-center rounded-[10px] px-4 text-[13px] font-extrabold">
+            Download this week (CSV)
+          </a>
+          <a href="/admin/payments/report?period=month" className="inline-flex h-10 items-center rounded-[10px] border border-line px-4 text-[13px] font-extrabold text-ink hover:bg-mist">
+            Download this month (CSV)
+          </a>
+        </div>
+      </section>
 
       <form method="GET" className="mt-6 flex flex-wrap items-end gap-3">
         <input type="hidden" name="range" value="upcoming" />
@@ -160,7 +195,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                   <th scope="col" className="px-4 py-3">Ref</th>
                   <th scope="col" className="px-4 py-3">Status</th>
                   <th scope="col" className="px-4 py-3">Payment</th>
-                  <th scope="col" className="px-4 py-3 text-right">Amount</th>
+                  <th scope="col" className="px-4 py-3 text-right">Package price</th>
                   <th scope="col" className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -215,21 +250,16 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                     </td>
                     <td className="px-4 py-3.5 text-right">
                       <p className="text-[13px] font-extrabold text-ink">
-                        ${booking.priceCad.toLocaleString("en-CA", {
+                        {booking.priceCad.toLocaleString("en-CA", {
                           style: "currency",
                           currency: "CAD",
                         })}
                       </p>
-                      {booking.stripeTotalCad &&
-                        booking.stripeTotalCad !== booking.priceCad && (
-                          <p className="text-[11px] text-soft">
-                            incl. GST
-                          </p>
-                        )}
+                      <p className="text-[11px] text-soft">before GST</p>
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex justify-end gap-2">
-                        <form
+                        {(booking.paymentStatus === "due" || booking.paymentStatus === "waived") && <form
                           action={async () => {
                             await setBookingPaymentAction(
                               booking.id,
@@ -243,22 +273,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                           >
                             {booking.paymentStatus === "waived" ? "Restore Due" : "Waive Balance"}
                           </button>
-                        </form>
-                        <form
-                          action={async () => {
-                            await setBookingPaymentAction(
-                              booking.id,
-                              booking.paymentStatus === "waived" ? "due" : "waived",
-                            );
-                          }}
-                        >
-                          <button
-                            type="submit"
-                            className="inline-flex h-8 items-center rounded-[8px] px-3 text-[11.5px] font-extrabold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-50 border border-[#fdecea] bg-[#fff5f2] text-[#bc4633] hover:bg-[#fdecea]"
-                          >
-                            {booking.paymentStatus === "waived" ? "Restore Due" : "Waive Balance"}
-                          </button>
-                        </form>
+                        </form>}
                       </div>
                     </td>
                   </tr>

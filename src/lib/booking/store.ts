@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { BookingStore } from "@/lib/booking/types";
 import { fileStore } from "@/lib/booking/file-store";
 import { supabaseStore } from "@/lib/booking/supabase-store";

@@ -8,6 +8,8 @@ import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { validateSlot, zonedToUtc } from "@/lib/booking/slots";
 import { manageUrl } from "@/lib/booking/urls";
 import { sendBookingConfirmedEmail } from "@/lib/email/booking-emails";
+import { logSafeError } from "@/lib/server/safe-log";
+import { dateOnlySchema } from "@/lib/validation/booking";
 
 export interface QuickBookingState {
   ok: boolean;
@@ -17,13 +19,13 @@ export interface QuickBookingState {
 
 const quickBookingSchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
-  dayKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  dayKey: dateOnlySchema,
   startMin: z.coerce.number().int().min(0).max(1439),
   studentName: z.string().trim().min(2).max(80),
   email: z.email().max(160),
   phone: z.string().trim().min(7).max(25),
   notes: z.string().trim().max(220).optional().or(z.literal("")),
-});
+}).strict();
 
 export async function createCalendarBookingAction(
   _previous: QuickBookingState,
@@ -119,7 +121,7 @@ export async function createCalendarBookingAction(
         : `Booking ${created.value.reference} created, but the email was not delivered. Check Resend sender/domain settings.`,
     };
   } catch (error) {
-    console.error("[admin/calendar] quick booking failed", error);
+    logSafeError("[admin/calendar] quick booking failed", error);
     return { ok: false, message: "Could not create the booking. Check the details and try again." };
   }
 }

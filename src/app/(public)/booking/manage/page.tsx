@@ -1,24 +1,27 @@
 import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { BookingManage } from "@/components/booking/booking-manage";
 import { BookingFind } from "@/components/booking/booking-find";
 import { noIndexPageMetadata } from "@/lib/seo/metadata";
+import { MANAGE_COOKIE_NAME } from "@/lib/booking/manage-cookie";
 
 export const metadata = noIndexPageMetadata(
   "Manage Your Booking",
   "View and manage your private driving lesson booking.",
 );
 
-// ?token= comes from searchParams — must render per request.
+// The private manage cookie and Stripe return status are request-specific.
 export const dynamic = "force-dynamic";
 
-interface ManagePageProps {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
+interface ManagePageProps { searchParams: Promise<Record<string, string | string[] | undefined>> }
 
 export default async function BookingManagePage({ searchParams }: ManagePageProps) {
   const params = await searchParams;
-  const token = typeof params.token === "string" ? params.token : "";
+  const legacyToken = typeof params.token === "string" ? params.token : "";
+  if (legacyToken) redirect(`/api/bookings/manage-link?token=${encodeURIComponent(legacyToken)}`);
+  const hasManageCookie = Boolean((await cookies()).get(MANAGE_COOKIE_NAME)?.value);
   const paymentReturn = typeof params.payment === "string" ? params.payment : undefined;
 
   return (
@@ -41,11 +44,11 @@ export default async function BookingManagePage({ searchParams }: ManagePageProp
               </div>
             }
           >
-            {token ? (
-              <BookingManage token={token} paymentReturn={paymentReturn} />
+            {hasManageCookie ? (
+              <BookingManage paymentReturn={paymentReturn} />
             ) : (
                <div className="rounded-[25px] border border-line bg-white p-6 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
-                <BookingFind />
+                 <BookingFind />
                 <p className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-soft">
                   Your confirmation email also contains a direct manage link —
                   it works without a code. Still stuck?{" "}
@@ -57,7 +60,7 @@ export default async function BookingManagePage({ searchParams }: ManagePageProp
                   </a>{" "}
                   and we&rsquo;ll find your booking.
                 </p>
-              </div>
+               </div>
             )}
           </Suspense>
         </div>

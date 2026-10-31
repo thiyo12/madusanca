@@ -4,7 +4,7 @@ import { validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { manageSchema } from "@/lib/validation/booking";
 import { maskEmail } from "@/lib/booking/format";
-import { isRateLimited, clientIp } from "@/lib/server/rate-limit";
+import { isRateLimitedShared, clientIp } from "@/lib/server/rate-limit";
 import {
   sendBookingCancelledEmail,
   sendBookingRescheduledEmail,
@@ -12,6 +12,9 @@ import {
 import type { BookingRecord } from "@/lib/booking/types";
 import { manageUrl as buildManageUrl, siteBase } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
+import { logSafeError } from "@/lib/server/safe-log";
+import { getStripe } from "@/lib/stripe/server";
+import { getManageToken, MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
@@ -75,8 +78,36 @@ async function load(hash: string) {
   return store.getBookingByToken(hash);
 }
 
+async function expireUpgradeCheckout(booking: BookingRecord): Promise<boolean> {
+  const sessionId = booking.stripeUpgradeCheckoutSessionId;
+  if (!sessionId) return false;
+  const stripe = getStripe();
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  if (session.status === "complete") return true;
+  if (session.status === "open") await stripe.checkout.sessions.expire(session.id);
+
+  if (
+    !booking.stripeUpgradeTargetLessonId || !booking.stripeUpgradeTargetLessonName ||
+    !booking.stripeUpgradeTargetDurationMin || booking.stripeUpgradeTargetPriceCad === undefined ||
+    booking.stripeUpgradeFromPriceCad === undefined
+  ) throw new Error("Stored package upgrade details are incomplete.");
+
+  await getStore().handleStripeUpgradeCheckoutEvent({
+    eventId: `customer-change-upgrade-expire-${session.id}`,
+    eventType: "expired",
+    bookingId: booking.id,
+    sessionId: session.id,
+    targetLessonId: booking.stripeUpgradeTargetLessonId,
+    targetLessonName: booking.stripeUpgradeTargetLessonName,
+    targetDurationMin: booking.stripeUpgradeTargetDurationMin,
+    targetPriceCad: booking.stripeUpgradeTargetPriceCad,
+    fromPriceCad: booking.stripeUpgradeFromPriceCad,
+  });
+  return false;
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
-  if (isRateLimited(`manage:${clientIp(request)}`, 15, 10 * 60 * 1000)) {
+  if (await isRateLimitedShared(`manage:${clientIp(request)}`, 15, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Please try again later." },
       { status: 429 },
@@ -103,7 +134,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const { action, token, startsAt } = parsed.data;
+  const { action, startsAt } = parsed.data;
+  const token = await getManageToken();
+  if (!token) return errorResponse("not_found", "Open the private booking link or verify your email to continue.");
   const hash = hashToken(token);
 
   try {
@@ -112,7 +145,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (!found) {
         return errorResponse("not_found", "This booking link is invalid or has expired.");
       }
-      return NextResponse.json({ ok: true, booking: safeView(found.booking) });
+      const upgradeOptions = found.booking.paymentStatus === "paid" && ["confirmed", "rescheduled"].includes(found.booking.status)
+        ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package" && lesson.priceCad > found.booking.priceCad)
+          .map(({ id, name, priceCad }) => ({ id, name, priceCad, balanceCad: Math.round((priceCad - found.booking.priceCad) * 100) / 100 }))
+        : [];
+      return NextResponse.json({ ok: true, booking: { ...safeView(found.booking), upgradeOptions } });
     }
 
     if (action === "cancel") {
@@ -123,6 +160,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
       if (found.booking.status === "cancelled" || found.booking.status === "completed") {
         return errorResponse("not_modifiable", "This booking can no longer be changed.");
+      }
+      try {
+        if (await expireUpgradeCheckout(found.booking)) {
+          return errorResponse("not_modifiable", "An upgrade payment is complete or processing. Refresh the booking and try again.");
+        }
+      } catch (error) {
+        logSafeError("[bookings/manage] upgrade cancellation check failed", error);
+        return NextResponse.json({ ok: false, error: "Could not verify upgrade payment status. Please try again shortly." }, { status: 503 });
       }
       if (isInsideSelfServiceWindow(found.booking.startsAt)) {
         return errorResponse("cutoff", messageFor("cutoff"));
@@ -144,7 +189,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             sessionId: session.id,
           });
         } catch (error) {
-          console.error("[bookings/manage] Checkout cancellation check failed", error);
+          logSafeError("[bookings/manage] Checkout cancellation check failed", error);
           return NextResponse.json({ ok: false, error: "Could not verify payment status. Please try again shortly." }, { status: 503 });
         }
       }
@@ -180,6 +225,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (found.booking.status === "cancelled" || found.booking.status === "completed") {
       return errorResponse("not_modifiable", "This booking can no longer be changed.");
     }
+    try {
+      if (await expireUpgradeCheckout(found.booking)) {
+        return errorResponse("not_modifiable", "An upgrade payment is complete or processing. Refresh the booking and try again.");
+      }
+    } catch (error) {
+      logSafeError("[bookings/manage] upgrade reschedule check failed", error);
+      return NextResponse.json({ ok: false, error: "Could not verify upgrade payment status. Please try again shortly." }, { status: 503 });
+    }
     if (isInsideSelfServiceWindow(found.booking.startsAt)) {
       return errorResponse("cutoff", messageFor("cutoff"));
     }
@@ -200,7 +253,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           sessionId: session.id,
         });
       } catch (error) {
-        console.error("[bookings/manage] Checkout reschedule check failed", error);
+        logSafeError("[bookings/manage] Checkout reschedule check failed", error);
         return NextResponse.json({ ok: false, error: "Could not verify payment status. Please try again shortly." }, { status: 503 });
       }
     }
@@ -271,15 +324,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       manageUrl,
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       booking: safeView(result.value),
-      token: newToken,
-      manageUrl,
       emailSent,
     });
+    response.cookies.set(MANAGE_COOKIE_NAME, newToken, manageCookieOptions);
+    return response;
   } catch (error) {
-    console.error("[bookings] manage failed", error);
+    logSafeError("[bookings] manage failed", error);
     return NextResponse.json(
       { ok: false, error: "Could not update the booking. Please try again." },
       { status: 500 },

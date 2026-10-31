@@ -1,4 +1,4 @@
-import { createHash, randomInt } from "crypto";
+import { createHmac, randomInt } from "crypto";
 
 /** Short-lived: enough to switch tabs and copy, not enough to brute force. */
 export const OTP_TTL_MIN = 10;
@@ -11,7 +11,15 @@ export function generateOtpCode(): string {
 
 /** Bound to the email so a stolen hash cannot verify a different account. */
 export function hashOtp(email: string, code: string): string {
-  return createHash("sha256")
+  const secret = process.env.OTP_HASH_SECRET;
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error("OTP_HASH_SECRET must be configured in production.");
+  }
+  const pepper = secret ?? "local-development-only-otp-pepper-with-sufficient-length";
+  if (Buffer.byteLength(pepper, "utf8") < 32) {
+    throw new Error("OTP_HASH_SECRET must contain at least 32 bytes.");
+  }
+  return createHmac("sha256", pepper)
     .update(`${email.trim().toLowerCase()}:${code.trim()}`, "utf8")
     .digest("hex");
 }

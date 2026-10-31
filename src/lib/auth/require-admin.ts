@@ -1,3 +1,5 @@
+import "server-only";
+
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -28,7 +30,11 @@ async function isAdmin(userId: string, email: string): Promise<boolean> {
   try {
     const response = await fetch(
       `${url}/rest/v1/profiles?select=role&id=eq.${encodeURIComponent(userId)}`,
-      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
+      {
+        cache: "no-store",
+        signal: AbortSignal.timeout(5_000),
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      },
     );
     if (!response.ok) return false;
     const rows = (await response.json()) as Array<{ role: string }>;
@@ -55,6 +61,22 @@ export async function requireAdmin(nextPath = "/admin"): Promise<AdminIdentity> 
   if (!(await isAdmin(user.id, user.email))) {
     await supabase.auth.signOut();
     redirect("/admin/login?denied=1");
+  }
+
+  const mfaRequired = process.env.NODE_ENV === "production" || process.env.ADMIN_REQUIRE_MFA === "true";
+  if (mfaRequired && nextPath !== "/admin/mfa") {
+    const [{ data: factors, error: factorsError }, { data: assurance, error: assuranceError }] = await Promise.all([
+      supabase.auth.mfa.listFactors(),
+      supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    ]);
+    if (factorsError || assuranceError) redirect("/admin/mfa?error=verification");
+    const hasVerifiedTotp = factors.totp.some((factor) => factor.status === "verified");
+    if (!hasVerifiedTotp || assurance.currentLevel !== "aal2") {
+      const safeNext = nextPath.startsWith("/admin/") && nextPath !== "/admin/mfa"
+        ? nextPath
+        : "/admin";
+      redirect(`/admin/mfa?next=${encodeURIComponent(safeNext)}`);
+    }
   }
 
   return { userId: user.id, email: user.email };

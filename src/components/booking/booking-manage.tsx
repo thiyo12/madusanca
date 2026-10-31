@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { BookingFind } from "@/components/booking/booking-find";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
+import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { formatSlotFull } from "@/lib/booking/format";
 
 export interface BookingManageProps {
-  token: string;
   paymentReturn?: string;
 }
 
@@ -28,6 +28,7 @@ interface BookingView {
   studentRescheduleCount: number;
   paymentStatus: "due" | "paid" | "refunded" | "waived";
   invoiceUrl?: string;
+  upgradeOptions?: Array<{ id: string; name: string; priceCad: number; balanceCad: number }>;
 }
 
 interface ManageResponse {
@@ -35,7 +36,6 @@ interface ManageResponse {
   error?: string;
   booking?: BookingView;
   manageUrl?: string;
-  token?: string;
   emailSent?: boolean;
 }
 
@@ -50,9 +50,8 @@ const STATUS_LABEL: Record<string, string> = {
   completed: "Completed",
 };
 
-export function BookingManage({ token, paymentReturn }: BookingManageProps) {
+export function BookingManage({ paymentReturn }: BookingManageProps) {
   const router = useRouter();
-  const [activeToken, setActiveToken] = useState(token);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState<BookingView | null>(null);
@@ -68,11 +67,11 @@ export function BookingManage({ token, paymentReturn }: BookingManageProps) {
       const response = await fetch("/api/bookings/manage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: activeToken, ...payload }),
+        body: JSON.stringify(payload),
       });
       return (await response.json()) as ManageResponse;
     },
-    [activeToken],
+    [],
   );
 
   useEffect(() => {
@@ -98,6 +97,20 @@ export function BookingManage({ token, paymentReturn }: BookingManageProps) {
       cancelled = true;
     };
   }, [callManage]);
+
+  useEffect(() => {
+    if (paymentReturn !== "success") return;
+    let cancelled = false;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      void callManage({ action: "get" }).then((result) => {
+        if (!cancelled && result.ok && result.booking) setBooking(result.booking);
+      }).catch(() => undefined);
+      if (attempts >= 6) window.clearInterval(timer);
+    }, 2_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [paymentReturn, callManage]);
 
   async function cancelBooking() {
     if (!confirm("Cancel this lesson? This cannot be undone.")) return;
@@ -141,10 +154,7 @@ export function BookingManage({ token, paymentReturn }: BookingManageProps) {
           ? "Your new time is saved, but the update email could not be delivered. This page now has your updated booking link."
           : "Your new time is saved and an update email has been sent.",
       );
-      if (result.token) {
-        setActiveToken(result.token);
-        router.replace(`/booking/manage?token=${encodeURIComponent(result.token)}`);
-      }
+      router.refresh();
     } catch {
       setActionError("Network error. Please try again.");
     } finally {
@@ -227,7 +237,7 @@ export function BookingManage({ token, paymentReturn }: BookingManageProps) {
       )}
       {paymentReturn === "cancelled" && (
         <p role="status" className="mt-4 rounded-[14px] border border-line bg-white px-4 py-3 text-[13px] font-semibold leading-relaxed text-soft">
-          Checkout was cancelled. Your booking is still saved and payment is due; you can try again below.
+          Checkout was cancelled. Your booking and current payment status are unchanged; you can try again below if you wish.
         </p>
       )}
 
@@ -243,7 +253,19 @@ export function BookingManage({ token, paymentReturn }: BookingManageProps) {
       </div>
       {booking.paymentStatus === "due" && !closed && (
         <div className="mt-4">
-          <StripeCheckoutButton token={activeToken} />
+          <StripeCheckoutButton />
+        </div>
+      )}
+      {booking.paymentStatus === "paid" && !closed && (booking.upgradeOptions?.length ?? 0) > 0 && (
+        <div className="mt-5 rounded-[14px] border border-line p-4">
+          <h3 className="text-sm font-extrabold text-ink">Upgrade your package</h3>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Your booked lesson time stays the same. Pay only the difference; arrange the remaining pack sessions with the school.</p>
+          <div className="mt-3 grid gap-3">
+            {booking.upgradeOptions!.map((option) => <div key={option.id} className="flex flex-wrap items-center justify-between gap-3">
+              <span className="text-[13px] font-bold text-ink">{option.name}</span>
+              <StripeUpgradeButton targetLessonId={option.id} amountCad={option.balanceCad} />
+            </div>)}
+          </div>
         </div>
       )}
 

@@ -13,6 +13,8 @@ import {
   sendBookingCancelledEmail,
   sendBookingRescheduledEmail,
 } from "@/lib/email/booking-emails";
+import { logSafeError } from "@/lib/server/safe-log";
+import { isoDateTimeSchema } from "@/lib/validation/booking";
 
 const idSchema = z.string().min(1).max(64);
 const statusSchema = z.enum(["confirmed", "completed", "cancelled"]);
@@ -41,7 +43,10 @@ export async function setBookingStatusAction(
   const booking = await store.getBookingById(bookingId);
   if (!booking) fail("Booking not found.");
 
-  if (status === "cancelled") await expireOpenCheckout(booking);
+  if (status === "cancelled") {
+    await expireOpenCheckout(booking);
+    await expireOpenUpgradeCheckout(booking);
+  }
 
   const result = await store.updateBookingStatus(bookingId, status);
   if (!result.ok) {
@@ -64,7 +69,7 @@ export async function setBookingStatusAction(
         manageUrl: siteBase(),
       });
     } catch (error) {
-      console.error("[admin] cancel email failed", error);
+      logSafeError("[admin] cancel email failed", error);
     }
   }
 
@@ -99,7 +104,7 @@ export async function setBookingPaymentAction(
       }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
-      console.error("[admin/payments] Stripe reconciliation failed", error);
+      logSafeError("[admin/payments] Stripe reconciliation failed", error);
       fail("Could not verify the Stripe payment. Try again later.");
     }
   }
@@ -137,8 +142,41 @@ async function expireOpenCheckout(booking: BookingRecord): Promise<void> {
     });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
-    console.error("[admin/bookings] checkout expiry failed", error);
+    logSafeError("[admin/bookings] checkout expiry failed", error);
     fail("Could not verify or close the Stripe Checkout session. Try again.");
+  }
+}
+
+async function expireOpenUpgradeCheckout(booking: BookingRecord): Promise<void> {
+  const sessionId = booking.stripeUpgradeCheckoutSessionId;
+  if (!sessionId) return;
+  try {
+    const stripe = getStripe();
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.status === "complete") {
+      fail("An upgrade payment is complete or processing. Verify it in Stripe before changing the booking.");
+    }
+    if (session.status === "open") await stripe.checkout.sessions.expire(session.id);
+    if (
+      !booking.stripeUpgradeTargetLessonId || !booking.stripeUpgradeTargetLessonName ||
+      !booking.stripeUpgradeTargetDurationMin || booking.stripeUpgradeTargetPriceCad === undefined ||
+      booking.stripeUpgradeFromPriceCad === undefined
+    ) throw new Error("Stored package upgrade details are incomplete.");
+    await getStore().handleStripeUpgradeCheckoutEvent({
+      eventId: `admin-change-upgrade-expire-${session.id}`,
+      eventType: "expired",
+      bookingId: booking.id,
+      sessionId: session.id,
+      targetLessonId: booking.stripeUpgradeTargetLessonId,
+      targetLessonName: booking.stripeUpgradeTargetLessonName,
+      targetDurationMin: booking.stripeUpgradeTargetDurationMin,
+      targetPriceCad: booking.stripeUpgradeTargetPriceCad,
+      fromPriceCad: booking.stripeUpgradeFromPriceCad,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
+    logSafeError("[admin/bookings] upgrade checkout expiry failed", error);
+    fail("Could not verify or close the upgrade Checkout session. Try again.");
   }
 }
 
@@ -148,8 +186,8 @@ export interface RescheduleState {
 
 const rescheduleSchema = z.object({
   bookingId: z.string().min(1).max(64),
-  startsAt: z.string().refine((value) => !Number.isNaN(Date.parse(value)), "Invalid time."),
-});
+  startsAt: isoDateTimeSchema,
+}).strict();
 
 export async function rescheduleBookingAction(
   _prevState: RescheduleState,
@@ -170,8 +208,10 @@ export async function rescheduleBookingAction(
   if (!booking) return { error: "Booking not found." };
   try {
     await expireOpenCheckout(booking);
+    await expireOpenUpgradeCheckout(booking);
   } catch (error) {
-    console.error("[admin/bookings] reschedule payment check failed", error);
+    if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
+    logSafeError("[admin/bookings] reschedule payment check failed", error);
     return { error: "Could not verify or close the Stripe Checkout session. Try again." };
   }
 
@@ -233,7 +273,7 @@ export async function rescheduleBookingAction(
       });
       if (!emailSent) console.error("[admin] reschedule notification was not delivered");
     } catch (error) {
-      console.error("[admin] reschedule email failed", error);
+      logSafeError("[admin] reschedule email failed", error);
     }
   }
 

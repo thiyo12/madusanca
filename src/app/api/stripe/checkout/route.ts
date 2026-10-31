@@ -3,21 +3,25 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getStore } from "@/lib/booking/store";
 import { hashToken } from "@/lib/booking/tokens";
-import { clientIp, isRateLimited } from "@/lib/server/rate-limit";
+import { getManageToken } from "@/lib/booking/manage-cookie";
+import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { siteBase } from "@/lib/booking/urls";
 import { recordPaidCheckoutSession } from "@/lib/stripe/fulfill";
 import { getStripe, stripeTaxCode, stripeTaxReady } from "@/lib/stripe/server";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
+import { logSafeError } from "@/lib/server/safe-log";
+import { isTestModeStripeSecretKey } from "@/lib/stripe/payment-validation";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 2_048;
 
-const checkoutSchema = z.object({
-  token: z.string().trim().min(32).max(128),
-});
+const checkoutSchema = z.object({}).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
-  if (isRateLimited(`stripe-checkout:${clientIp(request)}`, 8, 10 * 60 * 1000)) {
+  if (process.env.NODE_ENV === "production" && !isTestModeStripeSecretKey(process.env.STRIPE_SECRET_KEY)) {
+    return NextResponse.json({ ok: false, error: "Online payments are disabled until test-mode checkout is configured." }, { status: 503 });
+  }
+  if (await isRateLimitedShared(`stripe-checkout:${clientIp(request)}`, 8, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many checkout attempts. Please try again shortly." },
       { status: 429 },
@@ -42,7 +46,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const store = getStore();
-    const tokenHash = hashToken(parsed.data.token);
+    const token = await getManageToken();
+    if (!token) return NextResponse.json({ ok: false, error: "Open the private manage link for this booking." }, { status: 401 });
+    const tokenHash = hashToken(token);
     let found = await store.getBookingByToken(tokenHash);
     if (!found) {
       return NextResponse.json({ ok: false, error: "This booking link is invalid or has expired." }, { status: 404 });
@@ -160,9 +166,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       metadata: {
         booking_id: found.booking.id,
         booking_reference: found.booking.reference,
+        lesson_id: found.booking.lessonId,
+        lesson_name: found.booking.lessonName,
       },
-      success_url: `${siteBase()}/booking/manage?token=${encodeURIComponent(parsed.data.token)}&payment=success`,
-      cancel_url: `${siteBase()}/booking/manage?token=${encodeURIComponent(parsed.data.token)}&payment=cancelled`,
+      success_url: `${siteBase()}/booking/manage?payment=success`,
+      cancel_url: `${siteBase()}/booking/manage?payment=cancelled`,
       integration_identifier: `wisdom_web_${randomLetters(8)}`,
     }, {
       idempotencyKey: `wisdom-booking-${found.booking.id}-${found.booking.stripeCheckoutAttempt ?? 0}`,
@@ -186,13 +194,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         const latest = await stripe.checkout.sessions.retrieve(session.id);
         if (latest.status === "open") await stripe.checkout.sessions.expire(session.id);
       } catch (expireError) {
-        console.error("[stripe/checkout] orphan session expiry failed", expireError);
+        logSafeError("[stripe/checkout] orphan session expiry failed", expireError);
       }
       throw error;
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {
-    console.error("[stripe/checkout] failed", error);
+    logSafeError("[stripe/checkout] failed", error);
     return NextResponse.json(
       { ok: false, error: "Could not start secure payment. Your booking is saved; please try again or contact the school." },
       { status: 500 },

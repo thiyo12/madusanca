@@ -44,6 +44,14 @@ export interface BookingRecord {
   stripeCheckoutSessionId?: string;
   stripeCheckoutAttempt?: number;
   stripeCheckoutExpiresAt?: string;
+  stripeUpgradeCheckoutSessionId?: string;
+  stripeUpgradeAttempt?: number;
+  stripeUpgradeFromPriceCad?: number;
+  stripeUpgradeTargetLessonId?: string;
+  stripeUpgradeTargetLessonName?: string;
+  stripeUpgradeTargetDurationMin?: number;
+  stripeUpgradeTargetPriceCad?: number;
+  stripeUpgradeAmountCad?: number;
   stripePaymentIntentId?: string;
   stripeInvoiceId?: string;
   stripeInvoiceUrl?: string;
@@ -100,6 +108,25 @@ export interface StripeCheckoutEvent {
   taxCents?: number;
   totalCents?: number;
   currency?: string;
+}
+
+export interface StripeUpgradeCheckoutEvent {
+  eventId: string;
+  eventType: "paid" | "expired";
+  bookingId: string;
+  sessionId: string;
+  paymentIntentId?: string;
+  invoiceId?: string;
+  invoiceUrl?: string;
+  subtotalCents?: number;
+  taxCents?: number;
+  totalCents?: number;
+  currency?: string;
+  targetLessonId: string;
+  targetLessonName: string;
+  targetDurationMin: number;
+  targetPriceCad: number;
+  fromPriceCad: number;
 }
 
 export interface CreateBookingInput {
@@ -197,6 +224,7 @@ export interface BookingStore {
   verifyOtp(
     email: string,
     codeHash: string,
+    consume?: boolean,
   ): Promise<{ ok: true } | { ok: false; reason: "mismatch" | "expired" | "locked" }>;
   /** Consumes the code after a manage token has been issued. */
   deleteOtp(email: string): Promise<void>;
@@ -208,6 +236,16 @@ export interface BookingStore {
     expiresAt: string,
     expectedStartsAt: string,
   ): Promise<void>;
+  setStripeUpgradeCheckoutSession(
+    bookingId: string,
+    sessionId: string,
+    targetLesson: Pick<Lesson, "id" | "name" | "durationMin" | "priceCad">,
+    fromPriceCad: number,
+    amountCad: number,
+    expectedStartsAt: string,
+  ): Promise<void>;
   getBookingByCheckoutSession(sessionId: string): Promise<BookingRecord | null>;
+  getBookingByUpgradeCheckoutSession(sessionId: string): Promise<BookingRecord | null>;
   handleStripeCheckoutEvent(event: StripeCheckoutEvent): Promise<void>;
+  handleStripeUpgradeCheckoutEvent(event: StripeUpgradeCheckoutEvent): Promise<void>;
 }

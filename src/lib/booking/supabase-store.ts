@@ -1,7 +1,8 @@
+import "server-only";
+
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_RULES } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
-import { OTP_MAX_ATTEMPTS } from "@/lib/booking/otp";
 import { lessons as defaultLessons, type Lesson } from "@/lib/data/lessons";
 import type {
   AdminRescheduleResult,
@@ -16,6 +17,7 @@ import type {
   OtpSendPermit,
   PaymentStatus,
   StripeCheckoutEvent,
+  StripeUpgradeCheckoutEvent,
   StoreResult,
 } from "@/lib/booking/types";
 
@@ -55,6 +57,14 @@ interface BookingRow {
   stripe_checkout_session_id?: string | null;
   stripe_checkout_attempt?: number;
   stripe_checkout_expires_at?: string | null;
+  stripe_upgrade_checkout_session_id?: string | null;
+  stripe_upgrade_attempt?: number;
+  stripe_upgrade_from_price_cad?: number | null;
+  stripe_upgrade_target_lesson_id?: string | null;
+  stripe_upgrade_target_lesson_name?: string | null;
+  stripe_upgrade_target_duration_min?: number | null;
+  stripe_upgrade_target_price_cad?: number | null;
+  stripe_upgrade_amount_cad?: number | null;
   stripe_payment_intent_id?: string | null;
   stripe_invoice_id?: string | null;
   stripe_invoice_url?: string | null;
@@ -86,6 +96,14 @@ function toRecord(row: BookingRow): BookingRecord {
     stripeCheckoutSessionId: row.stripe_checkout_session_id ?? undefined,
     stripeCheckoutAttempt: row.stripe_checkout_attempt ?? 0,
     stripeCheckoutExpiresAt: row.stripe_checkout_expires_at ?? undefined,
+    stripeUpgradeCheckoutSessionId: row.stripe_upgrade_checkout_session_id ?? undefined,
+    stripeUpgradeAttempt: row.stripe_upgrade_attempt ?? 0,
+    stripeUpgradeFromPriceCad: row.stripe_upgrade_from_price_cad == null ? undefined : Number(row.stripe_upgrade_from_price_cad),
+    stripeUpgradeTargetLessonId: row.stripe_upgrade_target_lesson_id ?? undefined,
+    stripeUpgradeTargetLessonName: row.stripe_upgrade_target_lesson_name ?? undefined,
+    stripeUpgradeTargetDurationMin: row.stripe_upgrade_target_duration_min ?? undefined,
+    stripeUpgradeTargetPriceCad: row.stripe_upgrade_target_price_cad == null ? undefined : Number(row.stripe_upgrade_target_price_cad),
+    stripeUpgradeAmountCad: row.stripe_upgrade_amount_cad == null ? undefined : Number(row.stripe_upgrade_amount_cad),
     stripePaymentIntentId: row.stripe_payment_intent_id ?? undefined,
     stripeInvoiceId: row.stripe_invoice_id ?? undefined,
     stripeInvoiceUrl: row.stripe_invoice_url ?? undefined,
@@ -474,29 +492,17 @@ export const supabaseStore: BookingStore = {
   async verifyOtp(
     email: string,
     codeHash: string,
+    consume = false,
   ): Promise<{ ok: true } | { ok: false; reason: "mismatch" | "expired" | "locked" }> {
-    const key = email.trim().toLowerCase();
-    const { data, error } = await adminClient()
-      .from("booking_otps")
-      .select("code_hash, expires_at, attempts")
-      .eq("email", key)
-      .maybeSingle();
+    const { data, error } = await adminClient().rpc("verify_booking_otp", {
+      p_email: email.trim().toLowerCase(),
+      p_code_hash: codeHash,
+      p_consume: consume,
+    });
     if (error) throw new Error(`Failed to check verification code: ${error.message}`);
-    if (!data) return { ok: false, reason: "expired" };
-    if (Date.parse(data.expires_at) < Date.now()) {
-      await this.deleteOtp(email);
-      return { ok: false, reason: "expired" };
-    }
-    if (data.attempts >= OTP_MAX_ATTEMPTS) return { ok: false, reason: "locked" };
-    if (data.code_hash !== codeHash) {
-      const { error: updateError } = await adminClient()
-        .from("booking_otps")
-        .update({ attempts: data.attempts + 1 })
-        .eq("email", key);
-      if (updateError) throw new Error(`Failed to record attempt: ${updateError.message}`);
-      return { ok: false, reason: "mismatch" };
-    }
-    return { ok: true };
+    if (data === "ok") return { ok: true };
+    if (data === "mismatch" || data === "expired" || data === "locked") return { ok: false, reason: data };
+    throw new Error("OTP verification returned an invalid result.");
   },
 
   async deleteOtp(email: string): Promise<void> {
@@ -555,6 +561,29 @@ export const supabaseStore: BookingStore = {
     return data ? toRecord(data) : null;
   },
 
+  async setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt) {
+    const { data, error } = await adminClient().from("bookings").update({
+      stripe_upgrade_checkout_session_id: sessionId,
+      stripe_upgrade_from_price_cad: fromPriceCad,
+      stripe_upgrade_target_lesson_id: targetLesson.id,
+      stripe_upgrade_target_lesson_name: targetLesson.name,
+      stripe_upgrade_target_duration_min: targetLesson.durationMin,
+      stripe_upgrade_target_price_cad: targetLesson.priceCad,
+      stripe_upgrade_amount_cad: amountCad,
+    }).eq("id", bookingId).in("status", ["confirmed", "rescheduled"])
+      .eq("payment_status", "paid").eq("starts_at", expectedStartsAt)
+      .lt("price_cad", targetLesson.priceCad).select("id").maybeSingle();
+    if (error) throw new Error(`Failed to save upgrade Checkout Session: ${error.message}`);
+    if (!data) throw new Error("Booking is no longer eligible for an upgrade.");
+  },
+
+  async getBookingByUpgradeCheckoutSession(sessionId) {
+    const { data, error } = await adminClient().from("bookings").select("*")
+      .eq("stripe_upgrade_checkout_session_id", sessionId).maybeSingle();
+    if (error) throw new Error(`Failed to find upgrade Checkout booking: ${error.message}`);
+    return data ? toRecord(data) : null;
+  },
+
   async handleStripeCheckoutEvent(event: StripeCheckoutEvent): Promise<void> {
     const { error } = await adminClient().rpc("record_stripe_checkout_event", {
       p_event_id: event.eventId,
@@ -570,6 +599,20 @@ export const supabaseStore: BookingStore = {
       p_currency: event.currency?.toUpperCase() ?? null,
     });
     if (error) throw new Error(`Failed to record Stripe payment event: ${error.message}`);
+  },
+
+  async handleStripeUpgradeCheckoutEvent(event: StripeUpgradeCheckoutEvent): Promise<void> {
+    const { error } = await adminClient().rpc("record_stripe_upgrade_checkout_event", {
+      p_event_id: event.eventId, p_event_type: event.eventType, p_booking_id: event.bookingId,
+      p_session_id: event.sessionId, p_payment_intent_id: event.paymentIntentId ?? null,
+      p_invoice_id: event.invoiceId ?? null, p_invoice_url: event.invoiceUrl ?? null,
+      p_subtotal_cents: event.subtotalCents ?? null, p_tax_cents: event.taxCents ?? null,
+      p_total_cents: event.totalCents ?? null, p_currency: event.currency?.toUpperCase() ?? null,
+      p_target_lesson_id: event.targetLessonId, p_target_lesson_name: event.targetLessonName,
+      p_target_duration_min: event.targetDurationMin, p_target_price_cad: event.targetPriceCad,
+      p_from_price_cad: event.fromPriceCad,
+    });
+    if (error) throw new Error(`Failed to record Stripe upgrade event: ${error.message}`);
   },
 };
 

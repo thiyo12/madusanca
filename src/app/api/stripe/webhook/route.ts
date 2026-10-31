@@ -2,8 +2,9 @@ import type Stripe from "stripe";
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
 import { getStripe } from "@/lib/stripe/server";
-import { recordPaidCheckoutSession } from "@/lib/stripe/fulfill";
+import { recordPaidCheckoutSession, recordPaidUpgradeCheckoutSession } from "@/lib/stripe/fulfill";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
+import { logSafeError } from "@/lib/server/safe-log";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,7 +25,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!result.ok) return NextResponse.json({ error: "Webhook payload is too large." }, { status: 413 });
     event = getStripe().webhooks.constructEvent(result.text, signature, secret);
   } catch (error) {
-    console.error("[stripe/webhook] signature verification failed", error);
+    logSafeError("[stripe/webhook] signature verification failed", error);
     return NextResponse.json({ error: "Invalid Stripe webhook signature." }, { status: 400 });
   }
 
@@ -37,6 +38,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!paidEvent && !expiredEvent) return NextResponse.json({ received: true });
 
   const session = event.data.object as Stripe.Checkout.Session;
+  const isUpgrade = session.metadata?.checkout_kind === "package_upgrade";
   const bookingId = session.metadata?.booking_id;
   if (!bookingId) return NextResponse.json({ received: true });
 
@@ -48,18 +50,31 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const store = getStore();
     if (paidEvent) {
-      await recordPaidCheckoutSession(session, event.id);
+      if (isUpgrade) await recordPaidUpgradeCheckoutSession(session, event.id);
+      else await recordPaidCheckoutSession(session, event.id);
     } else {
-      await store.handleStripeCheckoutEvent({
+      const expired = {
         eventId: event.id,
         eventType: "expired",
         bookingId,
         sessionId: session.id,
-      });
+      } as const;
+      if (isUpgrade) {
+        const booking = await store.getBookingByUpgradeCheckoutSession(session.id);
+        if (booking?.stripeUpgradeTargetLessonId && booking.stripeUpgradeTargetLessonName && booking.stripeUpgradeTargetDurationMin && booking.stripeUpgradeTargetPriceCad !== undefined && booking.stripeUpgradeFromPriceCad !== undefined) {
+          await store.handleStripeUpgradeCheckoutEvent({ ...expired, ...{
+            targetLessonId: booking.stripeUpgradeTargetLessonId,
+            targetLessonName: booking.stripeUpgradeTargetLessonName,
+            targetDurationMin: booking.stripeUpgradeTargetDurationMin,
+            targetPriceCad: booking.stripeUpgradeTargetPriceCad,
+            fromPriceCad: booking.stripeUpgradeFromPriceCad,
+          } });
+        }
+      } else await store.handleStripeCheckoutEvent(expired);
     }
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("[stripe/webhook] event processing failed", error);
+    logSafeError("[stripe/webhook] event processing failed", error);
     return NextResponse.json({ error: "Could not process Stripe event." }, { status: 500 });
   }
 }

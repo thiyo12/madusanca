@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
+import { logSafeError } from "@/lib/server/safe-log";
 import { getStore } from "@/lib/booking/store";
-import { generateSlots, HORIZON_DAYS } from "@/lib/booking/slots";
+import { addDaysToDayKey, generateSlots, HORIZON_DAYS, toVancouverDayKey, zonedToUtc } from "@/lib/booking/slots";
 import { availabilityQuerySchema } from "@/lib/validation/booking";
+import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<NextResponse> {
+  if (await isRateLimitedShared(`availability:${clientIp(request)}`, 120, 10 * 60 * 1000)) {
+    return NextResponse.json({ ok: false, error: "Too many availability requests. Please try again shortly." }, { status: 429 });
+  }
   const url = new URL(request.url);
   const parsed = availabilityQuerySchema.safeParse({
     lessonId: url.searchParams.get("lessonId"),
@@ -21,6 +26,14 @@ export async function GET(request: Request): Promise<NextResponse> {
     );
   }
 
+  const todayKey = toVancouverDayKey(new Date());
+  const horizonKey = addDaysToDayKey(todayKey, HORIZON_DAYS);
+  const fromKey = parsed.data.from ?? todayKey;
+  const toKey = parsed.data.to ?? horizonKey;
+  if (fromKey < todayKey || fromKey > horizonKey || toKey < fromKey || toKey > horizonKey) {
+    return NextResponse.json({ ok: false, error: "Choose dates within the current booking window." }, { status: 400 });
+  }
+
   try {
     const store = getStore();
     const lesson = (await store.getLessons()).find((l) => l.id === parsed.data.lessonId);
@@ -29,7 +42,11 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
     const now = new Date();
     const from = parsed.data.from;
-    const busyFrom = from ? new Date(`${from}T00:00:00Z`).toISOString() : now.toISOString();
+    let busyFrom = now.toISOString();
+    if (from) {
+      const [year, month, day] = from.split("-").map(Number);
+      busyFrom = zonedToUtc(year, month, day, 0).toISOString();
+    }
     const busyTo = new Date(now.getTime() + (HORIZON_DAYS + 1) * 24 * 60 * 60 * 1000).toISOString();
 
     const [rules, blackouts, busy] = await Promise.all([
@@ -58,7 +75,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       slots,
     });
   } catch (error) {
-    console.error("[availability] failed", error);
+    logSafeError("[availability] failed", error);
     return NextResponse.json(
       { ok: false, error: "Availability is unavailable right now. Please try again." },
       { status: 500 },

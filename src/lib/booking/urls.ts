@@ -5,5 +5,5 @@ export function siteBase(): string {
 }
 
 export function manageUrl(token: string): string {
-  return `${siteBase()}/booking/manage?token=${encodeURIComponent(token)}`;
+  return `${siteBase()}/api/bookings/manage-link?token=${encodeURIComponent(token)}`;
 }

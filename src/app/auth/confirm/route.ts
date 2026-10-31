@@ -1,16 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { siteBase } from "@/lib/booking/urls";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const { searchParams, origin } = request.nextUrl;
+  const { searchParams } = request.nextUrl;
+  const origin = process.env.NODE_ENV === "production"
+    ? new URL(siteBase()).origin
+    : request.nextUrl.origin;
   const tokenHash = searchParams.get("token_hash");
+  const code = searchParams.get("code");
   const type = searchParams.get("type");
   const nextParam = searchParams.get("next");
-  const next = nextParam?.startsWith("/") && !nextParam.startsWith("//")
-    ? nextParam
-    : "/admin/reset-password";
+  let next = "/admin/reset-password";
+  if (nextParam?.startsWith("/")) {
+    try {
+      const candidate = new URL(nextParam, origin);
+      if (candidate.origin === origin) next = `${candidate.pathname}${candidate.search}${candidate.hash}`;
+    } catch {
+      // Keep the safe reset-password destination for malformed return paths.
+    }
+  }
 
-  if (!tokenHash || type !== "recovery") {
+  if ((!tokenHash || type !== "recovery") && !code) {
     return NextResponse.redirect(new URL("/admin/reset-password?error=invalid_link", origin));
   }
 
@@ -22,6 +33,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const response = NextResponse.redirect(new URL(next, origin));
   const supabase = createServerClient(url, anonKey, {
+    cookieOptions: {
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    },
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -34,7 +49,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     },
   });
 
-  const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+  const { error } = code
+    ? await supabase.auth.exchangeCodeForSession(code)
+    : await supabase.auth.verifyOtp({ token_hash: tokenHash!, type: "recovery" });
   if (error) {
     return NextResponse.redirect(new URL("/admin/reset-password?error=invalid_link", origin));
   }

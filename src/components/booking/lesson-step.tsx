@@ -61,7 +61,7 @@ export function LessonStep({ lessons, selectedId, onSelect }: LessonStepProps) {
         );
       })}
       <p className="text-[12px] leading-relaxed text-soft sm:col-span-2">
-        No payment is taken online — payment is arranged directly with the school. Pack bookings reserve the first lesson; remaining sessions are arranged with the school.
+        After booking, pay securely from your booking page or find it later under My Booking using an email code. Pack bookings reserve the first lesson; remaining sessions are arranged with the school.
       </p>
     </div>
   );

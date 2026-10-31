@@ -3,16 +3,18 @@ import { getStore } from "@/lib/booking/store";
 import { validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { createBookingSchema } from "@/lib/validation/booking";
-import { isRateLimited, clientIp } from "@/lib/server/rate-limit";
+import { isRateLimitedShared, clientIp } from "@/lib/server/rate-limit";
 import { sendBookingPaymentPendingEmail } from "@/lib/email/booking-emails";
 import { manageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
+import { logSafeError } from "@/lib/server/safe-log";
+import { MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
 
 export async function POST(request: Request): Promise<NextResponse> {
-  if (isRateLimited(`bookings:${clientIp(request)}`, 5, 10 * 60 * 1000)) {
+  if (await isRateLimitedShared(`bookings:${clientIp(request)}`, 5, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many booking attempts. Please try again later." },
       { status: 429 },
@@ -122,7 +124,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       manageUrl: url,
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       booking: {
         reference: booking.reference,
@@ -132,12 +134,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         endsAt: booking.endsAt,
         studentName: booking.studentName,
       },
-      manageUrl: url,
-      token,
+      manageUrl: `${new URL(url).origin}/booking/manage`,
       emailSent,
     });
+    response.cookies.set(MANAGE_COOKIE_NAME, token, manageCookieOptions);
+    return response;
   } catch (error) {
-    console.error("[bookings] create failed", error);
+    logSafeError("[bookings] create failed", error);
     return NextResponse.json(
       { ok: false, error: "Could not complete your booking. Please try again." },
       { status: 500 },

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { getStore } from "@/lib/booking/store";
 import { lessonFormSchema } from "@/lib/validation/booking";
+import { logSafeError } from "@/lib/server/safe-log";
 
 export type LessonFormState = { ok: boolean; message: string } | null;
 
@@ -52,7 +53,7 @@ export async function saveLessonAction(
       message: `${parsed.data.name} saved — homepage, lessons page and booking wizard now show it.`,
     };
   } catch (error) {
-    console.error("[admin/lessons] save failed", error);
+    logSafeError("[admin/lessons] save failed", error);
     return {
       ok: false,
       message: error instanceof Error ? error.message : "Could not save the lesson.",

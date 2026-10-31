@@ -1,4 +1,5 @@
 import { getPublicOrigin, SITE_NAME } from "@/lib/seo/metadata";
+import { headers } from "next/headers";
 
 const serviceAreas = ["Burnaby", "Vancouver", "Richmond"].map((name) => ({
   "@type": "City",
@@ -9,7 +10,8 @@ const serviceAreas = ["Burnaby", "Vancouver", "Richmond"].map((name) => ({
   },
 }));
 
-export function BusinessJsonLd() {
+export async function BusinessJsonLd() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const origin = getPublicOrigin();
   const businessId = origin ? `${origin}#business` : undefined;
   const organization = {
@@ -41,6 +43,7 @@ export function BusinessJsonLd() {
   return (
     <script
       type="application/ld+json"
+      nonce={nonce}
       dangerouslySetInnerHTML={{
         __html: JSON.stringify(structuredData).replace(/</g, "\\u003c"),
       }}
