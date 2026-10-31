@@ -56,7 +56,7 @@ export async function saveLessonAction(
     logSafeError("[admin/lessons] save failed", error);
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "Could not save the lesson.",
+      message: "Could not save the lesson. Please try again.",
     };
   }
 }
