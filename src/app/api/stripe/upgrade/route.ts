@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getStore } from "@/lib/booking/store";
 import { hashToken } from "@/lib/booking/tokens";
-import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
+import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { siteBase } from "@/lib/booking/urls";
 import { recordPaidUpgradeCheckoutSession } from "@/lib/stripe/fulfill";
 import { getStripe, stripeTaxCode, stripeTaxReady } from "@/lib/stripe/server";
@@ -19,7 +19,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (process.env.NODE_ENV === "production" && !isTestModeStripeSecretKey(process.env.STRIPE_SECRET_KEY)) {
     return NextResponse.json({ ok: false, error: "Online payments are disabled until test-mode checkout is configured." }, { status: 503 });
   }
-  if (await isRateLimitedShared(`stripe-upgrade:${clientIp(request)}`, 5, 10 * 60 * 1000)) {
+  if (await isIpRateLimitedShared(request, "stripe-upgrade", 5, 10 * 60 * 1000)) {
     return NextResponse.json({ ok: false, error: "Too many upgrade attempts. Please try again shortly." }, { status: 429 });
   }
   let body: unknown;
@@ -35,7 +35,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     const store = getStore();
     const token = await getManageToken();
     if (!token) return NextResponse.json({ ok: false, error: "Open the private manage link for this booking." }, { status: 401 });
-    const found = await store.getBookingByToken(hashToken(token));
+    const tokenHash = hashToken(token);
+    if (await isRateLimitedShared(`stripe-upgrade-token:${tokenHash}`, 5, 10 * 60 * 1000)) {
+      return NextResponse.json({ ok: false, error: "Too many upgrade attempts. Please try again shortly." }, { status: 429 });
+    }
+    const found = await store.getBookingByToken(tokenHash);
     if (!found) return NextResponse.json({ ok: false, error: "This booking link is invalid or has expired." }, { status: 404 });
     const booking = found.booking;
     if (!["confirmed", "rescheduled"].includes(booking.status) || booking.paymentStatus !== "paid") {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
 import { otpSchema } from "@/lib/validation/booking";
 import { generateOtpCode, hashOtp, otpExpiry, OTP_TTL_MIN } from "@/lib/booking/otp";
-import { isRateLimitedShared, clientIp } from "@/lib/server/rate-limit";
+import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { sendBookingOtpEmail } from "@/lib/email/booking-emails";
 import type { BookingRecord } from "@/lib/booking/types";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
@@ -25,8 +25,7 @@ const MAX_BODY_BYTES = 4_096;
  *    verifies — payment remains available even inside the 48-hour change cutoff.
  */
 export async function POST(request: Request): Promise<NextResponse> {
-  const ip = clientIp(request);
-  if (await isRateLimitedShared(`otp-ip:${ip}`, 20, 10 * 60 * 1000)) {
+  if (await isIpRateLimitedShared(request, "otp", 20, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Please try again later." },
       { status: 429 },
@@ -54,6 +53,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { action, email, code, reference } = parsed.data;
+  if (await isRateLimitedShared(`otp-action:${action}:${email.trim().toLowerCase()}`, action === "send" ? 5 : 20, 10 * 60 * 1000)) {
+    return NextResponse.json(
+      { ok: false, error: "Too many attempts. Please wait and try again." },
+      { status: 429 },
+    );
+  }
   const genericSend = {
     ok: true,
     message: `If an active booking exists for that email, a 6-digit code has been requested; it expires in ${OTP_TTL_MIN} minutes. Use it to view your booking and payment options. Online date changes close 48 hours before the lesson.`,

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { generateToken, hashToken, isValidTokenFormat, tokensMatch } from "../src/lib/booking/tokens.ts";
 import { generateOtpCode, hashOtp } from "../src/lib/booking/otp.ts";
 import { readBoundedBody } from "../src/lib/server/read-bounded-body.ts";
-import { clientIp, isRateLimited } from "../src/lib/server/rate-limit.ts";
+import { clientIp, isIpRateLimitedShared, isRateLimited } from "../src/lib/server/rate-limit.ts";
 import {
   hasConsistentCadTotal,
   matchesInitialBookingPayment,
@@ -97,6 +97,20 @@ test("client IP trusts X-Real-IP only when explicitly configured", () => {
     process.env.TRUST_PROXY_IP = "true";
     assert.equal(clientIp(request), "203.0.113.10");
     assert.equal(clientIp(new Request("https://example.test", { headers: { "x-real-ip": "::::" } })), "unknown");
+  } finally {
+    if (previous === undefined) delete process.env.TRUST_PROXY_IP;
+    else process.env.TRUST_PROXY_IP = previous;
+  }
+});
+
+test("unknown client IP skips its bucket instead of sharing a global limit", async () => {
+  const previous = process.env.TRUST_PROXY_IP;
+  try {
+    delete process.env.TRUST_PROXY_IP;
+    assert.equal(
+      await isIpRateLimitedShared(new Request("https://example.test"), "security-test-ip", 1, 60_000),
+      false,
+    );
   } finally {
     if (previous === undefined) delete process.env.TRUST_PROXY_IP;
     else process.env.TRUST_PROXY_IP = previous;

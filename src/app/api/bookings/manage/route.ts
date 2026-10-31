@@ -4,7 +4,7 @@ import { validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { manageSchema } from "@/lib/validation/booking";
 import { maskEmail } from "@/lib/booking/format";
-import { isRateLimitedShared, clientIp } from "@/lib/server/rate-limit";
+import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import {
   sendBookingCancelledEmail,
   sendBookingRescheduledEmail,
@@ -107,7 +107,7 @@ async function expireUpgradeCheckout(booking: BookingRecord): Promise<boolean> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  if (await isRateLimitedShared(`manage:${clientIp(request)}`, 15, 10 * 60 * 1000)) {
+  if (await isIpRateLimitedShared(request, "manage", 15, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Please try again later." },
       { status: 429 },
@@ -138,6 +138,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   const token = await getManageToken();
   if (!token) return errorResponse("not_found", "Open the private booking link or verify your email to continue.");
   const hash = hashToken(token);
+  if (await isRateLimitedShared(`manage-token:${hash}`, 30, 10 * 60 * 1000)) {
+    return NextResponse.json({ ok: false, error: "Too many attempts. Please try again later." }, { status: 429 });
+  }
 
   try {
     if (action === "get") {

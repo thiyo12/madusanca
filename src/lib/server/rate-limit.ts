@@ -72,6 +72,22 @@ export async function isRateLimitedShared(key: string, maxHits: number, windowMs
   }
 }
 
+/**
+ * Apply an IP bucket only when the address came from an explicitly trusted
+ * proxy. Never put all anonymous traffic into a shared "unknown" bucket: that
+ * would let one visitor exhaust the site's global allowance.
+ */
+export async function isIpRateLimitedShared(
+  request: Request,
+  namespace: string,
+  maxHits: number,
+  windowMs: number,
+): Promise<boolean> {
+  const ip = clientIp(request);
+  if (ip === "unknown") return false;
+  return isRateLimitedShared(`${namespace}:${ip}`, maxHits, windowMs);
+}
+
 export function clientIp(request: Request): string {
   // Only use forwarded headers when explicitly enabled behind a trusted
   // single reverse proxy that overwrites (not appends) X-Real-IP.

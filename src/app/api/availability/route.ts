@@ -3,12 +3,12 @@ import { logSafeError } from "@/lib/server/safe-log";
 import { getStore } from "@/lib/booking/store";
 import { addDaysToDayKey, generateSlots, HORIZON_DAYS, toVancouverDayKey, zonedToUtc } from "@/lib/booking/slots";
 import { availabilityQuerySchema } from "@/lib/validation/booking";
-import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
+import { isIpRateLimitedShared } from "@/lib/server/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<NextResponse> {
-  if (await isRateLimitedShared(`availability:${clientIp(request)}`, 120, 10 * 60 * 1000)) {
+  if (await isIpRateLimitedShared(request, "availability", 120, 10 * 60 * 1000)) {
     return NextResponse.json({ ok: false, error: "Too many availability requests. Please try again shortly." }, { status: 429 });
   }
   const url = new URL(request.url);

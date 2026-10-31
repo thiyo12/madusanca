@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { contactSchema } from "@/lib/validation/contact";
-import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
+import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { escapeHtml } from "@/lib/email/send";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 
@@ -47,9 +47,7 @@ async function sendViaResend(params: {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const ip = clientIp(request);
-
-  if (await isRateLimitedShared(`contact:${ip}`, 5, 10 * 60 * 1000)) {
+  if (await isIpRateLimitedShared(request, "contact", 5, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many messages. Please try again later." },
       { status: 429 },
@@ -80,6 +78,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { name, email, phone, subject, message, website } = parsed.data;
+
+  if (await isRateLimitedShared(`contact-email:${email.trim().toLowerCase()}`, 5, 10 * 60 * 1000)) {
+    return NextResponse.json(
+      { ok: false, error: "Too many messages from this email. Please try again later." },
+      { status: 429 },
+    );
+  }
 
   // Honeypot filled → bot; pretend success without delivering.
   if (website) {

@@ -3,7 +3,7 @@ import { getStore } from "@/lib/booking/store";
 import { validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { createBookingSchema } from "@/lib/validation/booking";
-import { isRateLimitedShared, clientIp } from "@/lib/server/rate-limit";
+import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { sendBookingPaymentPendingEmail } from "@/lib/email/booking-emails";
 import { manageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
 
 export async function POST(request: Request): Promise<NextResponse> {
-  if (await isRateLimitedShared(`bookings:${clientIp(request)}`, 5, 10 * 60 * 1000)) {
+  if (await isIpRateLimitedShared(request, "bookings", 5, 10 * 60 * 1000)) {
     return NextResponse.json(
       { ok: false, error: "Too many booking attempts. Please try again later." },
       { status: 429 },
@@ -42,6 +42,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { lessonId, startsAt, studentName, email, phone, notes, website } = parsed.data;
+
+  if (await isRateLimitedShared(`booking-email:${email.trim().toLowerCase()}`, 5, 10 * 60 * 1000)) {
+    return NextResponse.json(
+      { ok: false, error: "Too many booking attempts for this email. Please try again later." },
+      { status: 429 },
+    );
+  }
 
   // Honeypot filled → bot; pretend success without storing anything.
   if (website) {
