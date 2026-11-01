@@ -73,6 +73,26 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
   const [upgradeSessions, setUpgradeSessions] = useState<string[]>([]);
   const [upgradeSessionIndex, setUpgradeSessionIndex] = useState(0);
 
+  useEffect(() => {
+    const clearSession = () => {
+      void fetch("/api/bookings/session", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => undefined);
+    };
+    const reloadRestoredPage = (event: PageTransitionEvent) => {
+      if (event.persisted) window.location.reload();
+    };
+    window.addEventListener("pagehide", clearSession);
+    window.addEventListener("pageshow", reloadRestoredPage);
+    return () => {
+      window.removeEventListener("pagehide", clearSession);
+      window.removeEventListener("pageshow", reloadRestoredPage);
+    };
+  }, []);
+
+  async function leaveToHome() {
+    await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+    router.replace("/");
+  }
+
   const callManage = useCallback(
     async (payload: Record<string, unknown>): Promise<ManageResponse> => {
       const response = await fetch("/api/bookings/manage", {
@@ -225,6 +245,9 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
           <a className="font-bold underline" href="tel:+12362343229">+1 236-234-3229</a><br />
           <a className="font-bold underline" href="mailto:info@wisdomdrivingacademy.com">info@wisdomdrivingacademy.com</a>
         </p>
+        <button type="button" onClick={() => void leaveToHome()} className="mt-6 inline-flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to home
+        </button>
       </div>
     );
   }
@@ -428,6 +451,11 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
           </div>
         </div>
       )}
+      <div className="mt-7 border-t border-line pt-5">
+        <button type="button" onClick={() => void leaveToHome()} className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to home
+        </button>
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { formatSlotFull } from "@/lib/booking/format";
 
 type Step = "email" | "code" | "list";
@@ -312,6 +313,10 @@ export function BookingFind() {
           {error}
         </p>
       )}
+      <Link href="/" className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
+        <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span>
+        Back to home
+      </Link>
     </div>
   );
 }
