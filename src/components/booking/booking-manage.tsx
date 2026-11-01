@@ -80,11 +80,23 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     const reloadRestoredPage = (event: PageTransitionEvent) => {
       if (event.persisted) window.location.reload();
     };
+    const clearOnLeavingLink = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const link = event.target.closest("a[href]");
+      if (!link) return;
+      const destination = new URL((link as HTMLAnchorElement).href, window.location.href);
+      if (destination.origin !== window.location.origin || destination.pathname !== "/booking/manage") clearSession();
+    };
+    const clearOnHistoryNavigation = () => clearSession();
     window.addEventListener("pagehide", clearSession);
     window.addEventListener("pageshow", reloadRestoredPage);
+    document.addEventListener("click", clearOnLeavingLink, true);
+    window.addEventListener("popstate", clearOnHistoryNavigation);
     return () => {
       window.removeEventListener("pagehide", clearSession);
       window.removeEventListener("pageshow", reloadRestoredPage);
+      document.removeEventListener("click", clearOnLeavingLink, true);
+      window.removeEventListener("popstate", clearOnHistoryNavigation);
     };
   }, []);
 
