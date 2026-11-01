@@ -94,19 +94,21 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, paymentS
         <p className="text-[10px] font-extrabold uppercase tracking-wider text-soft">
           Payment: {paymentStatus === "paid" ? "Paid" : paymentStatus === "refunded" ? "Refunded" : paymentStatus === "waived" ? "Waived" : "Due"}
         </p>
-        <form
-          action={async () => {
-            if (!confirm(paymentStatus === "waived" ? "Restore this booking to due?" : "Waive this balance?")) return;
-            await setBookingPaymentAction(bookingId, paymentStatus === "waived" ? "due" : "waived");
-          }}
-        >
-          <button
-            type="submit"
-            className={`${buttonBase} border border-line bg-white text-soft hover:bg-[#fdecea] hover:text-[#bc4633]`}
+        {(paymentStatus === "due" || paymentStatus === "waived") && (
+          <form
+            action={async () => {
+              if (!confirm(paymentStatus === "waived" ? "Restore this booking to due?" : "Waive this balance?")) return;
+              await setBookingPaymentAction(bookingId, paymentStatus === "waived" ? "due" : "waived");
+            }}
           >
-            {paymentStatus === "waived" ? "Restore Due" : "Waive Balance"}
-          </button>
-        </form>
+            <button
+              type="submit"
+              className={`${buttonBase} border border-line bg-white text-soft hover:bg-[#fdecea] hover:text-[#bc4633]`}
+            >
+              {paymentStatus === "waived" ? "Restore Due" : "Waive Balance"}
+            </button>
+          </form>
+        )}
       </div>
 
       {open && (
