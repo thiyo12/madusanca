@@ -52,6 +52,7 @@ export interface BookingRecord {
   stripeUpgradeTargetDurationMin?: number;
   stripeUpgradeTargetPriceCad?: number;
   stripeUpgradeAmountCad?: number;
+  stripeUpgradeTargetSessions?: Array<{ startsAt: string; endsAt: string }>;
   stripePaymentIntentId?: string;
   stripeInvoiceId?: string;
   stripeInvoiceUrl?: string;
@@ -271,10 +272,11 @@ export interface BookingStore {
   setStripeUpgradeCheckoutSession(
     bookingId: string,
     sessionId: string,
-    targetLesson: Pick<Lesson, "id" | "name" | "durationMin" | "priceCad">,
+    targetLesson: Pick<Lesson, "id" | "name" | "durationMin" | "priceCad" | "sessionCount">,
     fromPriceCad: number,
     amountCad: number,
     expectedStartsAt: string,
+    sessions: Array<{ startsAt: string; endsAt: string }>,
   ): Promise<void>;
   getBookingByCheckoutSession(sessionId: string): Promise<BookingRecord | null>;
   getBookingByUpgradeCheckoutSession(sessionId: string): Promise<BookingRecord | null>;

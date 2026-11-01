@@ -166,7 +166,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       const currentPackagePrice = found.booking.packagePriceCad ?? found.booking.priceCad;
       const upgradeOptions = found.sessions.every((session) => ["confirmed", "rescheduled"].includes(session.status)) && found.booking.paymentStatus === "paid"
         ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package" && lesson.priceCad > currentPackagePrice)
-          .map(({ id, name, priceCad }) => ({ id, name, priceCad, balanceCad: Math.round((priceCad - currentPackagePrice) * 100) / 100 }))
+          .map(({ id, name, priceCad, sessionCount }) => ({ id, name, priceCad, sessionCount, balanceCad: Math.round((priceCad - currentPackagePrice) * 100) / 100 }))
         : [];
       return NextResponse.json({
         ok: true,

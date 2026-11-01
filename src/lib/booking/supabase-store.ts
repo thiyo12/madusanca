@@ -67,6 +67,7 @@ interface BookingRow {
   stripe_upgrade_target_duration_min?: number | null;
   stripe_upgrade_target_price_cad?: number | null;
   stripe_upgrade_amount_cad?: number | null;
+  stripe_upgrade_target_sessions?: Array<{ startsAt: string; endsAt: string }> | null;
   stripe_payment_intent_id?: string | null;
   stripe_invoice_id?: string | null;
   stripe_invoice_url?: string | null;
@@ -111,6 +112,7 @@ function toRecord(row: BookingRow): BookingRecord {
     stripeUpgradeTargetDurationMin: row.stripe_upgrade_target_duration_min ?? undefined,
     stripeUpgradeTargetPriceCad: row.stripe_upgrade_target_price_cad == null ? undefined : Number(row.stripe_upgrade_target_price_cad),
     stripeUpgradeAmountCad: row.stripe_upgrade_amount_cad == null ? undefined : Number(row.stripe_upgrade_amount_cad),
+    stripeUpgradeTargetSessions: row.stripe_upgrade_target_sessions ?? undefined,
     stripePaymentIntentId: row.stripe_payment_intent_id ?? undefined,
     stripeInvoiceId: row.stripe_invoice_id ?? undefined,
     stripeInvoiceUrl: row.stripe_invoice_url ?? undefined,
@@ -157,17 +159,19 @@ export const supabaseStore: BookingStore = {
   },
 
   async getBusy(fromIso: string, toIso: string): Promise<BusyInterval[]> {
-    const { data, error } = await adminClient()
+    const [bookings, upgrades] = await Promise.all([adminClient()
       .from("bookings")
-      .select("starts_at, ends_at")
+      .select("starts_at, ends_at, stripe_upgrade_target_sessions")
       .or(`status.in.(confirmed,rescheduled),and(status.eq.pending_payment,or(stripe_checkout_expires_at.is.null,stripe_checkout_expires_at.gt.${new Date().toISOString()}))`)
       .lt("starts_at", toIso)
-      .gt("ends_at", fromIso);
-    if (error) throw new Error(`Failed to load bookings: ${error.message}`);
-    return (data ?? []).map((row) => ({
-      startsAt: new Date(row.starts_at).toISOString(),
-      endsAt: new Date(row.ends_at).toISOString(),
-    }));
+      .gt("ends_at", fromIso), adminClient().from("bookings").select("stripe_upgrade_target_sessions").not("stripe_upgrade_checkout_session_id", "is", null)]);
+    if (bookings.error || upgrades.error) throw new Error(`Failed to load booking availability: ${bookings.error?.message ?? upgrades.error?.message}`);
+    const intervals = (bookings.data ?? []).flatMap((row) => {
+      const base = [{ startsAt: new Date(row.starts_at).toISOString(), endsAt: new Date(row.ends_at).toISOString() }];
+      return base;
+    }).concat((upgrades.data ?? []).flatMap((row) => ((row.stripe_upgrade_target_sessions ?? []) as Array<{ startsAt: string; endsAt: string }>))
+      .filter((item) => new Date(item.startsAt) < new Date(toIso) && new Date(item.endsAt) > new Date(fromIso)));
+    return intervals;
   },
 
   async createBooking(
@@ -611,7 +615,7 @@ export const supabaseStore: BookingStore = {
     return data ? toRecord(data) : null;
   },
 
-  async setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt) {
+  async setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt, sessions) {
     const { data, error } = await adminClient().rpc("set_booking_package_upgrade_checkout", {
       p_booking_id: bookingId,
       p_session_id: sessionId,
@@ -622,6 +626,7 @@ export const supabaseStore: BookingStore = {
       p_from_price_cad: fromPriceCad,
       p_amount_cad: amountCad,
       p_expected_starts_at: expectedStartsAt,
+      p_sessions: sessions,
     });
     if (error) throw new Error(`Failed to save upgrade Checkout Session: ${error.message}`);
     if (data !== true) throw new Error("Booking package is no longer eligible for an upgrade.");

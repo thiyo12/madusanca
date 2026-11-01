@@ -16,7 +16,7 @@ import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 2_048;
 
-const checkoutSchema = z.object({}).strict();
+const checkoutSchema = z.object({ manageToken: z.string().min(32).max(256).optional() }).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
@@ -55,7 +55,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const store = getStore();
-    const token = await getManageToken();
+    const token = parsed.data.manageToken ?? await getManageToken();
     if (!token) return NextResponse.json({ ok: false, error: "Open the private manage link for this booking." }, { status: 401 });
     const tokenHash = hashToken(token);
     if (await isRateLimitedShared(`stripe-checkout-token:${tokenHash}`, 8, 10 * 60 * 1000)) {

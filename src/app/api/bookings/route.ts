@@ -9,7 +9,7 @@ import { sendBookingPaymentPendingEmail } from "@/lib/email/booking-emails";
 import { manageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
-import { MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
+import { MANAGE_COOKIE_NAME } from "@/lib/booking/manage-cookie";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
@@ -157,10 +157,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         sessions: result.value.map(({ startsAt: sessionStart }) => ({ startsAt: sessionStart })),
         sessionCount: result.value.length,
       },
-      manageUrl: `${new URL(url).origin}/booking/manage`,
+      manageToken: token,
       emailSent,
     });
-    response.cookies.set(MANAGE_COOKIE_NAME, token, manageCookieOptions);
+    // Booking creation must not grant this browser an authenticated manage
+    // session. Customers use the emailed link or complete My Booking OTP.
+    response.cookies.delete(MANAGE_COOKIE_NAME);
     return response;
   } catch (error) {
     logSafeError("[bookings] create failed", error);

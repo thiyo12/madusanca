@@ -26,7 +26,7 @@ const STEPS: Array<{ key: StepKey; label: string }> = [
 
 interface SuccessData {
   reference: string;
-  manageUrl: string;
+  manageToken: string;
   lessonName: string;
   durationMin: number;
   startsAt: string;
@@ -142,7 +142,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
       const result = (await response.json()) as {
         ok?: boolean;
         error?: string;
-        manageUrl?: string;
+          manageToken?: string;
         booking?: {
           reference: string;
           lessonName: string;
@@ -155,14 +155,20 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         emailSent?: boolean;
       };
 
-      if (!response.ok || !result.ok || !result.booking || !result.manageUrl) {
-        setSubmitError(result.error ?? "Could not complete your booking. Please try again.");
+      if (!response.ok || !result.ok || !result.booking || !result.manageToken) {
+        const message = result.error ?? "Could not complete your booking. Please try again.";
+        setSubmitError(message);
+        if (response.status === 409) {
+          setStepIndex(1);
+          setSessionIndex(0);
+          setStartsAt([]);
+        }
         return;
       }
 
       setSuccess({
         reference: result.booking.reference,
-        manageUrl: result.manageUrl,
+        manageToken: result.manageToken,
         lessonName: result.booking.lessonName,
         durationMin: result.booking.durationMin,
         startsAt: result.booking.startsAt,
@@ -194,8 +200,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         ) : (
           <p role="alert" className="mt-2 rounded-[12px] bg-[#eaf5df] px-3.5 py-2.5 text-[13px] leading-relaxed text-[#31543a]">
             Your booking is reserved, but we couldn&rsquo;t deliver the confirmation to{" "}
-            <strong>{details.email.trim()}</strong>. Save your reference below and keep this page&rsquo;s
-            manage button, or call Shan at +1 236-234-3229 for help.
+            <strong>{details.email.trim()}</strong>. Save your reference below and use My Booking with your email and verification code, or call Shan at +1 236-234-3229 for help.
           </p>
         )}
         <BookingSummary
@@ -211,10 +216,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           }}
         />
         <div className="mt-5 flex flex-wrap gap-3">
-          <Button href={success.manageUrl} variant="dark">
-            Manage this booking
-          </Button>
-          <StripeCheckoutButton />
+          <StripeCheckoutButton manageToken={success.manageToken} />
           <Button href="/booking/manage" variant="outline">
             My Booking (email code)
           </Button>
@@ -222,8 +224,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             Back to lessons
           </Button>
         </div>
-        <p className="mt-4 text-[12.5px] leading-relaxed text-[#616872]">
-          Your time is reserved while payment is due. You can pay securely above or later from My Booking. Once payment is confirmed, eligible package upgrades appear there. A paid invoice is available after checkout. Please bring your valid driver&rsquo;s licence.
+          <p className="mt-4 text-[12.5px] leading-relaxed text-[#616872]">
+          Your time is reserved while payment is due. Pay securely above or later from My Booking. To make changes, verify your email in My Booking. Please bring your valid driver&rsquo;s licence.
         </p>
       </div>
     );
@@ -267,6 +269,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
 
       {step === "when" && lesson && (
         <div>
+          {submitError && <p role="alert" className="mb-4 rounded-lg bg-[#fff0ed] px-4 py-3 text-[13px] font-semibold text-[#bc4633]">{submitError}</p>}
           <p className="mb-3 text-sm font-extrabold text-ink">Choose a separate date and time for each session</p>
           <div className="mb-4 flex flex-wrap gap-2">
             {Array.from({ length: lesson.sessionCount }, (_, index) => (
@@ -289,6 +292,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             minDate={sessionIndex > 0 && startsAt[0] ? dayKeyOf(startsAt[0]) : undefined}
             horizonDays={lesson.sessionCount > 1 && sessionIndex > 0 ? 150 : 90}
             onSelect={(slot) => {
+              setSubmitError(null);
               setStartsAt((current) => {
                 const next = [...current];
                 next[sessionIndex] = slot;
@@ -321,6 +325,18 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
               email: details.email.trim(),
             }}
           />
+          <section className="mt-4 rounded-[17px] border border-line p-4 sm:p-5">
+            <h3 className="text-sm font-extrabold text-ink">Your details</h3>
+            <dl className="mt-2 grid gap-2 text-[13px] sm:grid-cols-2">
+              <div><dt className="text-soft">Name</dt><dd className="font-bold text-ink">{details.firstName} {details.lastName}</dd></div>
+              <div><dt className="text-soft">Student / licence name</dt><dd className="font-bold text-ink">{details.studentName}</dd></div>
+              <div><dt className="text-soft">Email</dt><dd className="break-all font-bold text-ink">{details.email}</dd></div>
+              <div><dt className="text-soft">Phone</dt><dd className="font-bold text-ink">{details.phone}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-soft">Pickup address</dt><dd className="font-bold text-ink">{details.street}, {details.city}, {details.province} {details.postalCode}</dd></div>
+              <div><dt className="text-soft">Licence class</dt><dd className="font-bold text-ink">{details.licenseClass}</dd></div>
+              {details.notes && <div className="sm:col-span-2"><dt className="text-soft">Notes</dt><dd className="font-bold text-ink">{details.notes}</dd></div>}
+            </dl>
+          </section>
           <div className="mt-4 space-y-2 text-[13px] leading-relaxed text-soft">
             <p>
               Confirming reserves this time. You&rsquo;ll receive a private manage link by
@@ -351,6 +367,9 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             </Button>
             <Button variant="outline" onClick={goBack} disabled={submitting}>
               Change details
+            </Button>
+            <Button variant="outline" onClick={() => { setSubmitError(null); setStepIndex(1); setSessionIndex(0); }} disabled={submitting}>
+              Change date / time
             </Button>
           </div>
         </div>

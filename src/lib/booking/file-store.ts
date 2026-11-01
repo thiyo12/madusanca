@@ -138,9 +138,13 @@ export const fileStore: BookingStore = {
   async getBusy(fromIso: string, toIso: string): Promise<BusyInterval[]> {
     const from = Date.parse(fromIso);
     const to = Date.parse(toIso);
-    return activeBookings(load())
+    const data = load();
+    const booked = activeBookings(data)
       .filter((b) => overlaps(Date.parse(b.startsAt), Date.parse(b.endsAt), from, to))
       .map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt }));
+    const reserved = data.bookings.flatMap((booking) => booking.stripeUpgradeCheckoutSessionId ? booking.stripeUpgradeTargetSessions ?? [] : [])
+      .filter((item) => overlaps(Date.parse(item.startsAt), Date.parse(item.endsAt), from, to));
+    return [...booked, ...reserved];
   },
 
   createBooking(
@@ -703,18 +707,24 @@ export const fileStore: BookingStore = {
     return load().bookings.find((booking) => booking.stripeCheckoutSessionId === sessionId) ?? null;
   },
 
-  setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt) {
+  setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt, proposedSessions) {
     return withLock(async () => {
       const data = load();
       const booking = data.bookings.find((item) => item.id === bookingId);
       const packageId = booking?.packageId ?? booking?.id;
       const sessions = packageId ? data.bookings.filter((item) => (item.packageId ?? item.id) === packageId) : [];
       const currentPriceCad = booking?.packagePriceCad ?? booking?.priceCad;
+      const proposedConflicts = proposedSessions.some((candidate, index) =>
+        proposedSessions.some((other, otherIndex) => index !== otherIndex && overlaps(Date.parse(candidate.startsAt), Date.parse(candidate.endsAt), Date.parse(other.startsAt), Date.parse(other.endsAt))) ||
+        activeBookings(data).some((item) => (item.packageId ?? item.id) !== packageId && overlaps(Date.parse(candidate.startsAt), Date.parse(candidate.endsAt), Date.parse(item.startsAt), Date.parse(item.endsAt))) ||
+        data.bookings.some((item) => item.stripeUpgradeCheckoutSessionId && (item.packageId ?? item.id) !== packageId &&
+          (item.stripeUpgradeTargetSessions ?? []).some((reserved) => overlaps(Date.parse(candidate.startsAt), Date.parse(candidate.endsAt), Date.parse(reserved.startsAt), Date.parse(reserved.endsAt))))
+      );
       if (!booking || !sessions.every((item) => ["confirmed", "rescheduled"].includes(item.status) && item.paymentStatus === "paid") ||
-        booking.startsAt !== expectedStartsAt || currentPriceCad !== fromPriceCad ||
-        targetLesson.priceCad <= fromPriceCad ||
-        Math.round((targetLesson.priceCad - fromPriceCad) * 100) / 100 !== amountCad ||
-        booking.stripeUpgradeCheckoutSessionId) {
+         booking.startsAt !== expectedStartsAt || currentPriceCad !== fromPriceCad ||
+         targetLesson.priceCad <= fromPriceCad ||
+         Math.round((targetLesson.priceCad - fromPriceCad) * 100) / 100 !== amountCad ||
+         booking.stripeUpgradeCheckoutSessionId || proposedSessions.length !== targetLesson.sessionCount || proposedConflicts) {
         throw new Error("Booking is no longer eligible for an upgrade.");
       }
       booking.stripeUpgradeCheckoutSessionId = sessionId;
@@ -725,6 +735,7 @@ export const fileStore: BookingStore = {
       booking.stripeUpgradeTargetDurationMin = targetLesson.durationMin;
       booking.stripeUpgradeTargetPriceCad = targetLesson.priceCad;
       booking.stripeUpgradeAmountCad = amountCad;
+      booking.stripeUpgradeTargetSessions = proposedSessions;
       save(data);
     });
   },
@@ -817,6 +828,10 @@ export const fileStore: BookingStore = {
           session.priceCad = (baseCents + (index < remainder ? 1 : 0)) / 100;
           session.packagePriceCad = event.targetPriceCad;
           session.endsAt = new Date(Date.parse(session.startsAt) + event.targetDurationMin * 60000).toISOString();
+          const proposed = booking.stripeUpgradeTargetSessions?.[index];
+          if (!proposed) throw new Error("Upgrade session schedule is incomplete.");
+          session.startsAt = proposed.startsAt;
+          session.endsAt = proposed.endsAt;
           session.stripePaymentIntentId = event.paymentIntentId;
           session.stripeInvoiceId = event.invoiceId;
           session.stripeInvoiceUrl = event.invoiceUrl;
@@ -832,10 +847,12 @@ export const fileStore: BookingStore = {
           session.stripeUpgradeTargetDurationMin = undefined;
           session.stripeUpgradeTargetPriceCad = undefined;
           session.stripeUpgradeAmountCad = undefined;
+          session.stripeUpgradeTargetSessions = undefined;
           session.updatedAt = now;
         });
       } else if (event.eventType === "expired" && booking.stripeUpgradeCheckoutSessionId === event.sessionId) {
         booking.stripeUpgradeCheckoutSessionId = undefined;
+        booking.stripeUpgradeTargetSessions = undefined;
         booking.stripeUpgradeAttempt = (booking.stripeUpgradeAttempt ?? 0) + 1;
         booking.updatedAt = new Date().toISOString();
       }

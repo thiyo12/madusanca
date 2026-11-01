@@ -8,7 +8,7 @@ import { BookingFind } from "@/components/booking/booking-find";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
-import { addMonthsToKey, formatSlotFull } from "@/lib/booking/format";
+import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
 
 export interface BookingManageProps {
   paymentReturn?: string;
@@ -33,7 +33,7 @@ interface BookingView {
   sessionCount: number;
   packagePriceCad: number;
   packageWindowStart: string;
-  upgradeOptions?: Array<{ id: string; name: string; priceCad: number; balanceCad: number }>;
+  upgradeOptions?: Array<{ id: string; name: string; priceCad: number; sessionCount: number; balanceCad: number }>;
 }
 
 interface ManageResponse {
@@ -69,6 +69,9 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
+  const [upgradeLessonId, setUpgradeLessonId] = useState("");
+  const [upgradeSessions, setUpgradeSessions] = useState<string[]>([]);
+  const [upgradeSessionIndex, setUpgradeSessionIndex] = useState(0);
 
   const callManage = useCallback(
     async (payload: Record<string, unknown>): Promise<ManageResponse> => {
@@ -210,6 +213,22 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
   const withinCancellationWindow =
     now !== null && Date.parse(selectedSession.startsAt) - now < 48 * 60 * 60 * 1000;
 
+  if (paymentReturn === "success") {
+    return (
+      <div className="rounded-[25px] border border-[#d3e9c5] bg-[#f5fbed] p-6 sm:p-8">
+        <h2 className="font-display text-2xl font-extrabold text-ink">Payment complete</h2>
+        <p role="status" className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
+          {booking.paymentStatus === "paid" ? "Your payment has been received." : "We’re confirming your payment. Please refresh this page shortly if it has not updated."}
+        </p>
+        <p className="mt-4 text-sm font-bold text-ink">Questions or changes? Contact your tutor:</p>
+        <p className="mt-2 text-sm leading-relaxed text-ink">
+          <a className="font-bold underline" href="tel:+12362343229">+1 236-234-3229</a><br />
+          <a className="font-bold underline" href="mailto:info@wisdomdrivingacademy.com">info@wisdomdrivingacademy.com</a>
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-[25px] border border-line bg-white p-5 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -291,19 +310,24 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
           <StripeCheckoutButton />
         </div>
       )}
-      {booking.paymentStatus === "paid" && !closed && (booking.upgradeOptions?.length ?? 0) > 0 && (
-        <div className="mt-5 rounded-[14px] border border-line p-4">
-          <h3 className="text-sm font-extrabold text-ink">Upgrade your package</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Your scheduled session times stay the same. Pay the difference to upgrade this package.</p>
-          <div className="mt-3 grid gap-3">
-            {booking.upgradeOptions!.map((option) => <div key={option.id} className="flex flex-wrap items-center justify-between gap-3">
-              <span className="text-[13px] font-bold text-ink">{option.name}</span>
-              <StripeUpgradeButton targetLessonId={option.id} amountCad={option.balanceCad} />
-            </div>)}
-          </div>
-        </div>
-      )}
-
+      {booking.paymentStatus === "paid" && !closed && (booking.upgradeOptions?.length ?? 0) > 0 && (() => {
+        const option = booking.upgradeOptions!.find((item) => item.id === upgradeLessonId);
+        return <section className="mt-5 rounded-[14px] border border-line p-4">
+          <h3 className="text-sm font-extrabold text-ink">Upgrade package</h3>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a new date and time for every session. Your current booking stays unchanged unless the upgrade payment succeeds.</p>
+          <label className="mt-3 grid gap-1.5 text-xs font-bold text-ink">New package
+            <select value={upgradeLessonId} onChange={(event) => { setUpgradeLessonId(event.target.value); setUpgradeSessions([]); setUpgradeSessionIndex(0); }} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
+              <option value="">Select a package</option>
+              {booking.upgradeOptions!.map((item) => <option key={item.id} value={item.id}>{item.name} · pay ${item.balanceCad.toFixed(2)} CAD + GST</option>)}
+            </select>
+          </label>
+          {option && <>
+            <div className="mt-4 flex flex-wrap gap-2">{Array.from({ length: option.sessionCount }, (_, index) => <button key={index} type="button" onClick={() => setUpgradeSessionIndex(index)} aria-pressed={upgradeSessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold ${upgradeSessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>Session {index + 1}{upgradeSessions[index] ? " ✓" : ""}</button>)}</div>
+            <div className="mt-3"><DateTimeStep lessonId={option.id} selectedStart={upgradeSessions[upgradeSessionIndex] ?? null} maxDate={upgradeSessions[0] ? addMonthsToKey(dayKeyOf(upgradeSessions[0]), 2) : undefined} minDate={upgradeSessionIndex > 0 && upgradeSessions[0] ? dayKeyOf(upgradeSessions[0]) : undefined} horizonDays={150} onSelect={(slot) => { setUpgradeSessions((current) => { const next = [...current]; next[upgradeSessionIndex] = slot; return next; }); setUpgradeSessionIndex((index) => Math.min(index + 1, option.sessionCount - 1)); }} /></div>
+            <div className="mt-3"><StripeUpgradeButton targetLessonId={option.id} amountCad={option.balanceCad} sessions={upgradeSessions} disabled={upgradeSessions.length !== option.sessionCount || upgradeSessions.some((slot) => !slot)} /></div>
+          </>}
+        </section>;
+      })()}
       {emailNotice && (
         <p className={`mt-4 rounded-lg px-4 py-3 text-[13px] leading-relaxed ${
           emailNotice.includes("could not be delivered")

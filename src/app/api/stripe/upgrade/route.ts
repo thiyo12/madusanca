@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getStore } from "@/lib/booking/store";
@@ -12,9 +12,11 @@ import { logSafeError } from "@/lib/server/safe-log";
 import { getManageToken } from "@/lib/booking/manage-cookie";
 import { isStripePaymentsEnabled } from "@/lib/stripe/payment-validation";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
+import { validateSlot } from "@/lib/booking/slots";
+import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 
 export const dynamic = "force-dynamic";
-const schema = z.object({ targetLessonId: z.string().trim().min(1).max(100) }).strict();
+const schema = z.object({ targetLessonId: z.string().trim().min(1).max(100), sessions: z.array(z.string().datetime()).min(1).max(10) }).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
@@ -38,7 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     body = JSON.parse(result.text);
   } catch { return NextResponse.json({ ok: false, error: "Invalid request." }, { status: 400 }); }
   const parsed = schema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ ok: false, error: "Open the private manage link and select a package." }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ ok: false, error: "Select a package and new times for every session." }, { status: 400 });
 
   try {
     const store = getStore();
@@ -57,12 +59,31 @@ export async function POST(request: Request): Promise<NextResponse> {
     const target = (await store.getLessons()).find((lesson) => lesson.id === parsed.data.targetLessonId && lesson.category === "package");
     const currentPriceCad = booking.packagePriceCad ?? booking.priceCad;
     if (!target || target.priceCad <= currentPriceCad) return NextResponse.json({ ok: false, error: "Choose a higher-priced package to upgrade." }, { status: 400 });
+    const proposed = parsed.data.sessions.map((startsAt) => ({ startsAt: new Date(startsAt).toISOString(), endsAt: new Date(Date.parse(startsAt) + target.durationMin * 60_000).toISOString() })).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    if (proposed.length !== target.sessionCount) return NextResponse.json({ ok: false, error: "Choose a new time for every session in the package." }, { status: 400 });
+    const firstDay = dayKeyOf(proposed[0].startsAt);
+    if (proposed.some((item) => dayKeyOf(item.startsAt) > addMonthsToKey(firstDay, 2))) return NextResponse.json({ ok: false, error: "All package sessions must be within two months of the first session." }, { status: 400 });
+    for (let index = 1; index < proposed.length; index += 1) {
+      if (Date.parse(proposed[index].startsAt) < Date.parse(proposed[index - 1].endsAt)) return NextResponse.json({ ok: false, error: "Package sessions cannot overlap." }, { status: 400 });
+    }
+    const oldSchedule = new Set(found.sessions.map((item) => `${item.startsAt}|${item.endsAt}`));
+    const oldProposedSchedule = new Set((booking.stripeUpgradeTargetSessions ?? []).map((item) => `${item.startsAt}|${item.endsAt}`));
+    const from = new Date(Date.now()).toISOString();
+    const to = proposed.at(-1)!.endsAt;
+    const [busy, blackouts, rules] = await Promise.all([store.getBusy(from, to), store.getBlackouts(), store.getRules()]);
+    const availableBusy = busy.filter((item) => !oldSchedule.has(`${item.startsAt}|${item.endsAt}`) && !oldProposedSchedule.has(`${item.startsAt}|${item.endsAt}`));
+    for (const item of proposed) {
+      const validation = validateSlot(item.startsAt, { lessonDurationMin: target.durationMin, busy: availableBusy, blackouts, rules, now: new Date() });
+      if (!validation.valid) return NextResponse.json({ ok: false, error: "One of those times is no longer available. Please choose new session times." }, { status: 409 });
+      availableBusy.push(item);
+    }
     const amountCad = Math.round((target.priceCad - currentPriceCad) * 100) / 100;
     const stripe = getStripe();
     let upgradeAttempt = booking.stripeUpgradeAttempt ?? 0;
     if (booking.stripeUpgradeCheckoutSessionId) {
       const existing = await stripe.checkout.sessions.retrieve(booking.stripeUpgradeCheckoutSessionId);
-      if (existing.status === "open" && existing.url && existing.metadata?.target_lesson_id === target.id) return NextResponse.json({ ok: true, url: existing.url });
+      if (existing.status === "open" && existing.url && existing.metadata?.target_lesson_id === target.id &&
+        JSON.stringify(booking.stripeUpgradeTargetSessions ?? []) === JSON.stringify(proposed)) return NextResponse.json({ ok: true, url: existing.url });
       if (existing.status === "complete" && existing.payment_status === "paid") {
         await recordPaidUpgradeCheckoutSession(existing, `upgrade-reconcile-${existing.id}`);
         return NextResponse.json({ ok: true, paid: true });
@@ -93,10 +114,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       success_url: `${siteBase()}/booking/manage?payment=success`,
       cancel_url: `${siteBase()}/booking/manage?payment=cancelled`,
       integration_identifier: `wisdom_web_${Array.from(randomBytes(8), (byte) => String.fromCharCode(97 + byte % 26)).join("")}`,
-    }, { idempotencyKey: `wisdom-upgrade-${booking.id}-${upgradeAttempt}-${target.id}` });
+    }, { idempotencyKey: `wisdom-upgrade-${booking.id}-${upgradeAttempt}-${createHash("sha256").update(JSON.stringify(proposed)).digest("hex").slice(0, 16)}` });
     if (!session.url) return NextResponse.json({ ok: false, error: "Stripe did not return a Checkout URL. Please try again." }, { status: 502 });
     try {
-      await store.setStripeUpgradeCheckoutSession(booking.id, session.id, target, currentPriceCad, amountCad, booking.startsAt);
+      await store.setStripeUpgradeCheckoutSession(booking.id, session.id, target, currentPriceCad, amountCad, booking.startsAt, proposed);
     } catch (error) {
       try { if ((await stripe.checkout.sessions.retrieve(session.id)).status === "open") await stripe.checkout.sessions.expire(session.id); }
       catch (expireError) { logSafeError("[stripe/upgrade] orphan session expiry failed", expireError); }
