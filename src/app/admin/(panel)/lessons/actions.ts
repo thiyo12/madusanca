@@ -23,6 +23,7 @@ export async function saveLessonAction(
     id: formData.get("id"),
     name: formData.get("name"),
     durationMin: formData.get("durationMin"),
+    sessionCount: formData.get("sessionCount"),
     priceCad: formData.get("priceCad"),
     description: formData.get("description"),
     features,

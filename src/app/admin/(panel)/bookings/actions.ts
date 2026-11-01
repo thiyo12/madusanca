@@ -43,9 +43,17 @@ export async function setBookingStatusAction(
   const booking = await store.getBookingById(bookingId);
   if (!booking) fail("Booking not found.");
 
-  if (status === "cancelled") {
-    await expireOpenCheckout(booking);
-    await expireOpenUpgradeCheckout(booking);
+  if (status === "cancelled" || status === "completed") {
+    const sameEmailBookings = await store.listBookings({ search: booking.email });
+    const packageId = booking.packageId ?? booking.id;
+    const packageSessions = sameEmailBookings.filter((item) => (item.packageId ?? item.id) === packageId);
+    if (status === "cancelled" && packageSessions.some((item) => item.paymentStatus === "paid")) {
+      fail("This package has been paid. Reconcile cancellation or refund in Stripe before changing it.");
+    }
+    const checkoutOwner = packageSessions.find((item) => item.stripeCheckoutSessionId) ?? booking;
+    const upgradeOwner = packageSessions.find((item) => item.stripeUpgradeCheckoutSessionId);
+    if (packageSessions.some((item) => item.paymentStatus === "due")) await expireOpenCheckout(checkoutOwner);
+    if (upgradeOwner) await expireOpenUpgradeCheckout(upgradeOwner);
   }
 
   const result = await store.updateBookingStatus(bookingId, status);
@@ -109,7 +117,14 @@ export async function setBookingPaymentAction(
     }
   }
 
-  if (paymentStatus === "waived") await expireOpenCheckout(booking);
+  if (paymentStatus === "waived") {
+    const sameEmailBookings = await store.listBookings({ search: booking.email });
+    const packageId = booking.packageId ?? booking.id;
+    const checkoutOwner = sameEmailBookings.find((item) =>
+      (item.packageId ?? item.id) === packageId && item.stripeCheckoutSessionId,
+    ) ?? booking;
+    await expireOpenCheckout(checkoutOwner);
+  }
 
   const result = await store.updatePaymentStatus(bookingId, paymentStatus);
   if (!result.ok) {

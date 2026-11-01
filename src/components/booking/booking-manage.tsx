@@ -8,13 +8,14 @@ import { BookingFind } from "@/components/booking/booking-find";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
-import { formatSlotFull } from "@/lib/booking/format";
+import { addMonthsToKey, formatSlotFull } from "@/lib/booking/format";
 
 export interface BookingManageProps {
   paymentReturn?: string;
 }
 
 interface BookingView {
+  id: string;
   reference: string;
   lessonId: string;
   lessonName: string;
@@ -28,6 +29,10 @@ interface BookingView {
   studentRescheduleCount: number;
   paymentStatus: "due" | "paid" | "refunded" | "waived";
   invoiceUrl?: string;
+  sessionIndex: number;
+  sessionCount: number;
+  packagePriceCad: number;
+  packageWindowStart: string;
   upgradeOptions?: Array<{ id: string; name: string; priceCad: number; balanceCad: number }>;
 }
 
@@ -35,6 +40,7 @@ interface ManageResponse {
   ok?: boolean;
   error?: string;
   booking?: BookingView;
+  sessions?: BookingView[];
   manageUrl?: string;
   emailSent?: boolean;
 }
@@ -55,6 +61,8 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState<BookingView | null>(null);
+  const [sessions, setSessions] = useState<BookingView[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [now, setNow] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>("view");
   const [pendingStart, setPendingStart] = useState<string | null>(null);
@@ -85,6 +93,8 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
           return;
         }
         setBooking(result.booking);
+        setSessions(result.sessions ?? [result.booking]);
+        setActiveSessionId(result.booking.id);
         setNow(Date.now());
         setStatus("ready");
       })
@@ -105,7 +115,11 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     const timer = window.setInterval(() => {
       attempts += 1;
       void callManage({ action: "get" }).then((result) => {
-        if (!cancelled && result.ok && result.booking) setBooking(result.booking);
+        if (!cancelled && result.ok && result.booking) {
+          setBooking(result.booking);
+          setSessions(result.sessions ?? [result.booking]);
+          setActiveSessionId(result.booking.id);
+        }
       }).catch(() => undefined);
       if (attempts >= 6) window.clearInterval(timer);
     }, 2_000);
@@ -123,6 +137,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
         return;
       }
       setBooking(result.booking);
+      setSessions(result.sessions ?? [{ ...result.booking, status: "cancelled" }, ...sessions.filter((session) => session.id !== result.booking!.id).map((session) => ({ ...session, status: "cancelled" }))]);
       setMode("view");
       setEmailNotice(
         result.emailSent === false
@@ -141,12 +156,13 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     setBusy(true);
     setActionError(null);
     try {
-      const result = await callManage({ action: "reschedule", startsAt: pendingStart });
+      const result = await callManage({ action: "reschedule", startsAt: pendingStart, sessionId: activeSessionId ?? booking?.id });
       if (!result.ok || !result.booking) {
         setActionError(result.error ?? "Could not reschedule the booking.");
         return;
       }
       setBooking(result.booking);
+      setSessions(result.sessions ?? sessions.map((session) => session.id === result.booking!.id ? result.booking! : session));
       setPendingStart(null);
       setMode("view");
       setEmailNotice(
@@ -186,10 +202,13 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     );
   }
 
-  const closed = booking.status === "cancelled" || booking.status === "completed";
-  const rescheduleLimitReached = booking.studentRescheduleCount >= 2;
+  const closed = sessions.every((session) => session.status === "completed") ||
+    (sessions.length === 1 && booking.status === "cancelled");
+  const selectedSession = sessions.find((session) => session.id === activeSessionId) ?? booking;
+  const selectedSessionOpen = !["cancelled", "completed"].includes(selectedSession.status);
+  const rescheduleLimitReached = selectedSession.studentRescheduleCount >= 2;
   const withinCancellationWindow =
-    now !== null && Date.parse(booking.startsAt) - now < 48 * 60 * 60 * 1000;
+    now !== null && Date.parse(selectedSession.startsAt) - now < 48 * 60 * 60 * 1000;
 
   return (
     <div className="rounded-[25px] border border-line bg-white p-5 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
@@ -228,6 +247,22 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
         }}
       />
 
+      {sessions.length > 1 && (
+        <section className="mt-5 rounded-[16px] border border-line p-4">
+          <h3 className="text-sm font-extrabold text-ink">Your {sessions.length} scheduled sessions</h3>
+          <ol className="mt-3 grid gap-2">
+            {sessions.map((session) => (
+              <li key={session.id} className="flex flex-wrap justify-between gap-2 rounded-[10px] bg-mist px-3 py-2 text-[12.5px]">
+                <button type="button" onClick={() => setActiveSessionId(session.id)} aria-pressed={activeSessionId === session.id} className="text-left font-bold text-ink underline decoration-transparent underline-offset-2 hover:decoration-current aria-pressed:text-gold-deep">
+                  Session {session.sessionIndex}: {formatSlotFull(session.startsAt)}
+                </button>
+                <span className="text-soft">{STATUS_LABEL[session.status] ?? session.status}{activeSessionId === session.id ? " · selected" : ""}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
       {paymentReturn === "success" && (
         <p role="status" className={`mt-4 rounded-[14px] border px-4 py-3 text-[13px] font-semibold leading-relaxed ${booking.paymentStatus === "paid" ? "border-[#cce6b1] bg-[#f1f9e9] text-[#385a22]" : "border-[#eadcb1] bg-[#fff9e9] text-[#735c1e]"}`}>
           {booking.paymentStatus === "paid"
@@ -259,7 +294,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
       {booking.paymentStatus === "paid" && !closed && (booking.upgradeOptions?.length ?? 0) > 0 && (
         <div className="mt-5 rounded-[14px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Upgrade your package</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Your booked lesson time stays the same. Pay only the difference; arrange the remaining pack sessions with the school.</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Your scheduled session times stay the same. Pay the difference to upgrade this package.</p>
           <div className="mt-3 grid gap-3">
             {booking.upgradeOptions!.map((option) => <div key={option.id} className="flex flex-wrap items-center justify-between gap-3">
               <span className="text-[13px] font-bold text-ink">{option.name}</span>
@@ -285,7 +320,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
         </p>
       )}
 
-      {mode === "view" && !closed && !withinCancellationWindow && (
+      {mode === "view" && !closed && selectedSessionOpen && !withinCancellationWindow && (
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-5">
           {!rescheduleLimitReached ? (
             <Button
@@ -297,7 +332,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
               }}
               disabled={busy}
             >
-              Reschedule ({2 - booking.studentRescheduleCount} left)
+              Reschedule ({2 - selectedSession.studentRescheduleCount} left)
             </Button>
           ) : (
             <p className="max-w-md text-[13px] leading-relaxed text-soft">
@@ -309,12 +344,12 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
             </p>
           )}
           <Button variant="outline" onClick={cancelBooking} disabled={busy}>
-            {busy ? "Working…" : "Cancel lesson"}
+            {busy ? "Working…" : sessions.length > 1 ? "Cancel package" : "Cancel lesson"}
           </Button>
         </div>
       )}
 
-      {mode === "view" && !closed && withinCancellationWindow && (
+      {mode === "view" && !closed && selectedSessionOpen && withinCancellationWindow && (
         <div className="mt-6 border-t border-line pt-5">
           <p className="text-[13px] leading-relaxed text-soft">
             Online changes close 48 hours before the lesson. Please call{" "}
@@ -324,6 +359,10 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
             for help with a late change.
           </p>
         </div>
+      )}
+
+      {mode === "view" && !closed && !selectedSessionOpen && sessions.length > 1 && (
+        <p className="mt-5 border-t border-line pt-4 text-[13px] text-soft">This session is {STATUS_LABEL[selectedSession.status]?.toLowerCase() ?? "closed"}. Select another session above to manage its time.</p>
       )}
 
       {mode === "view" && closed && (
@@ -336,13 +375,15 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
         <div className="mt-6 border-t border-line pt-5">
           <p className="mb-4 text-[13.5px] leading-relaxed text-soft">
             Currently booked for{" "}
-            <strong className="text-ink">{formatSlotFull(booking.startsAt)}</strong>.
+              <strong className="text-ink">{formatSlotFull(selectedSession.startsAt)}</strong>.
             Choose a new time below — your current slot stays held until you confirm.
           </p>
           <DateTimeStep
-            key={booking.reference}
-            lessonId={booking.lessonId}
+            key={selectedSession.id}
+            lessonId={selectedSession.lessonId}
             selectedStart={pendingStart}
+            minDate={selectedSession.packageWindowStart}
+            maxDate={addMonthsToKey(selectedSession.packageWindowStart, 2)}
             onSelect={setPendingStart}
           />
           <div className="mt-6 flex flex-wrap gap-3">

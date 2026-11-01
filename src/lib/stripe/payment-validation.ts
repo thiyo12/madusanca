@@ -2,9 +2,32 @@ import type Stripe from "stripe";
 
 type PaymentTotals = Pick<Stripe.Checkout.Session, "amount_subtotal" | "amount_total" | "total_details">;
 
-/** Only test-mode Stripe secret keys may enable production Checkout pre-launch. */
+/** Recognize a correctly shaped Stripe test-mode secret without exposing its value. */
 export function isTestModeStripeSecretKey(key: string | undefined): boolean {
   return typeof key === "string" && /^(?:sk|rk)_test_[A-Za-z0-9]+$/.test(key);
+}
+
+function isLiveModeStripeSecretKey(key: string | undefined): boolean {
+  return typeof key === "string" && /^(?:sk|rk)_live_[A-Za-z0-9]+$/.test(key);
+}
+
+/**
+ * Fail-closed production payment gate. Test mode remains available for pre-launch
+ * checks; live mode requires an explicit opt-in, a live key, and webhook signing
+ * secret so paid sessions cannot be enabled without fulfillment notifications.
+ */
+export function isStripePaymentsEnabled(config: {
+  nodeEnv: string | undefined;
+  secretKey: string | undefined;
+  livePaymentsEnabled: string | undefined;
+  webhookSecret: string | undefined;
+}): boolean {
+  if (config.nodeEnv !== "production") return isTestModeStripeSecretKey(config.secretKey);
+  if (isTestModeStripeSecretKey(config.secretKey)) return true;
+  return config.livePaymentsEnabled === "true" &&
+    isLiveModeStripeSecretKey(config.secretKey) &&
+    typeof config.webhookSecret === "string" &&
+    /^whsec_[A-Za-z0-9]+$/.test(config.webhookSecret);
 }
 
 /** Checkout has one pre-tax line item and Stripe Tax is additive. */
@@ -22,7 +45,7 @@ export function matchesInitialBookingPayment(
   session: Pick<Stripe.Checkout.Session,
     "id" | "mode" | "currency" | "client_reference_id" | "metadata" |
     "amount_subtotal" | "amount_total" | "total_details">,
-  booking: { id: string; reference: string; priceCad: number; stripeCheckoutSessionId?: string },
+  booking: { id: string; reference: string; priceCad: number; packagePriceCad?: number; stripeCheckoutSessionId?: string },
 ): boolean {
   return Boolean(
     booking.stripeCheckoutSessionId &&
@@ -32,7 +55,7 @@ export function matchesInitialBookingPayment(
     session.currency?.toLowerCase() === "cad" &&
     session.client_reference_id === booking.reference &&
     session.metadata?.booking_reference === booking.reference &&
-    session.amount_subtotal === Math.round(booking.priceCad * 100) &&
+    session.amount_subtotal === Math.round((booking.packagePriceCad ?? booking.priceCad) * 100) &&
     hasConsistentCadTotal(session),
   );
 }

@@ -8,6 +8,7 @@ import { DetailsStep, emptyDetails, type DetailsValue } from "@/components/booki
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import type { Lesson } from "@/lib/data/lessons";
+import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 
 export interface BookingWizardProps {
   lessons: Lesson[];
@@ -41,7 +42,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
     if (!initialLessonId) return null;
     return lessons.find((l) => l.id === initialLessonId) ?? null;
   });
-  const [startsAt, setStartsAt] = useState<string | null>(null);
+  const [startsAt, setStartsAt] = useState<string[]>([]);
+  const [sessionIndex, setSessionIndex] = useState(0);
   const [details, setDetails] = useState<DetailsValue>(emptyDetails);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -52,9 +54,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
 
   const canAdvance = useMemo(() => {
     if (step === "lesson") return lesson !== null;
-    if (step === "when") return startsAt !== null;
+    if (step === "when") return Boolean(lesson && startsAt.length === lesson.sessionCount);
     return true;
   }, [step, lesson, startsAt]);
+
+  const packageWindowEnd = useMemo(() => {
+    if (!startsAt[0]) return undefined;
+    return addMonthsToKey(dayKeyOf(startsAt[0]), 2);
+  }, [startsAt]);
 
   function goNext() {
     if (!canAdvance) return;
@@ -106,7 +113,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
   }
 
   async function confirmBooking() {
-    if (!lesson || !startsAt) return;
+    if (!lesson || startsAt.length !== lesson.sessionCount) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -115,7 +122,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lessonId: lesson.id,
-          startsAt,
+          sessions: startsAt,
           studentName: details.studentName.trim(),
           email: details.email.trim(),
           phone: details.phone.trim(),
@@ -141,6 +148,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           lessonName: string;
           durationMin: number;
           startsAt: string;
+          sessions?: Array<{ startsAt: string }>;
           studentName: string;
           email?: string;
         };
@@ -258,12 +266,38 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
       )}
 
       {step === "when" && lesson && (
-        <DateTimeStep
-          key={lesson.id}
-          lessonId={lesson.id}
-          selectedStart={startsAt}
-          onSelect={setStartsAt}
-        />
+        <div>
+          <p className="mb-3 text-sm font-extrabold text-ink">Choose a separate date and time for each session</p>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {Array.from({ length: lesson.sessionCount }, (_, index) => (
+              <button
+                key={index}
+                type="button"
+                onClick={() => setSessionIndex(index)}
+                aria-pressed={sessionIndex === index}
+                className={`rounded-full border px-3 py-1.5 text-xs font-bold ${sessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}
+              >
+                Session {index + 1}{startsAt[index] ? " ✓" : ""}
+              </button>
+            ))}
+          </div>
+          {packageWindowEnd && <p className="mb-3 text-xs text-soft">All sessions must be booked by {packageWindowEnd} (two months from your first session).</p>}
+          <DateTimeStep
+            lessonId={lesson.id}
+            selectedStart={startsAt[sessionIndex] ?? null}
+            maxDate={packageWindowEnd}
+            minDate={sessionIndex > 0 && startsAt[0] ? dayKeyOf(startsAt[0]) : undefined}
+            horizonDays={lesson.sessionCount > 1 && sessionIndex > 0 ? 150 : 90}
+            onSelect={(slot) => {
+              setStartsAt((current) => {
+                const next = [...current];
+                next[sessionIndex] = slot;
+                return next;
+              });
+              setSessionIndex((index) => Math.min(index + 1, lesson.sessionCount - 1));
+            }}
+          />
+        </div>
       )}
 
       {step === "details" && (
@@ -275,14 +309,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         </form>
       )}
 
-      {step === "review" && lesson && startsAt && (
+      {step === "review" && lesson && startsAt.length === lesson.sessionCount && (
         <div>
           <BookingSummary
             data={{
               lessonName: lesson.name,
               durationMin: lesson.durationMin,
               priceCad: lesson.priceCad,
-              startsAt,
+              startsAt: startsAt[0],
               studentName: details.studentName.trim(),
               email: details.email.trim(),
             }}
@@ -292,11 +326,13 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
               Confirming reserves this time. You&rsquo;ll receive a private manage link by
               email to change or cancel online at least 48 hours before the lesson.
             </p>
-            {lesson.id === "five-lesson-pack" || lesson.id === "eight-lesson-pack" ? (
-              <p>
-                This booking reserves the first 90-minute session in the pack; we&rsquo;ll
-                arrange the remaining sessions with you.
-              </p>
+            {lesson.sessionCount > 1 ? (
+              <div>
+                <p>All {lesson.sessionCount} session times are included and must be within two months of the first session:</p>
+                <ol className="mt-2 list-inside list-decimal">
+                  {startsAt.map((slot, index) => <li key={`${slot}-${index}`}>{new Date(slot).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })} Pacific</li>)}
+                </ol>
+              </div>
             ) : lesson.id === "road-test-package" ? (
               <p>
                 This booking reserves the 45-minute mock test. We&rsquo;ll confirm the
@@ -322,7 +358,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
 
       {(step === "lesson" || step === "when") && (
         <div className="mt-7 flex items-center justify-between gap-3 border-t border-line pt-5">
-          <Button variant="ghost" onClick={goBack} disabled={stepIndex === 0}>
+          <Button variant="ghost" onClick={() => step === "when" && sessionIndex > 0 ? setSessionIndex((index) => index - 1) : goBack()} disabled={stepIndex === 0}>
             <span aria-hidden="true">←</span> Back
           </Button>
           <Button onClick={goNext} disabled={!canAdvance}>

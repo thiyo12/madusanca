@@ -10,7 +10,7 @@ import { recordPaidCheckoutSession } from "@/lib/stripe/fulfill";
 import { getStripe, stripeTaxCode, stripeTaxReady } from "@/lib/stripe/server";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
-import { isTestModeStripeSecretKey } from "@/lib/stripe/payment-validation";
+import { isStripePaymentsEnabled } from "@/lib/stripe/payment-validation";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +22,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
     return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
   }
-  if (process.env.NODE_ENV === "production" && !isTestModeStripeSecretKey(process.env.STRIPE_SECRET_KEY)) {
-    return NextResponse.json({ ok: false, error: "Online payments are disabled until test-mode checkout is configured." }, { status: 503 });
+  if (!isStripePaymentsEnabled({
+    nodeEnv: process.env.NODE_ENV,
+    secretKey: process.env.STRIPE_SECRET_KEY,
+    livePaymentsEnabled: process.env.STRIPE_LIVE_PAYMENTS_ENABLED,
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+  })) {
+    return NextResponse.json({ ok: false, error: "Online payments are not enabled for this Stripe configuration." }, { status: 503 });
   }
   if (await isIpRateLimitedShared(request, "stripe-checkout", 8, 10 * 60 * 1000)) {
     return NextResponse.json(
@@ -156,11 +161,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         quantity: 1,
         price_data: {
           currency: "cad",
-          unit_amount: Math.round(found.booking.priceCad * 100),
+        unit_amount: Math.round((found.booking.packagePriceCad ?? found.booking.priceCad) * 100),
           tax_behavior: "exclusive",
           product_data: {
             name: found.booking.lessonName,
-            description: `${found.booking.durationMin}-minute booked session; GST calculated by Stripe Tax.`,
+            description: `${found.sessions.length} separately scheduled ${found.booking.durationMin}-minute session${found.sessions.length === 1 ? "" : "s"}; GST calculated by Stripe Tax.`,
             tax_code: taxCode,
             metadata: {
               booking_id: found.booking.id,

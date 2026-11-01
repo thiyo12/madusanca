@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
 import { validateSlot } from "@/lib/booking/slots";
+import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { createBookingSchema } from "@/lib/validation/booking";
 import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
@@ -45,7 +46,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const { lessonId, startsAt, studentName, email, phone, notes, website } = parsed.data;
+  const { lessonId, studentName, email, phone, notes, website } = parsed.data;
 
   if (await isRateLimitedShared(`booking-email:${email.trim().toLowerCase()}`, 5, 10 * 60 * 1000)) {
     return NextResponse.json(
@@ -65,49 +66,57 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!lesson) {
       return NextResponse.json({ ok: false, error: "Lesson not found." }, { status: 404 });
     }
-    const now = new Date();
-    const startMs = Date.parse(startsAt);
-    const endsAt = new Date(startMs + lesson.durationMin * 60000).toISOString();
+    const startsAt = parsed.data.sessions ?? [parsed.data.startsAt!];
+    if (startsAt.length !== lesson.sessionCount) {
+      return NextResponse.json({ ok: false, error: `Please select all ${lesson.sessionCount} session times.` }, { status: 400 });
+    }
+    const sortedStarts = [...startsAt].sort((a, b) => Date.parse(a) - Date.parse(b));
+    const limitDay = addMonthsToKey(dayKeyOf(sortedStarts[0]), 2);
+    if (Date.parse(sortedStarts[0]) > Date.now() + 90 * 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ ok: false, error: "The first session must be within the next 90 days." }, { status: 400 });
+    }
+    if (sortedStarts.some((value, index) =>
+      !Number.isFinite(Date.parse(value)) || dayKeyOf(value) > limitDay ||
+      (index > 0 && value === sortedStarts[index - 1]),
+    )) {
+      return NextResponse.json({ ok: false, error: "Choose different session times within two months of the first session." }, { status: 400 });
+    }
 
-    const [rules, blackouts, busy] = await Promise.all([
-      store.getRules(),
-      store.getBlackouts(),
-      store.getBusy(
+    const [rules, blackouts] = await Promise.all([store.getRules(), store.getBlackouts()]);
+    for (const selectedStart of sortedStarts) {
+      const startMs = Date.parse(selectedStart);
+      const busy = await store.getBusy(
         new Date(startMs - 24 * 60 * 60 * 1000).toISOString(),
         new Date(startMs + 48 * 60 * 60 * 1000).toISOString(),
-      ),
-    ]);
-
-    const validation = validateSlot(new Date(startMs).toISOString(), {
-      lessonDurationMin: lesson.durationMin,
-      busy,
-      blackouts,
-      rules,
-      now,
-    });
-
-    if (!validation.valid) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            validation.reason === "occupied"
-              ? "That time was just taken. Please pick another slot."
-              : "That time is no longer available. Please pick another slot.",
-        },
-        { status: 409 },
       );
+      const validation = validateSlot(selectedStart, {
+        lessonDurationMin: lesson.durationMin,
+        busy,
+        blackouts,
+        rules,
+        now: new Date(),
+      });
+      if (!validation.valid) {
+        return NextResponse.json({
+          ok: false,
+          error: validation.reason === "occupied"
+            ? "One of those times was just taken. Please choose another slot."
+            : "One of those times is no longer available. Please review your selections.",
+        }, { status: 409 });
+      }
     }
 
     const token = generateToken();
-    const result = await store.createBooking(
+    const result = await store.createBookingPackage(
       {
         lessonId: lesson.id,
         lessonName: lesson.name,
         durationMin: lesson.durationMin,
-        priceCad: lesson.priceCad,
-        startsAt: new Date(startMs).toISOString(),
-        endsAt,
+        packagePriceCad: lesson.priceCad,
+        sessions: sortedStarts.map((value) => ({
+          startsAt: new Date(value).toISOString(),
+          endsAt: new Date(Date.parse(value) + lesson.durationMin * 60000).toISOString(),
+        })),
         studentName,
         email,
         phone,
@@ -123,7 +132,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
-    const booking = result.value;
+    const booking = result.value[0];
     const url = manageUrl(token);
     const emailSent = await sendBookingPaymentPendingEmail({
       reference: booking.reference,
@@ -133,6 +142,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       studentName: booking.studentName,
       studentEmail: booking.email,
       manageUrl: url,
+      sessionStartsAt: result.value.map((session) => session.startsAt),
     });
 
     const response = NextResponse.json({
@@ -144,6 +154,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         startsAt: booking.startsAt,
         endsAt: booking.endsAt,
         studentName: booking.studentName,
+        sessions: result.value.map(({ startsAt: sessionStart }) => ({ startsAt: sessionStart })),
+        sessionCount: result.value.length,
       },
       manageUrl: `${new URL(url).origin}/booking/manage`,
       emailSent,

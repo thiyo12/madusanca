@@ -15,9 +15,10 @@ export interface DateTimeStepProps {
   lessonId: string;
   selectedStart: string | null;
   onSelect: (startsAt: string) => void;
+  maxDate?: string;
+  minDate?: string;
+  horizonDays?: number;
 }
-
-const DAY_WINDOW = 21;
 
 interface AvailabilityResponse {
   ok: boolean;
@@ -25,7 +26,7 @@ interface AvailabilityResponse {
   slots?: string[];
 }
 
-export function DateTimeStep({ lessonId, selectedStart, onSelect }: DateTimeStepProps) {
+export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90 }: DateTimeStepProps) {
   const [slots, setSlots] = useState<string[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect }: DateTimeStep
   useEffect(() => {
     let cancelled = false;
     const from = todayKey();
-    const to = addDaysToKey(from, DAY_WINDOW);
+    const to = addDaysToKey(from, horizonDays);
 
     fetch(`/api/availability?lessonId=${encodeURIComponent(lessonId)}&from=${from}&to=${to}`)
       .then(async (response) => {
@@ -45,11 +46,14 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect }: DateTimeStep
           setErrorMessage(data.error ?? "Could not load available times.");
           return;
         }
-        setSlots(data.slots);
+        const visibleSlots = data.slots.filter((slot) =>
+          (!maxDate || dayKeyOf(slot) <= maxDate) && (!minDate || dayKeyOf(slot) >= minDate),
+        );
+        setSlots(visibleSlots);
         setStatus("ready");
-        const firstDay = data.slots[0] ? dayKeyOf(data.slots[0]) : null;
+        const firstDay = visibleSlots[0] ? dayKeyOf(visibleSlots[0]) : null;
         setActiveDay((current) => {
-          const currentHasSlots = data.slots!.some((slot) => dayKeyOf(slot) === current);
+          const currentHasSlots = visibleSlots.some((slot) => dayKeyOf(slot) === current);
           if (currentHasSlots) return current;
           return firstDay ?? current;
         });
@@ -63,7 +67,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect }: DateTimeStep
     return () => {
       cancelled = true;
     };
-  }, [lessonId]);
+  }, [lessonId, maxDate, minDate, horizonDays]);
 
   const days = useMemo(() => {
     const counts = new Map<string, number>();
@@ -73,12 +77,12 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect }: DateTimeStep
     }
     const start = todayKey();
     const list: Array<{ key: string; count: number }> = [];
-    for (let i = 0; i < DAY_WINDOW + 1; i += 1) {
+    for (let i = 0; i < horizonDays + 1; i += 1) {
       const key = addDaysToKey(start, i);
-      list.push({ key, count: counts.get(key) ?? 0 });
+      if ((!maxDate || key <= maxDate) && (!minDate || key >= minDate)) list.push({ key, count: counts.get(key) ?? 0 });
     }
     return list;
-  }, [slots]);
+  }, [slots, maxDate, minDate, horizonDays]);
 
   const daySlots = useMemo(
     () => slots.filter((slot) => dayKeyOf(slot) === activeDay),

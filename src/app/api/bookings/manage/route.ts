@@ -16,6 +16,7 @@ import { logSafeError } from "@/lib/server/safe-log";
 import { getStripe } from "@/lib/stripe/server";
 import { getManageToken, MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
+import { dayKeyOf } from "@/lib/booking/format";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
@@ -43,6 +44,7 @@ function errorResponse(error: string, message: string): NextResponse {
 }
 
 function safeView(booking: BookingRecord): {
+  id: string;
   reference: string;
   lessonId: string;
   lessonName: string;
@@ -56,13 +58,18 @@ function safeView(booking: BookingRecord): {
   studentRescheduleCount: number;
   paymentStatus: string;
   invoiceUrl?: string;
+  sessionIndex: number;
+  sessionCount: number;
+  packagePriceCad: number;
+  packageWindowStart: string;
 } {
   return {
+    id: booking.id,
     reference: booking.reference,
     lessonId: booking.lessonId,
     lessonName: booking.lessonName,
     durationMin: booking.durationMin,
-    priceCad: booking.priceCad,
+    priceCad: booking.packagePriceCad ?? booking.priceCad,
     startsAt: booking.startsAt,
     endsAt: booking.endsAt,
     studentName: booking.studentName,
@@ -71,6 +78,10 @@ function safeView(booking: BookingRecord): {
     studentRescheduleCount: booking.studentRescheduleCount ?? 0,
     paymentStatus: booking.paymentStatus ?? "due",
     invoiceUrl: booking.stripeInvoiceUrl,
+    sessionIndex: booking.sessionIndex ?? 1,
+    sessionCount: booking.sessionCount ?? 1,
+    packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
+    packageWindowStart: booking.packageWindowStart ?? dayKeyOf(booking.startsAt),
   };
 }
 
@@ -138,7 +149,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const { action, startsAt } = parsed.data;
+  const { action, startsAt, sessionId } = parsed.data;
   const token = await getManageToken();
   if (!token) return errorResponse("not_found", "Open the private booking link or verify your email to continue.");
   const hash = hashToken(token);
@@ -152,11 +163,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (!found) {
         return errorResponse("not_found", "This booking link is invalid or has expired.");
       }
-      const upgradeOptions = found.booking.paymentStatus === "paid" && ["confirmed", "rescheduled"].includes(found.booking.status)
-        ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package" && lesson.priceCad > found.booking.priceCad)
-          .map(({ id, name, priceCad }) => ({ id, name, priceCad, balanceCad: Math.round((priceCad - found.booking.priceCad) * 100) / 100 }))
+      const currentPackagePrice = found.booking.packagePriceCad ?? found.booking.priceCad;
+      const upgradeOptions = found.sessions.every((session) => ["confirmed", "rescheduled"].includes(session.status)) && found.booking.paymentStatus === "paid"
+        ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package" && lesson.priceCad > currentPackagePrice)
+          .map(({ id, name, priceCad }) => ({ id, name, priceCad, balanceCad: Math.round((priceCad - currentPackagePrice) * 100) / 100 }))
         : [];
-      return NextResponse.json({ ok: true, booking: { ...safeView(found.booking), upgradeOptions } });
+      return NextResponse.json({
+        ok: true,
+        booking: { ...safeView(found.booking), upgradeOptions },
+        sessions: found.sessions.map(safeView),
+      });
     }
 
     if (action === "cancel") {
@@ -165,24 +181,28 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (!found) {
         return errorResponse("not_found", "This booking link is invalid or has expired.");
       }
-      if (found.booking.status === "cancelled" || found.booking.status === "completed") {
+      const paymentBooking = found.sessions.find((session) => session.stripeCheckoutSessionId) ?? found.booking;
+      if (found.sessions.every((session) => ["cancelled", "completed"].includes(session.status))) {
         return errorResponse("not_modifiable", "This booking can no longer be changed.");
       }
+      if (found.sessions.some((session) => session.paymentStatus === "paid")) {
+        return errorResponse("not_modifiable", "This package has been paid. Contact the school for cancellation or refund help.");
+      }
       try {
-        if (await expireUpgradeCheckout(found.booking)) {
+        if (await expireUpgradeCheckout(paymentBooking)) {
           return errorResponse("not_modifiable", "An upgrade payment is complete or processing. Refresh the booking and try again.");
         }
       } catch (error) {
         logSafeError("[bookings/manage] upgrade cancellation check failed", error);
         return NextResponse.json({ ok: false, error: "Could not verify upgrade payment status. Please try again shortly." }, { status: 503 });
       }
-      if (isInsideSelfServiceWindow(found.booking.startsAt)) {
+      if (found.sessions.some((session) => isInsideSelfServiceWindow(session.startsAt))) {
         return errorResponse("cutoff", messageFor("cutoff"));
       }
-      if (found.booking.stripeCheckoutSessionId) {
+      if (paymentBooking.stripeCheckoutSessionId) {
         try {
           const stripe = (await import("@/lib/stripe/server")).getStripe();
-          const session = await stripe.checkout.sessions.retrieve(found.booking.stripeCheckoutSessionId);
+          const session = await stripe.checkout.sessions.retrieve(paymentBooking.stripeCheckoutSessionId);
           if (session.status === "complete") {
             return errorResponse("not_modifiable", session.payment_status === "paid"
               ? "This booking has already been paid. Contact the school for cancellation or refund help."
@@ -192,7 +212,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           await store.handleStripeCheckoutEvent({
             eventId: `customer-cancel-expire-${session.id}`,
             eventType: "expired",
-            bookingId: found.booking.id,
+            bookingId: paymentBooking.id,
             sessionId: session.id,
           });
         } catch (error) {
@@ -213,7 +233,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         studentEmail: result.value.email,
         manageUrl: siteBase(),
       });
-      return NextResponse.json({ ok: true, booking: safeView(result.value), emailSent });
+      const updated = await store.getBookingByToken(hash);
+      return NextResponse.json({
+        ok: true,
+        booking: safeView(result.value),
+        sessions: updated?.sessions.map(safeView) ?? [safeView(result.value)],
+        emailSent,
+      });
     }
 
     // action === "reschedule"
@@ -229,24 +255,28 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!found) {
       return errorResponse("not_found", "This booking link is invalid or has expired.");
     }
-    if (found.booking.status === "cancelled" || found.booking.status === "completed") {
+    const targetBooking = found.sessions.find((session) => session.id === sessionId) ?? found.booking;
+    const paymentBooking = found.sessions.find((session) => session.stripeCheckoutSessionId) ?? found.booking;
+    if (targetBooking.status === "cancelled" || targetBooking.status === "completed") {
       return errorResponse("not_modifiable", "This booking can no longer be changed.");
     }
     try {
-      if (await expireUpgradeCheckout(found.booking)) {
+      if (await expireUpgradeCheckout(paymentBooking)) {
         return errorResponse("not_modifiable", "An upgrade payment is complete or processing. Refresh the booking and try again.");
       }
     } catch (error) {
       logSafeError("[bookings/manage] upgrade reschedule check failed", error);
       return NextResponse.json({ ok: false, error: "Could not verify upgrade payment status. Please try again shortly." }, { status: 503 });
     }
-    if (isInsideSelfServiceWindow(found.booking.startsAt)) {
+    if (isInsideSelfServiceWindow(targetBooking.startsAt)) {
       return errorResponse("cutoff", messageFor("cutoff"));
     }
-    if (found.booking.stripeCheckoutSessionId) {
+    const paidMultiSessionPackage = found.sessions.length > 1 &&
+      found.sessions.every((session) => session.paymentStatus === "paid");
+    if (!paidMultiSessionPackage && paymentBooking.stripeCheckoutSessionId) {
       try {
         const stripe = (await import("@/lib/stripe/server")).getStripe();
-        const session = await stripe.checkout.sessions.retrieve(found.booking.stripeCheckoutSessionId);
+        const session = await stripe.checkout.sessions.retrieve(paymentBooking.stripeCheckoutSessionId);
         if (session.status === "complete") {
           return errorResponse("not_modifiable", session.payment_status === "paid"
             ? "This booking has already been paid. Contact the school before rescheduling."
@@ -256,7 +286,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         await store.handleStripeCheckoutEvent({
           eventId: `customer-reschedule-expire-${session.id}`,
           eventType: "expired",
-          bookingId: found.booking.id,
+          bookingId: paymentBooking.id,
           sessionId: session.id,
         });
       } catch (error) {
@@ -267,7 +297,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // Use the duration stored on the booking — catalogue edits must not
     // retroactively change lessons already booked.
-    const durationMin = found.booking.durationMin;
+    const durationMin = targetBooking.durationMin;
     const startMs = Date.parse(startsAt);
     if (Number.isNaN(startMs)) {
       return NextResponse.json({ ok: false, error: "Invalid date." }, { status: 400 });
@@ -286,7 +316,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // The customer's own current slot counts as free while rescheduling.
     const ownBusy = busy.filter(
       (interval) =>
-        !(interval.startsAt === found.booking.startsAt && interval.endsAt === found.booking.endsAt),
+        !(interval.startsAt === targetBooking.startsAt && interval.endsAt === targetBooking.endsAt),
     );
 
     const validation = validateSlot(new Date(startMs).toISOString(), {
@@ -310,8 +340,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const newToken = generateToken();
-    const previousStartsAt = found.booking.startsAt;
-    const result = await store.rescheduleBookingByToken(hash, new Date(startMs).toISOString(), endsAt, {
+    const previousStartsAt = targetBooking.startsAt;
+    const result = await store.reschedulePackageSessionByToken(hash, targetBooking.id, new Date(startMs).toISOString(), endsAt, {
       hash: hashToken(newToken),
       expiresAt: tokenExpiry(),
     });
@@ -330,10 +360,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       studentEmail: result.value.email,
       manageUrl,
     });
+    const updated = await store.getBookingByToken(hashToken(newToken));
 
     const response = NextResponse.json({
       ok: true,
       booking: safeView(result.value),
+      sessions: updated?.sessions.map(safeView) ?? [safeView(result.value)],
       emailSent,
     });
     response.cookies.set(MANAGE_COOKIE_NAME, newToken, manageCookieOptions);

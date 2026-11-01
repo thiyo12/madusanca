@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_RULES } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { lessons as defaultLessons, type Lesson } from "@/lib/data/lessons";
+import { customerCanAccessBooking } from "@/lib/booking/customer-access";
 import type {
   AdminRescheduleResult,
   AvailabilityRule,
@@ -14,6 +15,7 @@ import type {
   BookingStatus,
   BusyInterval,
   CreateBookingInput,
+  CreateBookingPackageInput,
   OtpSendPermit,
   PaymentStatus,
   StripeCheckoutEvent,
@@ -74,6 +76,11 @@ interface BookingRow {
   stripe_currency?: string | null;
   created_at: string;
   updated_at: string;
+  package_id?: string;
+  session_index?: number;
+  session_count?: number;
+  package_price_cad?: number;
+  package_window_start?: string;
 }
 
 function toRecord(row: BookingRow): BookingRecord {
@@ -113,6 +120,11 @@ function toRecord(row: BookingRow): BookingRecord {
     stripeCurrency: row.stripe_currency ?? undefined,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+    packageId: row.package_id ?? row.id,
+    sessionIndex: row.session_index ?? 1,
+    sessionCount: row.session_count ?? 1,
+    packagePriceCad: row.package_price_cad == null ? Number(row.price_cad) : Number(row.package_price_cad),
+    packageWindowStart: row.package_window_start,
   };
 }
 
@@ -190,6 +202,30 @@ export const supabaseStore: BookingStore = {
     return { ok: true, value: { ...toRecord(envelope.record), status: "pending_payment" } };
   },
 
+  async createBookingPackage(
+    input: CreateBookingPackageInput,
+    token: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord[]>> {
+    const { data, error } = await adminClient().rpc("create_booking_package", {
+      p_token_hash: token.hash,
+      p_token_expires_at: token.expiresAt,
+      p_lesson_id: input.lessonId,
+      p_lesson_name: input.lessonName,
+      p_duration_min: input.durationMin,
+      p_package_price_cad: input.packagePriceCad,
+      p_starts_at: input.sessions.map((session) => session.startsAt),
+      p_student_name: input.studentName,
+      p_email: input.email,
+      p_phone: input.phone,
+      p_notes: input.notes,
+    });
+    if (error) throw new Error(`Failed to create booking package: ${error.message}`);
+    const envelope = data as { ok: true; records?: BookingRow[] } | { ok: false; error: string };
+    if (!envelope.ok) return { ok: false, error: envelope.error === "conflict" ? "conflict" : "not_found" };
+    if (!envelope.records?.length) return { ok: false, error: "not_found" };
+    return { ok: true, value: envelope.records.map(toRecord) };
+  },
+
   async getBookingByToken(tokenHash: string) {
     const { data, error } = await adminClient()
       .from("booking_tokens")
@@ -202,7 +238,20 @@ export const supabaseStore: BookingStore = {
     const rows = data.bookings as BookingRow[] | BookingRow | null;
     const row = Array.isArray(rows) ? rows[0] : rows;
     if (!row) return null;
-    return { booking: toRecord(row), tokenExpiresAt: new Date(data.expires_at).toISOString() };
+    const packageId = row.package_id ?? row.id;
+    const { data: packageRows, error: packageError } = await adminClient()
+      .from("bookings")
+      .select("*")
+      .eq("package_id", packageId)
+      .order("session_index", { ascending: true });
+    if (packageError) throw new Error(`Failed to load booking sessions: ${packageError.message}`);
+    const sessions = (packageRows ?? [row]).map(toRecord);
+    if (!sessions.some((session) => customerCanAccessBooking(session.status))) return null;
+    return {
+      booking: sessions.find((session) => session.sessionIndex === 1) ?? toRecord(row),
+      sessions,
+      tokenExpiresAt: new Date(data.expires_at).toISOString(),
+    };
   },
 
   async rescheduleBookingByToken(
@@ -219,6 +268,28 @@ export const supabaseStore: BookingStore = {
       p_new_token_expires_at: newToken.expiresAt,
     });
     if (error) throw new Error(`Failed to reschedule booking: ${error.message}`);
+    const envelope = data as RpcEnvelope<BookingRow>;
+    if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
+    if (!envelope.record) return { ok: false, error: "not_found" };
+    return { ok: true, value: toRecord(envelope.record) };
+  },
+
+  async reschedulePackageSessionByToken(
+    tokenHash: string,
+    sessionId: string,
+    startsAt: string,
+    endsAt: string,
+    newToken: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord>> {
+    const { data, error } = await adminClient().rpc("reschedule_package_session_by_token", {
+      p_token_hash: tokenHash,
+      p_session_id: sessionId,
+      p_starts_at: startsAt,
+      p_ends_at: endsAt,
+      p_new_token_hash: newToken.hash,
+      p_new_token_expires_at: newToken.expiresAt,
+    });
+    if (error) throw new Error(`Failed to reschedule package session: ${error.message}`);
     const envelope = data as RpcEnvelope<BookingRow>;
     if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
     if (!envelope.record) return { ok: false, error: "not_found" };
@@ -263,7 +334,21 @@ export const supabaseStore: BookingStore = {
   },
 
   async updateBookingStatus(id: string, status: BookingStatus): Promise<StoreResult<BookingRecord>> {
-    const existing = await adminClient().from("bookings").select("status").eq("id", id).maybeSingle();
+    if (status === "completed") {
+      const { data, error } = await adminClient().rpc("complete_booking_package", { p_booking_id: id });
+      if (error) throw new Error(`Failed to complete booking package: ${error.message}`);
+      const envelope = data as RpcEnvelope<BookingRow>;
+      if (!envelope.ok || !envelope.record) return { ok: false, error: "not_found" };
+      return { ok: true, value: toRecord(envelope.record) };
+    }
+    if (status === "cancelled") {
+      const { data, error } = await adminClient().rpc("admin_cancel_booking_package", { p_booking_id: id });
+      if (error) throw new Error(`Failed to cancel booking package: ${error.message}`);
+      const envelope = data as RpcEnvelope<BookingRow>;
+      if (!envelope.ok || !envelope.record) return { ok: false, error: "not_found" };
+      return { ok: true, value: toRecord(envelope.record) };
+    }
+    const existing = await adminClient().from("bookings").select("status, package_id").eq("id", id).maybeSingle();
     if (existing.error) throw new Error(`Failed to load booking: ${existing.error.message}`);
     if (!existing.data) return { ok: false, error: "not_found" };
     if (["cancelled", "completed"].includes(existing.data.status)) {
@@ -273,29 +358,29 @@ export const supabaseStore: BookingStore = {
     const { data, error } = await adminClient()
       .from("bookings")
       .update({ status, updated_at: new Date().toISOString() })
-      .eq("id", id)
-      .select()
-      .single();
+      .eq("package_id", existing.data.package_id ?? id)
+      .select();
     if (error) throw new Error(`Failed to update booking status: ${error.message}`);
-    return { ok: true, value: toRecord(data) };
+    const row = (data ?? []).find((item) => item.id === id);
+    return row ? { ok: true, value: toRecord(row) } : { ok: false, error: "not_found" };
   },
 
   async updatePaymentStatus(
     id: string,
     paymentStatus: PaymentStatus,
   ): Promise<StoreResult<BookingRecord>> {
-    const existing = await adminClient().from("bookings").select("payment_status").eq("id", id).maybeSingle();
+    const existing = await adminClient().from("bookings").select("id, package_id").eq("id", id).maybeSingle();
     if (existing.error) throw new Error(`Failed to load booking: ${existing.error.message}`);
     if (!existing.data) return { ok: false, error: "not_found" };
 
     const { data, error } = await adminClient()
       .from("bookings")
       .update({ payment_status: paymentStatus, updated_at: new Date().toISOString() })
-      .eq("id", id)
-      .select()
-      .single();
+      .eq("package_id", existing.data.package_id ?? existing.data.id)
+      .select();
     if (error) throw new Error(`Failed to update payment status: ${error.message}`);
-    return { ok: true, value: toRecord(data) };
+    const row = (data ?? []).find((item) => item.id === id);
+    return row ? { ok: true, value: toRecord(row) } : { ok: false, error: "not_found" };
   },
 
   async adminRescheduleBooking(
@@ -303,46 +388,16 @@ export const supabaseStore: BookingStore = {
     startsAt: string,
     endsAt: string,
   ): Promise<StoreResult<AdminRescheduleResult>> {
-    const found = await adminClient().from("bookings").select("*").eq("id", id).maybeSingle();
-    if (found.error) throw new Error(`Failed to load booking: ${found.error.message}`);
-    if (!found.data) return { ok: false, error: "not_found" };
-    if (["cancelled", "completed"].includes(found.data.status)) {
-      return { ok: false, error: "not_modifiable" };
-    }
-
-    // Reuse the atomic token RPC for the conflict check. The student's manage
-    // link is rotated, so a fresh valid token row is ensured beforehand.
     const token = generateToken();
     const newToken = { hash: hashToken(token), expiresAt: tokenExpiry() };
-
-    const tokenRow = await adminClient()
-      .from("booking_tokens")
-      .select("token_hash, expires_at")
-      .eq("booking_id", id)
-      .maybeSingle();
-    if (tokenRow.error) throw new Error(`Failed to load token: ${tokenRow.error.message}`);
-
-    let currentHash: string;
-    if (tokenRow.data && Date.parse(tokenRow.data.expires_at) >= Date.now()) {
-      currentHash = tokenRow.data.token_hash;
-    } else {
-      const inserted = await adminClient()
-        .from("booking_tokens")
-        .insert({ token_hash: hashToken(generateToken()), booking_id: id, expires_at: tokenExpiry() })
-        .select("token_hash")
-        .single();
-      if (inserted.error) throw new Error(`Failed to mint token: ${inserted.error.message}`);
-      currentHash = inserted.data.token_hash;
-    }
-
-    const { data, error } = await adminClient().rpc("reschedule_booking_by_token", {
-      p_token_hash: currentHash,
+    const { data, error } = await adminClient().rpc("admin_reschedule_package_session", {
+      p_booking_id: id,
       p_starts_at: startsAt,
       p_ends_at: endsAt,
       p_new_token_hash: newToken.hash,
       p_new_token_expires_at: newToken.expiresAt,
     });
-    if (error) throw new Error(`Failed to reschedule booking: ${error.message}`);
+    if (error) throw new Error(`Failed to reschedule booking package: ${error.message}`);
     const envelope = data as RpcEnvelope<BookingRow>;
     if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
     if (!envelope.record) return { ok: false, error: "not_found" };
@@ -350,25 +405,12 @@ export const supabaseStore: BookingStore = {
   },
 
   async adminCancelBooking(id: string): Promise<StoreResult<BookingRecord>> {
-    const tokenRow = await adminClient()
-      .from("booking_tokens")
-      .select("token_hash")
-      .eq("booking_id", id)
-      .maybeSingle();
-    if (tokenRow.error) throw new Error(`Failed to load token: ${tokenRow.error.message}`);
-    if (!tokenRow.data) {
-      // No manage link exists — flip the status directly (service role).
-      const { data, error } = await adminClient()
-        .from("bookings")
-        .update({ status: "cancelled", updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .select()
-        .maybeSingle();
-      if (error) throw new Error(`Failed to cancel booking: ${error.message}`);
-      if (!data) return { ok: false, error: "not_found" };
-      return { ok: true, value: toRecord(data) };
-    }
-    return this.cancelBookingByToken(tokenRow.data.token_hash);
+    const { data, error } = await adminClient().rpc("admin_cancel_booking_package", { p_booking_id: id });
+    if (error) throw new Error(`Failed to cancel booking package: ${error.message}`);
+    const envelope = data as RpcEnvelope<BookingRow>;
+    if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
+    if (!envelope.record) return { ok: false, error: "not_found" };
+    return { ok: true, value: toRecord(envelope.record) };
   },
 
   async setRules(rules: AvailabilityRule[]): Promise<AvailabilityRule[]> {
@@ -425,6 +467,7 @@ export const supabaseStore: BookingStore = {
         id: lesson.id,
         name: lesson.name,
         duration_min: lesson.durationMin,
+        session_count: lesson.sessionCount,
         price_cad: lesson.priceCad,
         description: lesson.description,
         features: lesson.features,
@@ -453,21 +496,28 @@ export const supabaseStore: BookingStore = {
       .ilike("email", needle)
       .order("created_at", { ascending: false });
     if (error) throw new Error(`Failed to find bookings: ${error.message}`);
-    return (data ?? []).map(toRecord);
+    return (data ?? []).map(toRecord).filter((booking) => customerCanAccessBooking(booking.status));
   },
 
   async issueManageToken(bookingId: string): Promise<string | null> {
-    const found = await adminClient().from("bookings").select("id").eq("id", bookingId).maybeSingle();
+    const found = await adminClient().from("bookings").select("id, status, package_id").eq("id", bookingId).maybeSingle();
     if (found.error) throw new Error(`Failed to load booking: ${found.error.message}`);
-    if (!found.data) return null;
+    if (!found.data || !customerCanAccessBooking(found.data.status)) return null;
+    const anchorResult = await adminClient().from("bookings").select("id")
+      .eq("package_id", found.data.package_id ?? found.data.id).eq("session_index", 1).maybeSingle();
+    if (anchorResult.error) throw new Error(`Failed to load booking package: ${anchorResult.error.message}`);
+    const anchorId = anchorResult.data?.id ?? found.data.id;
 
     const raw = generateToken();
     const hash = hashToken(raw);
-    const deleted = await adminClient().from("booking_tokens").delete().eq("booking_id", bookingId);
+    const sessionRows = await adminClient().from("bookings").select("id").eq("package_id", found.data.package_id ?? found.data.id);
+    if (sessionRows.error) throw new Error(`Failed to load booking package: ${sessionRows.error.message}`);
+    const bookingIds = (sessionRows.data ?? []).map((row) => row.id);
+    const deleted = await adminClient().from("booking_tokens").delete().in("booking_id", bookingIds);
     if (deleted.error) throw new Error(`Failed to rotate token: ${deleted.error.message}`);
     const inserted = await adminClient()
       .from("booking_tokens")
-      .insert({ token_hash: hash, booking_id: bookingId, expires_at: tokenExpiry() });
+      .insert({ token_hash: hash, booking_id: anchorId, expires_at: tokenExpiry() });
     if (inserted.error) throw new Error(`Failed to mint token: ${inserted.error.message}`);
     return raw;
   },
@@ -562,19 +612,19 @@ export const supabaseStore: BookingStore = {
   },
 
   async setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt) {
-    const { data, error } = await adminClient().from("bookings").update({
-      stripe_upgrade_checkout_session_id: sessionId,
-      stripe_upgrade_from_price_cad: fromPriceCad,
-      stripe_upgrade_target_lesson_id: targetLesson.id,
-      stripe_upgrade_target_lesson_name: targetLesson.name,
-      stripe_upgrade_target_duration_min: targetLesson.durationMin,
-      stripe_upgrade_target_price_cad: targetLesson.priceCad,
-      stripe_upgrade_amount_cad: amountCad,
-    }).eq("id", bookingId).in("status", ["confirmed", "rescheduled"])
-      .eq("payment_status", "paid").eq("starts_at", expectedStartsAt)
-      .lt("price_cad", targetLesson.priceCad).select("id").maybeSingle();
+    const { data, error } = await adminClient().rpc("set_booking_package_upgrade_checkout", {
+      p_booking_id: bookingId,
+      p_session_id: sessionId,
+      p_target_lesson_id: targetLesson.id,
+      p_target_lesson_name: targetLesson.name,
+      p_target_duration_min: targetLesson.durationMin,
+      p_target_price_cad: targetLesson.priceCad,
+      p_from_price_cad: fromPriceCad,
+      p_amount_cad: amountCad,
+      p_expected_starts_at: expectedStartsAt,
+    });
     if (error) throw new Error(`Failed to save upgrade Checkout Session: ${error.message}`);
-    if (!data) throw new Error("Booking is no longer eligible for an upgrade.");
+    if (data !== true) throw new Error("Booking package is no longer eligible for an upgrade.");
   },
 
   async getBookingByUpgradeCheckoutSession(sessionId) {
@@ -620,6 +670,7 @@ interface LessonRow {
   id: string;
   name: string;
   duration_min: number;
+  session_count?: number;
   price_cad: number;
   description: string;
   features: string[] | null;
@@ -633,6 +684,7 @@ function toLesson(row: LessonRow): Lesson {
     id: row.id,
     name: row.name,
     durationMin: row.duration_min,
+    sessionCount: row.session_count ?? 1,
     priceCad: row.price_cad,
     description: row.description,
     features: Array.isArray(row.features) ? row.features : [],

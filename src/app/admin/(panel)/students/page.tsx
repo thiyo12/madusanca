@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { getStore } from "@/lib/booking/store";
 import type { BookingRecord } from "@/lib/booking/types";
 import { formatSlotDay } from "@/lib/booking/format";
+import { adminStudentHref } from "@/lib/admin/urls";
 
 export const metadata: Metadata = {
   title: "Students — Wisdom Driving Academy Admin",
 };
 
 interface StudentRow {
+  bookingId: string;
   name: string;
   email: string;
   phone: string;
@@ -31,6 +34,7 @@ function deriveStudents(bookings: BookingRecord[]): StudentRow[] {
 
     if (!existing) {
       byEmail.set(key, {
+        bookingId: booking.id,
         name: booking.studentName,
         email: booking.email,
         phone: booking.phone,
@@ -113,7 +117,12 @@ export default async function AdminStudentsPage() {
                 {students.map((student) => (
                   <tr key={student.email.toLowerCase()} className="hover:bg-[#fcfcfd]">
                     <td className="px-4 py-3.5">
-                      <p className="text-[13.5px] font-bold text-ink">{student.name}</p>
+                      <Link
+                        href={adminStudentHref(student.bookingId)}
+                        className="text-[13.5px] font-bold text-ink underline decoration-line underline-offset-2 hover:text-gold-deep"
+                      >
+                        {student.name}
+                      </Link>
                     </td>
                     <td className="px-4 py-3.5">
                       <p className="text-[12.5px] text-soft">{student.email}</p>

@@ -68,6 +68,20 @@ export function LessonForm({ lesson, onDone }: LessonFormProps) {
           />
         </label>
 
+        <label className={labelClass}>
+          Sessions in package
+          <input
+            type="number"
+            name="sessionCount"
+            defaultValue={lesson.sessionCount}
+            min={1}
+            max={20}
+            step={1}
+            required
+            className={inputClass}
+          />
+        </label>
+
         <label className={`${labelClass} sm:col-span-2`}>
           Short description
           <input

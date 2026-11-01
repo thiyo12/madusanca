@@ -11,6 +11,7 @@ import {
 } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
 import { BookingActions } from "../bookings/booking-actions";
+import { adminStudentHref } from "@/lib/admin/urls";
 import { CHIP_TONES, MonthGrid, href, type CalendarFilters } from "./month-grid";
 import { ScheduleGrid } from "./schedule-grid";
 
@@ -329,9 +330,9 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
                           <span className="text-[14px] font-extrabold text-ink">
                             {formatSlotTime(booking.startsAt)}
                           </span>
-                          <span className="text-[14px] font-bold text-ink">
+                          <Link href={adminStudentHref(booking.id)} className="text-[14px] font-bold text-ink underline decoration-line underline-offset-2 hover:text-gold-deep">
                             {booking.studentName}
-                          </span>
+                          </Link>
                           <StatusChip status={booking.status} />
                         </div>
                         <p className="mt-1 text-[12.5px] text-soft">

@@ -10,7 +10,7 @@ import { getStripe, stripeTaxCode, stripeTaxReady } from "@/lib/stripe/server";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { getManageToken } from "@/lib/booking/manage-cookie";
-import { isTestModeStripeSecretKey } from "@/lib/stripe/payment-validation";
+import { isStripePaymentsEnabled } from "@/lib/stripe/payment-validation";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +20,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
     return NextResponse.json({ ok: false, error: "Request origin is not allowed." }, { status: 403 });
   }
-  if (process.env.NODE_ENV === "production" && !isTestModeStripeSecretKey(process.env.STRIPE_SECRET_KEY)) {
-    return NextResponse.json({ ok: false, error: "Online payments are disabled until test-mode checkout is configured." }, { status: 503 });
+  if (!isStripePaymentsEnabled({
+    nodeEnv: process.env.NODE_ENV,
+    secretKey: process.env.STRIPE_SECRET_KEY,
+    livePaymentsEnabled: process.env.STRIPE_LIVE_PAYMENTS_ENABLED,
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+  })) {
+    return NextResponse.json({ ok: false, error: "Online payments are not enabled for this Stripe configuration." }, { status: 503 });
   }
   if (await isIpRateLimitedShared(request, "stripe-upgrade", 5, 10 * 60 * 1000)) {
     return NextResponse.json({ ok: false, error: "Too many upgrade attempts. Please try again shortly." }, { status: 429 });
@@ -46,12 +51,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     const found = await store.getBookingByToken(tokenHash);
     if (!found) return NextResponse.json({ ok: false, error: "This booking link is invalid or has expired." }, { status: 404 });
     const booking = found.booking;
-    if (!["confirmed", "rescheduled"].includes(booking.status) || booking.paymentStatus !== "paid") {
+    if (!found.sessions.every((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid")) {
       return NextResponse.json({ ok: false, error: "Only paid, active bookings can be upgraded online." }, { status: 409 });
     }
     const target = (await store.getLessons()).find((lesson) => lesson.id === parsed.data.targetLessonId && lesson.category === "package");
-    if (!target || target.priceCad <= booking.priceCad) return NextResponse.json({ ok: false, error: "Choose a higher-priced package to upgrade." }, { status: 400 });
-    const amountCad = Math.round((target.priceCad - booking.priceCad) * 100) / 100;
+    const currentPriceCad = booking.packagePriceCad ?? booking.priceCad;
+    if (!target || target.priceCad <= currentPriceCad) return NextResponse.json({ ok: false, error: "Choose a higher-priced package to upgrade." }, { status: 400 });
+    const amountCad = Math.round((target.priceCad - currentPriceCad) * 100) / 100;
     const stripe = getStripe();
     let upgradeAttempt = booking.stripeUpgradeAttempt ?? 0;
     if (booking.stripeUpgradeCheckoutSessionId) {
@@ -83,14 +89,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       client_reference_id: booking.reference,
       metadata: { booking_id: booking.id, booking_reference: booking.reference, checkout_kind: "package_upgrade",
         target_lesson_id: target.id, target_lesson_name: target.name, target_duration_min: String(target.durationMin),
-        target_price_cad: String(target.priceCad), from_price_cad: String(booking.priceCad) },
+        target_price_cad: String(target.priceCad), from_price_cad: String(currentPriceCad) },
       success_url: `${siteBase()}/booking/manage?payment=success`,
       cancel_url: `${siteBase()}/booking/manage?payment=cancelled`,
       integration_identifier: `wisdom_web_${Array.from(randomBytes(8), (byte) => String.fromCharCode(97 + byte % 26)).join("")}`,
     }, { idempotencyKey: `wisdom-upgrade-${booking.id}-${upgradeAttempt}-${target.id}` });
     if (!session.url) return NextResponse.json({ ok: false, error: "Stripe did not return a Checkout URL. Please try again." }, { status: 502 });
     try {
-      await store.setStripeUpgradeCheckoutSession(booking.id, session.id, target, booking.priceCad, amountCad, booking.startsAt);
+      await store.setStripeUpgradeCheckoutSession(booking.id, session.id, target, currentPriceCad, amountCad, booking.startsAt);
     } catch (error) {
       try { if ((await stripe.checkout.sessions.retrieve(session.id)).status === "open") await stripe.checkout.sessions.expire(session.id); }
       catch (expireError) { logSafeError("[stripe/upgrade] orphan session expiry failed", expireError); }

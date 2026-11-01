@@ -4,6 +4,8 @@ export interface Lesson {
   id: string;
   name: string;
   durationMin: number;
+  /** Number of separately scheduled sessions included in this package. */
+  sessionCount: number;
   priceCad: number;
   description: string;
   features: string[];
@@ -18,6 +20,7 @@ export const lessons: Lesson[] = [
     id: "90-minute-lesson",
     name: "90-Minute Lesson",
     durationMin: 90,
+    sessionCount: 1,
     priceCad: 90,
     description: "Private, one-on-one driving instruction with pickup and drop-off included.",
     features: [
@@ -32,6 +35,7 @@ export const lessons: Lesson[] = [
     id: "five-lesson-pack",
     name: "5-Lesson Pack",
     durationMin: 90,
+    sessionCount: 5,
     priceCad: 450,
     description: "Five private 90-minute lessons, with pickup and drop-off included.",
     features: [
@@ -46,6 +50,7 @@ export const lessons: Lesson[] = [
     id: "eight-lesson-pack",
     name: "8-Lesson Pack",
     durationMin: 90,
+    sessionCount: 8,
     priceCad: 720,
     description: "Eight private 90-minute lessons, with pickup and drop-off included.",
     features: [
@@ -61,6 +66,7 @@ export const lessons: Lesson[] = [
     id: "road-test-package",
     name: "Road Test Package",
     durationMin: 45,
+    sessionCount: 1,
     priceCad: 150,
     description: "A 45-minute mock test, car rental, and pickup one hour before your road test.",
     features: [

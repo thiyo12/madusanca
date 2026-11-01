@@ -8,6 +8,7 @@ import {
   hasConsistentCadTotal,
   matchesInitialBookingPayment,
   matchesUpgradeBookingPayment,
+  isStripePaymentsEnabled,
   isTestModeStripeSecretKey,
 } from "../src/lib/stripe/payment-validation.ts";
 import { logSafeError } from "../src/lib/server/safe-log.ts";
@@ -20,6 +21,9 @@ import {
 } from "../src/lib/validation/booking.ts";
 import { contactSchema } from "../src/lib/validation/contact.ts";
 import { hasTrustedRequestOrigin } from "../src/lib/server/request-origin.ts";
+import { createStudentBookingPdf } from "../src/lib/admin/student-booking-pdf.ts";
+import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts";
+import { addMonthsToKey } from "../src/lib/booking/format.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -154,6 +158,23 @@ test("production payment gate accepts test keys and rejects live or malformed ke
   assert.equal(isTestModeStripeSecretKey("sk_test_bad-value"), false);
 });
 
+test("live Checkout is fail-closed unless explicitly enabled with live credentials and a webhook secret", () => {
+  const liveConfig = {
+    nodeEnv: "production",
+    secretKey: "sk_live_1234567890",
+    livePaymentsEnabled: "true",
+    webhookSecret: "whsec_1234567890",
+  };
+  assert.equal(isStripePaymentsEnabled(liveConfig), true);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, livePaymentsEnabled: "false" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, livePaymentsEnabled: undefined }), false);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_test_1234567890" }), true);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_live_bad-value" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, webhookSecret: undefined }), false);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, webhookSecret: "whsec_" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, nodeEnv: "development" }), false);
+});
+
 test("paid initial Checkout must match the stored booking, session, CAD price, and total", () => {
   const booking = {
     id: "booking-123",
@@ -178,6 +199,9 @@ test("paid initial Checkout must match the stored booking, session, CAD price, a
   assert.equal(matchesInitialBookingPayment({ ...session, client_reference_id: "WDA-OTHER" }, booking), false);
   assert.equal(matchesInitialBookingPayment({ ...session, amount_total: 13199 }, booking), false);
   assert.equal(matchesInitialBookingPayment(session, { ...booking, stripeCheckoutSessionId: undefined }), false);
+  const packageBooking = { ...booking, priceCad: 90, packagePriceCad: 720 };
+  assert.equal(matchesInitialBookingPayment({ ...session, amount_subtotal: 72000, amount_total: 79200, total_details: { amount_tax: 7200 } }, packageBooking), true);
+  assert.equal(matchesInitialBookingPayment({ ...session, amount_subtotal: 9000, amount_total: 9900, total_details: { amount_tax: 900 } }, packageBooking), false);
 });
 
 test("paid package upgrade must match stored session and complete upgrade metadata", () => {
@@ -251,4 +275,55 @@ test("public booking and contact schemas reject unexpected input fields", () => 
   assert.equal(manageSchema.safeParse({ action: "get", token: "should-not-be-accepted" }).success, false);
   assert.equal(createBookingSchema.safeParse({ lessonId: "lesson-1", surprise: true }).success, false);
   assert.equal(contactSchema.safeParse({ name: "Student Name", email: "student@example.com", message: "Please call me back", consent: true, surprise: true }).success, false);
+});
+
+test("admin student PDF contains session details and safely escapes PDF text", () => {
+  const pdf = createStudentBookingPdf([{
+    id: "e3b2a1f0-1234-4234-9234-123456789abc",
+    reference: "WDA-ABC123",
+    lessonId: "five-lesson-pack",
+    lessonName: "Driver (Training)",
+    durationMin: 90,
+    priceCad: 450,
+    startsAt: "2026-11-05T18:00:00.000Z",
+    endsAt: "2026-11-05T19:30:00.000Z",
+    studentName: "Alex Example",
+    email: "alex@example.com",
+    phone: "555-0100",
+    notes: "Pickup address: 123 Main St, Vancouver, BC\nLicence class: 7L",
+    status: "confirmed",
+    paymentStatus: "paid",
+    createdAt: "2026-11-01T00:00:00.000Z",
+    updatedAt: "2026-11-01T00:00:00.000Z",
+  }], new Date("2026-11-01T12:00:00.000Z"));
+  const text = Buffer.from(pdf).toString("ascii");
+  assert.equal(text.startsWith("%PDF-1.4"), true);
+  assert.match(text, /Alex Example/);
+  assert.match(text, /alex@example\.com/);
+  assert.match(text, /123 Main St, Vancouver, BC/);
+  assert.equal(text.includes("Driver \\(Training\\)"), true);
+  assert.match(text, /CONFIDENTIAL - for authorized school administration only/);
+});
+
+test("completed bookings are hidden from customer access but retained for admin records", () => {
+  assert.equal(customerCanAccessBooking("confirmed"), true);
+  assert.equal(customerCanAccessBooking("rescheduled"), true);
+  assert.equal(customerCanAccessBooking("pending_payment"), true);
+  assert.equal(customerCanAccessBooking("cancelled"), true);
+  assert.equal(customerCanAccessBooking("completed"), false);
+});
+
+test("package scheduling uses calendar-month windows and package fields are validated", () => {
+  assert.equal(addMonthsToKey("2026-01-31", 2), "2026-03-31");
+  assert.equal(addMonthsToKey("2026-12-31", 2), "2027-02-28");
+  const details = {
+    lessonId: "eight-lesson-pack",
+    studentName: "Alex Example",
+    email: "alex@example.com",
+    phone: "555-0100",
+    consent: true,
+  };
+  assert.equal(createBookingSchema.safeParse({ ...details, sessions: Array.from({ length: 8 }, (_, i) => `2026-11-${String(i + 2).padStart(2, "0")}T18:00:00.000Z`) }).success, true);
+  assert.equal(createBookingSchema.safeParse({ ...details, startsAt: "2026-11-02T18:00:00.000Z", sessions: ["2026-11-03T18:00:00.000Z"] }).success, false);
+  assert.equal(createBookingSchema.safeParse(details).success, false);
 });

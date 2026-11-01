@@ -53,7 +53,7 @@ export function LessonStep({ lessons, selectedId, onSelect }: LessonStepProps) {
                   )}
                 </div>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-soft">
-                  {lesson.durationMin} minutes per booking · {formatLessonPrice(lesson.priceCad)}
+                  {lesson.sessionCount} separately scheduled session{lesson.sessionCount === 1 ? "" : "s"} · {lesson.durationMin} minutes each · {formatLessonPrice(lesson.priceCad)}
                 </p>
               </div>
             </div>
@@ -61,7 +61,7 @@ export function LessonStep({ lessons, selectedId, onSelect }: LessonStepProps) {
         );
       })}
       <p className="text-[12px] leading-relaxed text-soft sm:col-span-2">
-        After booking, pay securely from your booking page or find it later under My Booking using an email code. Pack bookings reserve the first lesson; remaining sessions are arranged with the school.
+        Select a date and time for every session. Each package is held together while payment is due; you can later manage individual session times from My Booking.
       </p>
     </div>
   );

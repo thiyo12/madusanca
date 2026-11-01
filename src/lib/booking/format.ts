@@ -63,6 +63,16 @@ export function addDaysToKey(dayKey: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Add calendar months while clamping end-of-month dates (e.g. Jan 31 → Mar 31). */
+export function addMonthsToKey(dayKey: string, months: number): string {
+  const [year, month, day] = dayKey.split("-").map(Number);
+  const targetMonth = month - 1 + months;
+  const targetYear = year + Math.floor(targetMonth / 12);
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(targetYear, normalizedMonth, Math.min(day, lastDay))).toISOString().slice(0, 10);
+}
+
 export function todayKey(): string {
   return dayKeyOf(new Date().toISOString());
 }

@@ -25,7 +25,8 @@ export const availabilityQuerySchema = z.object({
 
 export const createBookingSchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
-  startsAt: isoDateTimeSchema,
+  startsAt: isoDateTimeSchema.optional(),
+  sessions: z.array(isoDateTimeSchema).min(1).max(20).optional(),
   studentName: z.string().trim().min(2, "Please enter your name.").max(80),
   email: z.email("Please enter a valid email address.").max(160),
   phone: z
@@ -39,10 +40,14 @@ export const createBookingSchema = z.object({
   consent: z.literal(true, {
     message: "You must agree to the privacy policy.",
   }),
-}).strict();
+}).strict().refine((value) => Boolean(value.startsAt) !== Boolean(value.sessions), {
+  message: "Provide either a single start time or the package session times.",
+  path: ["sessions"],
+});
 
 export const manageSchema = z.object({
   action: z.enum(["get", "reschedule", "cancel"]),
+  sessionId: z.uuid().optional(),
   startsAt: isoDateTimeSchema.optional(),
 }).strict();
 
@@ -81,6 +86,11 @@ export const lessonFormSchema = z.object({
     .int("Duration must be whole minutes.")
     .min(15, "Minimum duration is 15 minutes.")
     .max(600, "Maximum duration is 600 minutes."),
+  sessionCount: z.coerce
+    .number({ message: "Session count must be a number." })
+    .int("Session count must be a whole number.")
+    .min(1, "A package must contain at least one session.")
+    .max(20, "A package can contain no more than 20 sessions."),
   priceCad: z.coerce
     .number({ message: "Price must be a number." })
     .min(0, "Price cannot be negative.")

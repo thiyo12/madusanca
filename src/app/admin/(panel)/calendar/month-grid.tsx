@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { BookingRecord } from "@/lib/booking/types";
 import { dayNumber, formatSlotTime } from "@/lib/booking/format";
+import { adminStudentHref } from "@/lib/admin/urls";
 
 export interface CalendarFilters {
   q?: string;
@@ -84,7 +85,7 @@ export function MonthGrid({
               {list.slice(0, 2).map((booking) => (
                 <Link
                   key={booking.id}
-                  href={href({ view: "day", date: cell, ...filters })}
+                  href={adminStudentHref(booking.id)}
                   className={`hidden rounded-[6px] border-l-[3px] bg-mist px-1.5 py-1 text-[10px] leading-tight hover:bg-gold-soft sm:block ${CHIP_TONES[booking.status]}`}
                 >
                   <span className="block font-extrabold text-ink">

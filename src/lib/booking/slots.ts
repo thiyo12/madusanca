@@ -3,7 +3,7 @@ import type { AvailabilityRule, BlackoutDate, BusyInterval } from "@/lib/booking
 export const TZ = "America/Vancouver";
 export const SLOT_STEP_MIN = 30;
 export const LEAD_TIME_MIN = 120;
-export const HORIZON_DAYS = 90;
+export const HORIZON_DAYS = 150;
 
 /** Default school hours: Mon–Sat 09:00–18:00, Sunday closed. */
 export const DEFAULT_RULES: AvailabilityRule[] = [

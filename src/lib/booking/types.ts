@@ -61,6 +61,11 @@ export interface BookingRecord {
   stripeCurrency?: string;
   createdAt: string;
   updatedAt: string;
+  packageId?: string;
+  sessionIndex?: number;
+  sessionCount?: number;
+  packagePriceCad?: number;
+  packageWindowStart?: string;
 }
 
 /** Booking payload safe to return to the client (no full email). */
@@ -142,6 +147,18 @@ export interface CreateBookingInput {
   notes: string;
 }
 
+export interface CreateBookingPackageInput {
+  lessonId: string;
+  lessonName: string;
+  durationMin: number;
+  packagePriceCad: number;
+  sessions: Array<{ startsAt: string; endsAt: string }>;
+  studentName: string;
+  email: string;
+  phone: string;
+  notes: string;
+}
+
 export type StoreResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: StoreError };
@@ -173,9 +190,24 @@ export interface BookingStore {
     input: CreateBookingInput,
     token: { hash: string; expiresAt: string },
   ): Promise<StoreResult<BookingRecord>>;
-  getBookingByToken(tokenHash: string): Promise<{ booking: BookingRecord; tokenExpiresAt: string } | null>;
+  createBookingPackage(
+    input: CreateBookingPackageInput,
+    token: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord[]>>;
+  getBookingByToken(tokenHash: string): Promise<{
+    booking: BookingRecord;
+    sessions: BookingRecord[];
+    tokenExpiresAt: string;
+  } | null>;
   rescheduleBookingByToken(
     tokenHash: string,
+    startsAt: string,
+    endsAt: string,
+    newToken: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord>>;
+  reschedulePackageSessionByToken(
+    tokenHash: string,
+    sessionId: string,
     startsAt: string,
     endsAt: string,
     newToken: { hash: string; expiresAt: string },

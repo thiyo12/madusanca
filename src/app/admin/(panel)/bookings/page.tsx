@@ -5,6 +5,7 @@ import type { BookingStatus } from "@/lib/booking/types";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
 import { BookingActions } from "./booking-actions";
+import { adminStudentHref } from "@/lib/admin/urls";
 
 export const metadata: Metadata = {
   title: "Bookings — Wisdom Driving Academy Admin",
@@ -155,7 +156,9 @@ export default async function AdminBookingsPage({ searchParams }: BookingsPagePr
                       </p>
                     </td>
                     <td className="px-4 py-3.5">
-                      <p className="text-[13px] font-bold text-ink">{booking.studentName}</p>
+                        <Link href={adminStudentHref(booking.id)} className="text-[13px] font-bold text-ink underline decoration-line underline-offset-2 hover:text-gold-deep">
+                          {booking.studentName}
+                        </Link>
                       <p className="text-[12px] text-soft">{booking.email}</p>
                       <p className="text-[12px] text-soft">{booking.phone}</p>
                       {booking.notes && (

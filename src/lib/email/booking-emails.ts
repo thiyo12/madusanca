@@ -5,6 +5,7 @@ import {
   notifySchool,
   sendEmail,
 } from "@/lib/email/send";
+import { formatSlotFull } from "@/lib/booking/format";
 
 interface BookingArgs {
   reference: string;
@@ -14,6 +15,7 @@ interface BookingArgs {
   studentName: string;
   studentEmail: string;
   manageUrl: string;
+  sessionStartsAt?: string[];
 }
 
 const manageButton = (url: string): string => `
@@ -23,10 +25,13 @@ const manageButton = (url: string): string => `
   <p style="font-size:12px;color:#6b7280;margin:12px 0 0">Or paste this link: ${escapeHtml(url)}</p>`;
 
 export async function sendBookingPaymentPendingEmail(args: BookingArgs): Promise<boolean> {
+  const schedule = args.sessionStartsAt && args.sessionStartsAt.length > 1
+    ? `<p><strong>Scheduled sessions</strong></p><ol>${args.sessionStartsAt.map((startsAt) => `<li>${escapeHtml(formatSlotFull(startsAt))} Pacific</li>`).join("")}</ol>`
+    : "";
   const html = bookingShell(
     "Complete payment to confirm your lesson",
     `<p>Hi ${escapeHtml(args.studentName)}, we’ve saved your requested lesson time. It is not confirmed until payment is completed.</p>
-     ${bookingDetailsTable(args)}
+     ${bookingDetailsTable(args)}${schedule}
      ${manageButton(args.manageUrl)}
      <p style="font-size:13px;color:#4b525e;margin:16px 0 0">Use the secure payment button on your booking page to pay by card. Your paid invoice will be available there after checkout.</p>`,
   );
@@ -39,7 +44,7 @@ export async function sendBookingPaymentPendingEmail(args: BookingArgs): Promise
     `Booking awaiting payment — ${args.reference}`,
     bookingShell(
       "Booking awaiting payment",
-      `<p>A lesson time was reserved and is awaiting payment confirmation.</p>${bookingDetailsTable(args)}
+       `<p>${args.sessionStartsAt && args.sessionStartsAt.length > 1 ? `${args.sessionStartsAt.length} lesson sessions were reserved` : "A lesson time was reserved"} and is awaiting payment confirmation.</p>${bookingDetailsTable(args)}${schedule}
        <p style="font-size:13px">Student email: ${escapeHtml(args.studentEmail)}</p>`,
     ),
   );
