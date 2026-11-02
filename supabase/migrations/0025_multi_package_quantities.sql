@@ -6,8 +6,9 @@ alter table public.package_purchases
   add constraint package_purchases_credits_purchased_check
   check (credits_purchased between 1 and 2_000_000);
 
-drop function if exists public.set_booking_checkout_session_with_addons(uuid, text, timestamptz, timestamptz, text[]);
-
+-- Keep the text[] overload from migration 0023 during rollout so an older
+-- application instance can still save its Checkout Session while the new
+-- release is deploying. The new application calls the jsonb overload below.
 create or replace function public.set_booking_checkout_session_with_addons(
   p_booking_id uuid,
   p_session_id text,
