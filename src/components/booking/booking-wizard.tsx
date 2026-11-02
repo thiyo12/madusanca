@@ -343,11 +343,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
 
       if (!response.ok || !result.ok || !result.booking || !result.manageToken) {
         const message = result.error ?? "Could not complete your booking. Please try again.";
-        setSubmitError(message);
-        if (response.status === 409) {
+        if (response.status === 409 || message === "We couldn’t reserve this booking. Please review your selected times and try again.") {
+          setSubmitError("Your saved lesson times could not be reserved. Please select the currently available times again.");
           setStepIndex(STEPS.findIndex((item) => item.key === "when"));
           setAppointmentIndex(0);
+          setScheduledStarts({});
           setAvailabilityRevision((revision) => revision + 1);
+        } else {
+          setSubmitError(message);
         }
         return;
       }
@@ -559,6 +562,17 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
                     startsAt: scheduledStarts[item.key],
                     durationMin: lessons.find((candidate) => candidate.id === item.lessonId)?.durationMin ?? lesson.durationMin,
                   }))}
+                  onUnavailableSelection={() => {
+                    const selected = appointments[activeAppointmentIndex];
+                    if (!selected) return;
+                    setScheduledStarts((current) => {
+                      if (!current[selected.key]) return current;
+                      const next = { ...current };
+                      delete next[selected.key];
+                      return next;
+                    });
+                    setSubmitError("A saved lesson time is no longer available. Please choose a current slot.");
+                  }}
                   onSelect={(slot) => {
                     setSubmitError(null);
                     const selected = appointments[activeAppointmentIndex];

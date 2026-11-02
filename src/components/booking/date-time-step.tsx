@@ -20,6 +20,7 @@ export interface DateTimeStepProps {
   minDate?: string;
   horizonDays?: number;
   blockedStartsAt?: Array<{ startsAt: string; durationMin: number }>;
+  onUnavailableSelection?: () => void;
 }
 
 interface AvailabilityResponse {
@@ -29,7 +30,7 @@ interface AvailabilityResponse {
   durationMin?: number;
 }
 
-export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90, blockedStartsAt = [] }: DateTimeStepProps) {
+export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90, blockedStartsAt = [], onUnavailableSelection }: DateTimeStepProps) {
   const [slots, setSlots] = useState<string[]>([]);
   const [durationMin, setDurationMin] = useState(90);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -84,6 +85,12 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
     })),
     [slots, blockedStartsAt, durationMin],
   );
+
+  useEffect(() => {
+    if (status !== "ready" || !selectedStart) return;
+    const normalizedSelection = new Date(selectedStart).toISOString();
+    if (!availableSlots.includes(normalizedSelection)) onUnavailableSelection?.();
+  }, [status, selectedStart, availableSlots, onUnavailableSelection]);
 
   const days = useMemo(() => {
     const counts = new Map<string, number>();
