@@ -11,9 +11,10 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { MANAGE_COOKIE_NAME } from "@/lib/booking/manage-cookie";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
+import type { Lesson } from "@/lib/data/lessons";
 
 export const dynamic = "force-dynamic";
-const MAX_BODY_BYTES = 8_192;
+const MAX_BODY_BYTES = 32_768;
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
@@ -82,32 +83,65 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!Number.isSafeInteger(Math.round((lesson.priceCad + addOnSubtotal) * 100)) || lesson.priceCad + addOnSubtotal > 999_999.99) {
       return NextResponse.json({ ok: false, error: "The selected total exceeds the secure checkout limit. Reduce package quantities and try again." }, { status: 400 });
     }
-    const startsAt = parsed.data.sessions ?? [parsed.data.startsAt!];
-    if (startsAt.length !== lesson.sessionCount) {
-      return NextResponse.json({ ok: false, error: `Please select all ${lesson.sessionCount} session times.` }, { status: 400 });
+    const packageSchedules = parsed.data.packageSchedules ?? [{
+      lessonId: lesson.id,
+      quantity: 1,
+      startsAt: parsed.data.sessions ?? [parsed.data.startsAt!],
+    }];
+    const addOnSet = addOnPackages.map(({ lessonId: id, quantity }) => ({ lessonId: id, quantity })).sort((a, b) => a.lessonId.localeCompare(b.lessonId));
+    const scheduledAddOnSet = (packageSchedules ?? []).slice(1).map(({ lessonId: id, quantity }) => ({ lessonId: id, quantity })).sort((a, b) => a.lessonId.localeCompare(b.lessonId));
+    if (
+      packageSchedules[0].lessonId !== lesson.id || packageSchedules[0].quantity !== 1 ||
+      JSON.stringify(addOnSet) !== JSON.stringify(scheduledAddOnSet)
+    ) {
+      return NextResponse.json({ ok: false, error: "Review your selected packages and lesson schedule." }, { status: 400 });
     }
+    if (packageSchedules.some((selection, index) => {
+      const selectedLesson = catalogue.find((item) => item.id === selection.lessonId && (index === 0 || item.category === "package"));
+      return !selectedLesson || selection.startsAt.length !== selectedLesson.sessionCount * selection.quantity;
+    })) {
+      return NextResponse.json({ ok: false, error: "Choose a date and time for every lesson in each selected package." }, { status: 400 });
+    }
+    const startsAt = packageSchedules.flatMap((selection) => selection.startsAt);
+    if (startsAt.length > 200) return NextResponse.json({ ok: false, error: "This selection contains too many scheduled lessons. Reduce package quantities." }, { status: 400 });
     const sortedStarts = [...startsAt].sort((a, b) => Date.parse(a) - Date.parse(b));
-    const limitDay = addMonthsToKey(dayKeyOf(sortedStarts[0]), 2);
-    if (Date.parse(sortedStarts[0]) > Date.now() + 90 * 24 * 60 * 60 * 1000) {
-      return NextResponse.json({ ok: false, error: "The first session must be within the next 90 days." }, { status: 400 });
+    const anchorStart = packageSchedules[0].startsAt[0];
+    const anchorDay = dayKeyOf(anchorStart);
+    const validationNow = new Date();
+    const latestFirstSessionDay = addMonthsToKey(dayKeyOf(validationNow.toISOString()), 6);
+    const limitDay = addMonthsToKey(anchorDay, 6);
+    if (Date.parse(anchorStart) < validationNow.getTime() + 120 * 60_000) {
+      return NextResponse.json({ ok: false, error: "The first session must start at least two hours from now." }, { status: 400 });
+    }
+    if (anchorDay > latestFirstSessionDay) {
+      return NextResponse.json({
+        ok: false,
+        error: `Your selected first-session date (${anchorDay}) is after the latest allowed date (${latestFirstSessionDay}). Choose a date within six months.`,
+      }, { status: 400 });
     }
     if (sortedStarts.some((value, index) =>
-      !Number.isFinite(Date.parse(value)) || dayKeyOf(value) > limitDay ||
+      !Number.isFinite(Date.parse(value)) || dayKeyOf(value) < anchorDay || dayKeyOf(value) > limitDay ||
       (index > 0 && value === sortedStarts[index - 1]),
     )) {
-      return NextResponse.json({ ok: false, error: "Choose different session times within two months of the first session." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Choose different session times within six months of the first session." }, { status: 400 });
     }
 
     const [rules, blackouts] = await Promise.all([store.getRules(), store.getBlackouts()]);
     const selectedBusy: Array<{ startsAt: string; endsAt: string }> = [];
+    const lessonByStart = new Map<string, Lesson>();
+    for (const selection of packageSchedules) {
+      const selectedLesson = catalogue.find((item) => item.id === selection.lessonId)!;
+      selection.startsAt.forEach((start) => lessonByStart.set(new Date(start).toISOString(), selectedLesson));
+    }
     for (const selectedStart of sortedStarts) {
       const startMs = Date.parse(selectedStart);
+      const scheduledLesson = lessonByStart.get(new Date(startMs).toISOString()) ?? lesson;
       const busy = await store.getBusy(
         new Date(startMs - 24 * 60 * 60 * 1000).toISOString(),
         new Date(startMs + 48 * 60 * 60 * 1000).toISOString(),
       );
       const validation = validateSlot(selectedStart, {
-        lessonDurationMin: lesson.durationMin,
+        lessonDurationMin: scheduledLesson.durationMin,
         busy: [...busy, ...selectedBusy],
         blackouts,
         rules,
@@ -123,33 +157,34 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
       selectedBusy.push({
         startsAt: new Date(startMs).toISOString(),
-        endsAt: new Date(startMs + occupiedDurationMin(lesson.durationMin) * 60_000).toISOString(),
+        endsAt: new Date(startMs + occupiedDurationMin(scheduledLesson.durationMin) * 60_000).toISOString(),
       });
     }
 
     const token = generateToken();
-    const result = await store.createBookingPackage(
-      {
-        lessonId: lesson.id,
-        lessonName: lesson.name,
-        durationMin: lesson.durationMin,
-        packagePriceCad: lesson.priceCad,
-        sessions: sortedStarts.map((value) => ({
-          startsAt: new Date(value).toISOString(),
-          endsAt: new Date(Date.parse(value) + lesson.durationMin * 60000).toISOString(),
+    const result = await store.createBookingBundle({
+        packages: packageSchedules.map((selection) => ({
+          ...selection,
+          startsAt: selection.startsAt.map((value) => new Date(value).toISOString()).sort((a, b) => Date.parse(a) - Date.parse(b)),
         })),
         studentName,
         email,
         phone,
+        dateOfBirth: parsed.data.dateOfBirth,
+        gender: parsed.data.gender,
+        licenseNumber: parsed.data.licenseNumber,
         notes: notes ?? "",
-      },
-      { hash: hashToken(token), expiresAt: tokenExpiry() },
-    );
+      }, { hash: hashToken(token), expiresAt: tokenExpiry() });
 
     if (!result.ok) {
       return NextResponse.json(
-        { ok: false, error: "That time was just taken. Please pick another slot." },
-        { status: 409 },
+        {
+          ok: false,
+          error: result.error === "conflict"
+            ? "One of your selected times was just taken. Your other times are saved—change the unavailable lesson time and confirm again."
+            : "We couldn’t reserve this booking. Please review your selected times and try again.",
+        },
+        { status: result.error === "conflict" ? 409 : 400 },
       );
     }
 

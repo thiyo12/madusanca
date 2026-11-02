@@ -28,7 +28,6 @@ export function LessonCard({
   description,
   features,
   popular = false,
-  category,
   className = "",
 }: LessonCardProps) {
   return (
@@ -81,11 +80,6 @@ export function LessonCard({
       >
         Select &amp; book <span aria-hidden="true">↗</span>
       </Link>
-      {category === "package" && (
-        <Link href={`/booking/purchase?lesson=${encodeURIComponent(id)}`} className={`mt-3 inline-flex min-h-8 items-center justify-center text-[12px] font-bold underline-offset-4 hover:underline ${popular ? "text-[#d6edc5]" : "text-[#426a2c]"}`}>
-          Buy now, schedule later
-        </Link>
-      )}
     </motion.article>
   );
 }

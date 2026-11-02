@@ -26,7 +26,7 @@ import { hasTrustedRequestOrigin } from "../src/lib/server/request-origin.ts";
 import { createStudentBookingPdf } from "../src/lib/admin/student-booking-pdf.ts";
 import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts";
 import { addMonthsToKey } from "../src/lib/booking/format.ts";
-import { generateSlots, occupiedDurationMin, zonedToUtc } from "../src/lib/booking/slots.ts";
+import { generateSlots, HORIZON_DAYS, occupiedDurationMin, zonedToUtc } from "../src/lib/booking/slots.ts";
 import { manageUrl } from "../src/lib/booking/urls.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
@@ -84,39 +84,74 @@ test("90-minute lessons reserve a 120-minute instructor block without changing l
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 9 * 60 + 30).toISOString()), false);
   assert.equal(slots.includes(bookedOccupiedEnd.toISOString()), true);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60).toISOString()), true);
-  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString()), true);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString()), false);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60).toISOString()), true);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60 + 30).toISOString()), false);
 });
 
-test("a booked 90-minute lesson makes the next available start no earlier than two hours later", () => {
+test("90-minute lesson starts follow a two-hour cadence anchored to daily availability", () => {
   const slots = generateSlots({
     lessonDurationMin: 90,
     fromDayKey: "2026-11-03",
     toDayKey: "2026-11-03",
-    busy: [{
-      startsAt: zonedToUtc(2026, 11, 3, 8 * 60 + 30).toISOString(),
-      endsAt: zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString(),
-    }],
+    busy: [],
     blackouts: [],
     rules: [{ weekday: 2, startMin: 8 * 60, endMin: 18 * 60 }],
     now: new Date("2026-11-01T20:00:00.000Z"),
   });
-  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60).toISOString()), false);
-  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString()), true);
+  assert.deepEqual(slots, [8, 10, 12, 14, 16].map((hour) => zonedToUtc(2026, 11, 3, hour * 60).toISOString()));
+  const afternoon = generateSlots({
+    lessonDurationMin: 90,
+    fromDayKey: "2026-11-03",
+    toDayKey: "2026-11-03",
+    busy: [],
+    blackouts: [],
+    rules: [{ weekday: 2, startMin: 13 * 60, endMin: 19 * 60 }],
+    now: new Date("2026-11-01T20:00:00.000Z"),
+  });
+  assert.deepEqual(afternoon, [13, 15, 17].map((hour) => zonedToUtc(2026, 11, 3, hour * 60).toISOString()));
 });
 
 test("booking validation accepts quantity-based package selection", () => {
   const parsed = createBookingSchema.safeParse({
     lessonId: "90-minute-lesson",
-    startsAt: "2026-11-03T16:00:00.000Z",
+    packageSchedules: [
+      { lessonId: "90-minute-lesson", quantity: 1, startsAt: ["2026-11-03T16:00:00.000Z"] },
+      { lessonId: "eight-lesson-pack", quantity: 15, startsAt: Array.from({ length: 120 }, (_, index) => new Date(Date.UTC(2026, 10, 4 + index, 16)).toISOString()) },
+    ],
     addOnPackages: [{ lessonId: "eight-lesson-pack", quantity: 15 }],
     studentName: "Example Student",
     email: "student@example.com",
     phone: "6045550100",
+    dateOfBirth: "1990-01-01",
+    gender: "prefer_not_to_say",
+    licenseNumber: "BC123456",
     consent: true,
   });
   assert.equal(parsed.success, true);
+  assert.equal(createBookingSchema.safeParse({
+    lessonId: "90-minute-lesson",
+    startsAt: "2026-11-03T16:00:00.000Z",
+    addOnPackages: [{ lessonId: "eight-lesson-pack", quantity: 1 }],
+    studentName: "Example Student",
+    email: "student@example.com",
+    phone: "6045550100",
+    dateOfBirth: "1990-01-01",
+    gender: "woman",
+    licenseNumber: "BC123456",
+    consent: true,
+  }).success, false);
+  assert.equal(createBookingSchema.safeParse({
+    lessonId: "90-minute-lesson",
+    startsAt: "2026-11-03T16:00:00.000Z",
+    studentName: "Example Student",
+    email: "student@example.com",
+    phone: "6045550100",
+    dateOfBirth: "2999-01-01",
+    gender: "woman",
+    licenseNumber: "BC123456",
+    consent: true,
+  }).success, false);
 });
 
 test("OTP hashes use the configured server-side HMAC secret", () => {
@@ -394,7 +429,11 @@ test("admin student PDF contains session details and safely escapes PDF text", (
     paymentStatus: "paid",
     createdAt: "2026-11-01T00:00:00.000Z",
     updatedAt: "2026-11-01T00:00:00.000Z",
-  }], new Date("2026-11-01T12:00:00.000Z"));
+  }], new Date("2026-11-01T12:00:00.000Z"), {
+    dateOfBirth: "1990-01-01",
+    gender: "prefer_not_to_say",
+    licenseNumber: "BC123456",
+  });
   const text = Buffer.from(pdf).toString("ascii");
   assert.equal(text.startsWith("%PDF-1.4"), true);
   assert.match(text, /Alex Example/);
@@ -402,6 +441,8 @@ test("admin student PDF contains session details and safely escapes PDF text", (
   assert.match(text, /123 Main St, Vancouver, BC/);
   assert.equal(text.includes("Driver \\(Training\\)"), true);
   assert.match(text, /CONFIDENTIAL - for authorized school administration only/);
+  assert.match(text, /Date of birth: 1990-01-01/);
+  assert.match(text, /Driver's licence number: BC123456/);
 });
 
 test("completed bookings are hidden from customer access but retained for admin records", () => {
@@ -413,13 +454,17 @@ test("completed bookings are hidden from customer access but retained for admin 
 });
 
 test("package scheduling uses calendar-month windows and package fields are validated", () => {
-  assert.equal(addMonthsToKey("2026-01-31", 2), "2026-03-31");
-  assert.equal(addMonthsToKey("2026-12-31", 2), "2027-02-28");
+  assert.equal(HORIZON_DAYS, 370);
+  assert.equal(addMonthsToKey("2026-01-31", 6), "2026-07-31");
+  assert.equal(addMonthsToKey("2026-12-31", 6), "2027-06-30");
   const details = {
     lessonId: "eight-lesson-pack",
     studentName: "Alex Example",
     email: "alex@example.com",
     phone: "555-0100",
+    dateOfBirth: "1990-01-01",
+    gender: "woman",
+    licenseNumber: "BC123456",
     consent: true,
   };
   assert.equal(createBookingSchema.safeParse({ ...details, sessions: Array.from({ length: 8 }, (_, i) => `2026-11-${String(i + 2).padStart(2, "0")}T18:00:00.000Z`) }).success, true);

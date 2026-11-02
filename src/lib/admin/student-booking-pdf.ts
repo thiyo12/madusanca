@@ -1,4 +1,4 @@
-import type { BookingRecord } from "../booking/types";
+import type { BookingRecord, BookingStudentDetails } from "../booking/types";
 import { formatSlotDay, formatSlotTime } from "../booking/format.ts";
 import { pickupLocation } from "./student-record-format.ts";
 
@@ -47,7 +47,7 @@ function paymentLabel(booking: BookingRecord): string {
   return `${status.toUpperCase()} · $${amount.toFixed(2)} CAD`;
 }
 
-function recordLines(bookings: BookingRecord[], generatedAt: Date): string[] {
+function recordLines(bookings: BookingRecord[], generatedAt: Date, studentDetails?: BookingStudentDetails | null): string[] {
   const first = bookings[0];
   if (!first) return [];
   const lines = [
@@ -57,6 +57,11 @@ function recordLines(bookings: BookingRecord[], generatedAt: Date): string[] {
     `Student: ${first.studentName}`,
     `Email: ${first.email}`,
     `Phone: ${first.phone || "Not provided"}`,
+    ...(studentDetails ? [
+      `Date of birth: ${studentDetails.dateOfBirth}`,
+      `Gender: ${studentDetails.gender.replaceAll("_", " ")}`,
+      `Driver's licence number: ${studentDetails.licenseNumber}`,
+    ] : []),
     `Booking records: ${bookings.length}`,
     "",
   ];
@@ -85,8 +90,8 @@ function recordLines(bookings: BookingRecord[], generatedAt: Date): string[] {
 }
 
 /** Builds a text-only PDF without adding a client-side PDF dependency. */
-export function createStudentBookingPdf(bookings: BookingRecord[], generatedAt = new Date()): Uint8Array {
-  const lines = recordLines(bookings, generatedAt);
+export function createStudentBookingPdf(bookings: BookingRecord[], generatedAt = new Date(), studentDetails?: BookingStudentDetails | null): Uint8Array {
+  const lines = recordLines(bookings, generatedAt, studentDetails);
   const pages: string[][] = [];
   for (let index = 0; index < lines.length; index += PAGE_LINE_LIMIT) {
     pages.push(lines.slice(index, index + PAGE_LINE_LIMIT));

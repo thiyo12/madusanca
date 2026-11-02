@@ -11,11 +11,13 @@ import type {
   BlackoutDate,
   BookingFilter,
   BookingRecord,
+  BookingStudentDetails,
   ChequeStatus,
   BookingStore,
   BookingStatus,
   BusyInterval,
   CreateBookingInput,
+  CreateBookingBundleInput,
   CreateBookingPackageInput,
   CreatePackagePurchaseInput,
   OtpSendPermit,
@@ -313,6 +315,44 @@ export const supabaseStore: BookingStore = {
     if (!envelope.ok) return { ok: false, error: envelope.error === "conflict" ? "conflict" : "not_found" };
     if (!envelope.records?.length) return { ok: false, error: "not_found" };
     return { ok: true, value: envelope.records.map(toRecord) };
+  },
+
+  async createBookingBundle(
+    input: CreateBookingBundleInput,
+    token: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord[]>> {
+    const { data, error } = await adminClient().rpc("create_booking_bundle_with_student_details", {
+      p_token_hash: token.hash,
+      p_token_expires_at: token.expiresAt,
+      p_packages: input.packages,
+      p_student_name: input.studentName,
+      p_email: input.email,
+      p_phone: input.phone,
+      p_notes: input.notes,
+      p_date_of_birth: input.dateOfBirth,
+      p_gender: input.gender,
+      p_license_number: input.licenseNumber,
+    });
+    if (error) throw new Error(`Failed to create booking bundle: ${error.message}`);
+    const envelope = data as { ok: true; records?: BookingRow[] } | { ok: false; error: string };
+    if (!envelope.ok) return { ok: false, error: envelope.error === "conflict" ? "conflict" : "not_found" };
+    if (!envelope.records?.length) return { ok: false, error: "not_found" };
+    return { ok: true, value: envelope.records.map(toRecord) };
+  },
+
+  async getBookingStudentDetails(bookingId: string): Promise<BookingStudentDetails | null> {
+    const { data, error } = await adminClient()
+      .from("booking_student_details")
+      .select("date_of_birth,gender,license_number")
+      .eq("booking_id", bookingId)
+      .maybeSingle();
+    if (error) throw new Error(`Failed to load student details: ${error.message}`);
+    if (!data) return null;
+    return {
+      dateOfBirth: data.date_of_birth,
+      gender: data.gender,
+      licenseNumber: data.license_number,
+    };
   },
 
   async getBookingByToken(tokenHash: string) {

@@ -140,6 +140,27 @@ export interface PackageQuantitySelection {
   quantity: number;
 }
 
+export interface ScheduledPackageSelection extends PackageQuantitySelection {
+  startsAt: string[];
+}
+
+export interface CreateBookingBundleInput {
+  packages: ScheduledPackageSelection[];
+  studentName: string;
+  email: string;
+  phone: string;
+  dateOfBirth: string;
+  gender: "woman" | "man" | "non_binary" | "another_identity" | "prefer_not_to_say";
+  licenseNumber: string;
+  notes: string;
+}
+
+export interface BookingStudentDetails {
+  dateOfBirth: string;
+  gender: string;
+  licenseNumber: string;
+}
+
 export interface StripePackagePurchaseEvent {
   eventId: string;
   eventType: "paid" | "expired";
@@ -281,6 +302,12 @@ export interface BookingStore {
     input: CreateBookingPackageInput,
     token: { hash: string; expiresAt: string },
   ): Promise<StoreResult<BookingRecord[]>>;
+  createBookingBundle(
+    input: CreateBookingBundleInput,
+    token: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord[]>>;
+  /** Admin-only identity details; never attach these to public booking views. */
+  getBookingStudentDetails(bookingId: string): Promise<BookingStudentDetails | null>;
   getBookingByToken(tokenHash: string): Promise<{
     booking: BookingRecord;
     sessions: BookingRecord[];

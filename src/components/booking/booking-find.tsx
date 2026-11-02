@@ -330,7 +330,7 @@ export function BookingFind() {
                   </div>
                   {purchase.canOpen && (
                     <button type="button" onClick={() => openBooking(purchase.reference)} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
-                      Manage credits
+                      Manage lessons
                     </button>
                   )}
                 </div>

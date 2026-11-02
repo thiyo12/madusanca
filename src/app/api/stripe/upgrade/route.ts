@@ -62,7 +62,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const proposed = parsed.data.sessions.map((startsAt) => ({ startsAt: new Date(startsAt).toISOString(), endsAt: new Date(Date.parse(startsAt) + target.durationMin * 60_000).toISOString() })).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     if (proposed.length !== target.sessionCount) return NextResponse.json({ ok: false, error: "Choose a new time for every session in the package." }, { status: 400 });
     const firstDay = dayKeyOf(proposed[0].startsAt);
-    if (proposed.some((item) => dayKeyOf(item.startsAt) > addMonthsToKey(firstDay, 2))) return NextResponse.json({ ok: false, error: "All package sessions must be within two months of the first session." }, { status: 400 });
+    if (proposed.some((item) => dayKeyOf(item.startsAt) > addMonthsToKey(firstDay, 6))) return NextResponse.json({ ok: false, error: "All package sessions must be within six months of the first session." }, { status: 400 });
     for (let index = 1; index < proposed.length; index += 1) {
       const previousOccupiedEnd = Date.parse(proposed[index - 1].startsAt) + occupiedDurationMin(target.durationMin) * 60_000;
       if (Date.parse(proposed[index].startsAt) < previousOccupiedEnd) return NextResponse.json({ ok: false, error: "Package sessions cannot overlap." }, { status: 400 });

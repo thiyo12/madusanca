@@ -214,7 +214,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           tax_behavior: "exclusive" as const,
           product_data: {
             name: addon.name,
-            description: `${addon.sessionCount * quantity} lesson credits across ${quantity} package${quantity === 1 ? "" : "s"}; schedule later from My Booking. GST calculated by Stripe Tax.`,
+            description: `${addon.sessionCount * quantity} lessons across ${quantity} package${quantity === 1 ? "" : "s"}; all appointments selected in this booking. GST calculated by Stripe Tax.`,
             tax_code: taxCode,
             metadata: { lesson_id: addon.id, booking_reference: found!.booking.reference },
           },

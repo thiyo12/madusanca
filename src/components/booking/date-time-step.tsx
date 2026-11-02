@@ -19,7 +19,7 @@ export interface DateTimeStepProps {
   maxDate?: string;
   minDate?: string;
   horizonDays?: number;
-  blockedStartsAt?: string[];
+  blockedStartsAt?: Array<{ startsAt: string; durationMin: number }>;
 }
 
 interface AvailabilityResponse {
@@ -35,6 +35,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<string>(() => todayKey());
+  const [visibleMonth, setVisibleMonth] = useState<string>(() => todayKey().slice(0, 7));
 
   useEffect(() => {
     let cancelled = false;
@@ -57,11 +58,10 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
         setDurationMin(data.durationMin ?? 90);
         setStatus("ready");
         const firstDay = visibleSlots[0] ? dayKeyOf(visibleSlots[0]) : null;
-        setActiveDay((current) => {
-          const currentHasSlots = visibleSlots.some((slot) => dayKeyOf(slot) === current);
-          if (currentHasSlots) return current;
-          return firstDay ?? current;
-        });
+        if (firstDay) {
+          setVisibleMonth(firstDay.slice(0, 7));
+          setActiveDay(firstDay);
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -77,9 +77,10 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   const availableSlots = useMemo(
     () => slots.filter((slot) => !blockedStartsAt.some((blocked) => {
       const slotStart = Date.parse(slot);
-      const blockedStart = Date.parse(blocked);
-      const duration = occupiedDurationMin(durationMin) * 60_000;
-      return slotStart < blockedStart + duration && blockedStart < slotStart + duration;
+      const blockedStart = Date.parse(blocked.startsAt);
+      const candidateEnd = slotStart + occupiedDurationMin(durationMin) * 60_000;
+      const blockedEnd = blockedStart + occupiedDurationMin(blocked.durationMin) * 60_000;
+      return slotStart < blockedEnd && blockedStart < candidateEnd;
     })),
     [slots, blockedStartsAt, durationMin],
   );
@@ -99,7 +100,19 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
     return list;
   }, [availableSlots, maxDate, minDate, horizonDays]);
 
+  const monthKeys = useMemo(() => Array.from(new Set(days.map((day) => day.key.slice(0, 7)))), [days]);
+  const displayedMonth = monthKeys.includes(visibleMonth) ? visibleMonth : monthKeys[0] ?? visibleMonth;
+  const visibleMonthIndex = monthKeys.indexOf(displayedMonth);
+  const monthDays = days.filter((day) => day.key.startsWith(`${displayedMonth}-`));
   const daySlots = useMemo(() => availableSlots.filter((slot) => dayKeyOf(slot) === activeDay), [availableSlots, activeDay]);
+
+  function changeMonth(offset: number) {
+    const nextMonth = monthKeys[visibleMonthIndex + offset];
+    if (!nextMonth) return;
+    setVisibleMonth(nextMonth);
+    const nextMonthDays = days.filter((day) => day.key.startsWith(`${nextMonth}-`));
+    setActiveDay(nextMonthDays.find((day) => day.count > 0)?.key ?? nextMonthDays[0]?.key ?? activeDay);
+  }
 
   if (status === "loading") {
     return (
@@ -126,13 +139,35 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   return (
     <div>
       <p className="mb-3 text-[12.5px] font-semibold text-soft">
-        Times shown in Pacific Time (America/Vancouver). {durationMin === 90
-          ? "Each 90-minute lesson is 90 minutes long and holds the tutor for 120 minutes. Overlapping starts will be unavailable after a time is booked."
-          : `${durationMin}-minute lesson.`}
+        Times shown in Pacific Time (America/Vancouver). {durationMin}-minute lesson.
       </p>
 
-      <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Choose a date">
-        {days.map((day) => {
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          aria-label="Previous month"
+          disabled={visibleMonthIndex <= 0}
+          onClick={() => changeMonth(-1)}
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-white text-lg font-bold text-ink transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <span aria-hidden="true">←</span>
+        </button>
+        <h3 className="text-center text-sm font-extrabold text-ink" aria-live="polite">
+          {monthLabel(`${displayedMonth}-01`)}
+        </h3>
+        <button
+          type="button"
+          aria-label="Next month"
+          disabled={visibleMonthIndex < 0 || visibleMonthIndex >= monthKeys.length - 1}
+          onClick={() => changeMonth(1)}
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-white text-lg font-bold text-ink transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+
+      <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label={`Choose a date in ${monthLabel(`${displayedMonth}-01`)}`}>
+        {monthDays.map((day) => {
           const available = day.count > 0;
           const active = day.key === activeDay;
           return (
@@ -164,10 +199,6 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
           );
         })}
       </div>
-
-      <p className="mt-5 mb-3 text-[13px] font-extrabold uppercase tracking-[0.14em] text-soft">
-        {monthLabel(activeDay)}
-      </p>
 
       {daySlots.length === 0 ? (
         <p className="rounded-[14px] border border-line bg-mist p-5 text-sm text-soft">

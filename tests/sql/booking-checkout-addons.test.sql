@@ -5,7 +5,7 @@ declare
   v_booking_id uuid;
   v_purchase_id uuid;
   v_session_id text := 'cs_addon_test_' || replace(gen_random_uuid()::text, '-', '');
-  v_start timestamptz := (date_trunc('week', now() at time zone 'America/Vancouver') + interval '7 days 10 hours') at time zone 'America/Vancouver';
+  v_start timestamptz := (date_trunc('week', now() at time zone 'America/Vancouver') + interval '7 days 9 hours') at time zone 'America/Vancouver';
   v_result boolean;
   v_balance integer;
   v_credits integer;
@@ -14,19 +14,40 @@ declare
   v_booking_status text;
   v_expiry_booking_id uuid;
   v_expiry_purchase_id uuid;
-  v_expiry_start timestamptz := (date_trunc('week', now() at time zone 'America/Vancouver') + interval '14 days 10 hours') at time zone 'America/Vancouver';
+  v_expiry_start timestamptz := (date_trunc('week', now() at time zone 'America/Vancouver') + interval '14 days 9 hours') at time zone 'America/Vancouver';
   v_expiry_session text := 'cs_addon_expire_' || replace(gen_random_uuid()::text, '-', '');
   v_retry_session text := 'cs_addon_retry_' || replace(gen_random_uuid()::text, '-', '');
+  v_six_month_start timestamptz := (date_trunc('week', now() at time zone 'America/Vancouver') + interval '5 months 7 days 9 hours') at time zone 'America/Vancouver';
+  v_six_month_starts timestamptz[];
+  v_starts timestamptz[];
+  v_bundle jsonb;
+  v_bundle_result jsonb;
 begin
-  insert into public.bookings (
-    reference, lesson_id, lesson_name, duration_min, price_cad,
-    starts_at, ends_at, student_name, email, phone, status, payment_status
-  ) values (
-    'WDA-T-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)),
-    '90-minute-lesson', '90-Minute Lesson', 90, 90,
-    v_start, v_start + interval '90 minutes', 'SQL Add-on Test',
-    'addon-test@example.invalid', '6045550100', 'pending_payment', 'due'
-  ) returning id into v_booking_id;
+  v_starts := array[
+    v_start + interval '2 hours', v_start + interval '4 hours', v_start + interval '6 hours',
+    v_start + interval '24 hours', v_start + interval '26 hours', v_start + interval '28 hours', v_start + interval '30 hours',
+    v_start + interval '48 hours', v_start + interval '50 hours', v_start + interval '52 hours'
+  ];
+  v_bundle := jsonb_build_array(
+    jsonb_build_object('lessonId', '90-minute-lesson', 'quantity', 1, 'startsAt', array[v_start]),
+    jsonb_build_object('lessonId', 'five-lesson-pack', 'quantity', 2, 'startsAt', v_starts)
+  );
+  v_bundle_result := public.create_booking_bundle_with_student_details(
+    repeat('a', 64), now() + interval '1 day', v_bundle,
+    'SQL Add-on Test', 'addon-test@example.invalid', '6045550100', '',
+    date '1990-01-01', 'prefer_not_to_say', 'BC123456'
+  );
+  if not coalesce((v_bundle_result->>'ok')::boolean, false) then
+    raise exception 'Expected atomic bundle scheduling, got %', v_bundle_result;
+  end if;
+  v_booking_id := (v_bundle_result->'records'->0->>'id')::uuid;
+  if not exists (
+    select 1 from public.booking_student_details
+    where booking_id = v_booking_id and date_of_birth = date '1990-01-01'
+      and gender = 'prefer_not_to_say' and license_number = 'BC123456'
+  ) then
+    raise exception 'Student identity details should be stored on the private anchor record';
+  end if;
 
   v_result := public.set_booking_checkout_session_with_addons(
     v_booking_id, v_session_id, now() + interval '31 minutes', v_start,
@@ -74,22 +95,33 @@ begin
   select payment_status into v_purchase_status from public.package_purchases where id = v_purchase_id;
   select coalesce(sum(quantity_delta), 0) into v_balance from public.package_credit_events where purchase_id = v_purchase_id;
   select status into v_booking_status from public.bookings where id = v_booking_id;
-  if v_purchase_status <> 'paid' or v_balance <> 10 or v_booking_status <> 'confirmed' then
+  if v_purchase_status <> 'paid' or v_balance <> 0 or v_booking_status <> 'confirmed' then
     raise exception 'Unexpected fulfilled booking/add-on state: purchase %, balance %, booking %', v_purchase_status, v_balance, v_booking_status;
   end if;
   if (select count(*) from public.package_credit_events where purchase_id = v_purchase_id and event_type = 'grant') <> 1 then
-    raise exception 'Duplicate event must not grant duplicate credits';
+    raise exception 'Duplicate event must not grant duplicate lessons';
+  end if;
+  if (select count(*) from public.package_credit_events where purchase_id = v_purchase_id and event_type = 'redeem') <> 10 then
+    raise exception 'Every scheduled add-on lesson must be linked to its paid package';
   end if;
 
-  insert into public.bookings (
-    reference, lesson_id, lesson_name, duration_min, price_cad,
-    starts_at, ends_at, student_name, email, phone, status, payment_status
-  ) values (
-    'WDA-T-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)),
-    '90-minute-lesson', '90-Minute Lesson', 90, 90,
-    v_expiry_start, v_expiry_start + interval '90 minutes', 'SQL Add-on Retry Test',
-    'addon-retry@example.invalid', '6045550101', 'pending_payment', 'due'
-  ) returning id into v_expiry_booking_id;
+  v_starts := array[
+    v_expiry_start + interval '2 hours', v_expiry_start + interval '4 hours',
+    v_expiry_start + interval '24 hours', v_expiry_start + interval '26 hours',
+    v_expiry_start + interval '48 hours'
+  ];
+  v_bundle := jsonb_build_array(
+    jsonb_build_object('lessonId', '90-minute-lesson', 'quantity', 1, 'startsAt', array[v_expiry_start]),
+    jsonb_build_object('lessonId', 'five-lesson-pack', 'quantity', 1, 'startsAt', v_starts)
+  );
+  v_bundle_result := public.create_booking_bundle(
+    repeat('b', 64), now() + interval '1 day', v_bundle,
+    'SQL Add-on Retry Test', 'addon-retry@example.invalid', '6045550101', ''
+  );
+  if not coalesce((v_bundle_result->>'ok')::boolean, false) then
+    raise exception 'Expected retry bundle scheduling, got %', v_bundle_result;
+  end if;
+  v_expiry_booking_id := (v_bundle_result->'records'->0->>'id')::uuid;
   v_result := public.set_booking_checkout_session_with_addons(
     v_expiry_booking_id, v_expiry_session, now() + interval '31 minutes', v_expiry_start,
     '[{"lessonId":"five-lesson-pack","quantity":1}]'::jsonb
@@ -113,6 +145,21 @@ begin
   if not v_result then raise exception 'Expected retry Checkout Session after expiry'; end if;
   if (select count(*) from public.booking_checkout_addon_attempts where booking_id = v_expiry_booking_id) <> 2 then
     raise exception 'Retry must create a new independently tracked add-on attempt';
+  end if;
+
+  select array_agg(v_six_month_start + (day_offset * interval '21 days') order by day_offset)
+    into v_six_month_starts
+  from generate_series(0, 7) as day_offset;
+  v_bundle := jsonb_build_array(
+    jsonb_build_object('lessonId', 'eight-lesson-pack', 'quantity', 1, 'startsAt', to_jsonb(v_six_month_starts))
+  );
+  v_bundle_result := public.create_booking_bundle_with_student_details(
+    repeat('c', 64), now() + interval '1 day', v_bundle,
+    'SQL Six Month Test', 'six-month-test@example.invalid', '6045550102', '',
+    date '1990-01-01', 'prefer_not_to_say', 'BC123456'
+  );
+  if not coalesce((v_bundle_result->>'ok')::boolean, false) then
+    raise exception 'Eight sessions spread over more than two months and within a six-month package window should be accepted, got %', v_bundle_result;
   end if;
 end;
 $$;

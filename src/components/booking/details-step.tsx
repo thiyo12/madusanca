@@ -11,6 +11,9 @@ export interface DetailsValue {
   lastName: string;
   studentName: string;
   licenseClass: string;
+  dateOfBirth: string;
+  gender: string;
+  licenseNumber: string;
   email: string;
   phone: string;
   street: string;
@@ -27,6 +30,9 @@ export const emptyDetails: DetailsValue = {
   lastName: "",
   studentName: "",
   licenseClass: "",
+  dateOfBirth: "",
+  gender: "",
+  licenseNumber: "",
   email: "",
   phone: "",
   street: "",
@@ -101,6 +107,43 @@ export function DetailsStep({ value, onChange, error }: DetailsStepProps) {
             <option value="5">Class 5</option>
             <option value="Other">Other / out-of-province</option>
           </select>
+        </label>
+        <label className={labelClasses}>
+          Date of birth *
+          <input
+            type="date"
+            autoComplete="bday"
+            required
+            max={new Date().toISOString().slice(0, 10)}
+            className={inputClasses}
+            value={value.dateOfBirth}
+            onChange={(event) => set("dateOfBirth", event.target.value)}
+          />
+        </label>
+        <label className={labelClasses}>
+          Gender *
+          <select required className={inputClasses} value={value.gender} onChange={(event) => set("gender", event.target.value)}>
+            <option value="">Select an option</option>
+            <option value="woman">Woman</option>
+            <option value="man">Man</option>
+            <option value="non_binary">Non-binary</option>
+            <option value="another_identity">Another gender identity</option>
+            <option value="prefer_not_to_say">Prefer not to say</option>
+          </select>
+        </label>
+        <label className={`${labelClasses} sm:col-span-2`}>
+          Driver&rsquo;s licence number *
+          <input
+            autoComplete="off"
+            required
+            minLength={4}
+            maxLength={32}
+            placeholder="Enter the number shown on your licence"
+            className={inputClasses}
+            value={value.licenseNumber}
+            onChange={(event) => set("licenseNumber", event.target.value)}
+          />
+          <span className="font-normal text-soft">We use this to verify your licence details for your driving lessons.</span>
         </label>
         <label className={labelClasses}>
           Email address *
@@ -210,7 +253,7 @@ export function DetailsStep({ value, onChange, error }: DetailsStepProps) {
           className="mt-0.5 h-4 w-4 shrink-0 accent-[#6a9d42]"
         />
         <span>
-          I agree that my details may be used to manage this booking, as described in the{" "}
+          I agree that my booking and licence details may be used to manage my driving lessons, as described in the{" "}
           <a href="/privacy" className="font-semibold text-gold-deep underline-offset-2 hover:underline">
             Privacy Policy
           </a>
@@ -225,7 +268,7 @@ export function DetailsStep({ value, onChange, error }: DetailsStepProps) {
       )}
 
       <p className="mt-4 text-[12.5px] leading-relaxed text-soft">
-        No account is needed. We&rsquo;ll email your confirmation and a private link to manage this booking. Please bring your valid driver&rsquo;s licence to every lesson; we don&rsquo;t collect the licence number or date of birth on this form.
+        No account is needed. We&rsquo;ll email your confirmation and a private link to manage this booking. Please bring your valid driver&rsquo;s licence to every lesson.
       </p>
     </div>
   );

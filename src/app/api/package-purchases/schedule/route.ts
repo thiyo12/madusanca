@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         : result.error === "expired"
           ? "This purchase has expired or is not paid yet. Contact the school if you need help."
           : result.error === "not_modifiable"
-            ? "There are no available credits left in this purchase."
+            ? "There are no unscheduled lessons left in this purchase."
             : "Could not schedule this session. Please try again." }, { status });
     }
     const response = NextResponse.json({ ok: true });
@@ -64,6 +64,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     return response;
   } catch (error) {
     logSafeError("[package-purchases/schedule] failed", error);
-    return NextResponse.json({ ok: false, error: "Could not schedule this session. Your credit is unchanged; please try again." }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Could not schedule this lesson. Your lesson balance is unchanged; please try again." }, { status: 500 });
   }
 }

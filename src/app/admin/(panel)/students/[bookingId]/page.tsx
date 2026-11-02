@@ -7,6 +7,7 @@ import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { getStudentBookingsByAnchor } from "@/lib/admin/student-record";
 import { pickupLocation } from "@/lib/admin/student-record-format";
 import { adminStudentPdfHref } from "@/lib/admin/urls";
+import { getStore } from "@/lib/booking/store";
 import { BookingActions } from "../../bookings/booking-actions";
 
 export const metadata: Metadata = {
@@ -24,6 +25,8 @@ export default async function AdminStudentDetailPage({
   const bookings = await getStudentBookingsByAnchor(bookingId);
   const student = bookings?.[0];
   if (!student || !bookings) notFound();
+  const anchor = bookings.find((booking) => booking.sessionIndex === 1) ?? student;
+  const studentDetails = await getStore().getBookingStudentDetails(anchor.id);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -45,6 +48,17 @@ export default async function AdminStudentDetailPage({
           Download student PDF
         </a>
       </div>
+
+      {studentDetails && (
+        <section className="mt-5 rounded-[16px] border border-line bg-white p-5">
+          <h2 className="text-[13px] font-extrabold text-ink">Private student details</h2>
+          <dl className="mt-3 grid gap-3 text-[12.5px] sm:grid-cols-3">
+            <div><dt className="text-soft">Date of birth</dt><dd className="mt-0.5 font-bold text-ink">{studentDetails.dateOfBirth}</dd></div>
+            <div><dt className="text-soft">Gender</dt><dd className="mt-0.5 font-bold text-ink">{studentDetails.gender.replaceAll("_", " ")}</dd></div>
+            <div><dt className="text-soft">Driver’s licence number</dt><dd className="mt-0.5 font-bold text-ink">{studentDetails.licenseNumber}</dd></div>
+          </dl>
+        </section>
+      )}
 
       <div className="mt-6 grid gap-4">
         {bookings.map((booking, index) => {

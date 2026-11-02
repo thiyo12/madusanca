@@ -32,8 +32,9 @@ const sections: { heading: string; body: React.ReactNode }[] = [
           <li>
             <strong>Booking details:</strong> first name, last name, full legal
             name, email address, phone number, licence class, pickup street
-            address, lesson notes you choose to share, and booking history
-            (lesson type, date and time).
+            address, date of birth, gender, driver&rsquo;s licence number, lesson
+            notes you choose to share, and booking history (lesson type, date
+            and time).
           </li>
           <li>
             <strong>Contact messages:</strong> anything you send through our
@@ -47,10 +48,11 @@ const sections: { heading: string; body: React.ReactNode }[] = [
           </li>
         </ul>
         <p>
-          We do not collect driver&rsquo;s licence numbers, dates of birth,
-          gender, payment card numbers (in this release), health information, or
-          precise geolocation through the online booking form. Please bring
-          your valid licence to your lesson.
+          We collect date of birth and driver&rsquo;s licence details to administer
+          driving lessons and verify the information needed for instruction.
+          Gender is collected as part of the student booking record; you may
+          select “Prefer not to say.” We do not collect payment card numbers
+          through this form. Please bring your valid licence to your lesson.
         </p>
       </>
     ),
@@ -62,6 +64,7 @@ const sections: { heading: string; body: React.ReactNode }[] = [
         <p>We use your personal information to:</p>
         <ul className="list-disc space-y-1.5 pl-5">
           <li>Schedule, confirm and manage your driving lessons;</li>
+          <li>Administer student records and verify driver&rsquo;s licence details for instruction;</li>
           <li>
             Give you a private link or email-verified access to view and manage
             your own booking;
@@ -101,7 +104,7 @@ const sections: { heading: string; body: React.ReactNode }[] = [
     body: (
       <p>
         Booking, payment, and package-credit records are kept for up to{" "}
-        <strong>five years</strong> after your last lesson or purchase, then
+             <strong>five years</strong> after your last lesson or purchase, then
         deleted or made anonymous, unless a longer period is required to meet
         legal, tax, accounting, or dispute-resolution obligations. Contact-form
         messages are kept for up to{" "}
@@ -128,8 +131,12 @@ const sections: { heading: string; body: React.ReactNode }[] = [
       <p>
         This release uses only cookies and storage that are strictly necessary
         for the site to work (for example, keeping you signed in on the admin
-        area). If we add optional analytics later, we will update this policy
-        and ask for consent where required.
+        area). While you complete a booking, a temporary draft is saved in
+        session storage in your current browser tab so your choices and entered
+        details are not lost if you navigate away and return. It expires after
+        30 minutes of inactivity and is removed after a successful booking or
+        when the tab session ends. If we add optional analytics later, we will
+        update this policy and ask for consent where required.
       </p>
     ),
   },
@@ -175,7 +182,7 @@ export default function PrivacyPage() {
       <section className="bg-white py-12 sm:py-16">
         <article className="mx-auto max-w-3xl px-5 sm:px-6">
           <p className="text-[13px] font-bold uppercase tracking-wider text-soft">
-            Last updated: November 2, 2026
+            Last updated: November 3, 2026
           </p>
 
           <div className="mt-8 space-y-9">

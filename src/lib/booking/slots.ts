@@ -3,7 +3,9 @@ import type { AvailabilityRule, BlackoutDate, BusyInterval } from "@/lib/booking
 export const TZ = "America/Vancouver";
 export const SLOT_STEP_MIN = 30;
 export const LEAD_TIME_MIN = 120;
-export const HORIZON_DAYS = 185;
+// A package may start up to six months from today and use its six-month
+// scheduling window from that first session (nearly twelve months total).
+export const HORIZON_DAYS = 370;
 
 /** Instructor occupancy is distinct from the lesson duration shown to students. */
 export function occupiedDurationMin(lessonDurationMin: number): number {
@@ -161,7 +163,7 @@ export function generateSlots(query: SlotQuery): string[] {
 
   const occupiedMinutes = occupiedDurationMin(query.lessonDurationMin);
   const occupiedMs = occupiedMinutes * 60000;
-  const slotStepMs = SLOT_STEP_MIN * 60000;
+  const slotStepMs = (query.lessonDurationMin === 90 ? occupiedMinutes : SLOT_STEP_MIN) * 60000;
   const busyRanges = toBusyRanges(query.busy);
   const blackoutSet = new Set(query.blackouts.map((b) => b.date));
   const rulesByWeekday = new Map<number, AvailabilityRule>();

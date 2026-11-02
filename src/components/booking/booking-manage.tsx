@@ -194,7 +194,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
       setCreditStart(null);
       setNow(Date.now());
     } catch {
-      setActionError("Network error. Your credit was not deducted unless the appointment appears here; refresh to check.");
+      setActionError("Network error. Your lesson was not scheduled unless the appointment appears here; refresh to check.");
     } finally {
       setBusy(false);
     }
@@ -277,11 +277,11 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     <section className="mt-5 rounded-[16px] border border-line p-4">
       <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#426a2c]">Package purchase</p>
       <h3 className="mt-1 text-sm font-extrabold text-ink">{purchase.lessonName}</h3>
-      <p className="mt-1 text-[12.5px] text-soft">{purchase.creditsAvailable} of {purchase.creditsPurchased} lesson credits available · {purchase.paymentStatus === "paid" ? "Paid" : purchase.paymentStatus}</p>
+      <p className="mt-1 text-[12.5px] text-soft">{purchase.creditsAvailable} of {purchase.creditsPurchased} lessons available · {purchase.paymentStatus === "paid" ? "Paid" : purchase.paymentStatus}</p>
       {purchase.validUntil && <p className="mt-1 text-[12px] text-soft">Schedule before {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}.</p>}
       {purchase.paymentStatus === "paid" && purchase.creditsAvailable > 0 && (!purchase.validUntil || (now !== null && Date.parse(purchase.validUntil) > now)) && (
         <div className="mt-3">
-          <p className="mb-2 text-[12px] font-bold text-ink">Choose a time for one available credit</p>
+          <p className="mb-2 text-[12px] font-bold text-ink">Choose a time for one available lesson</p>
           <DateTimeStep
             key={`${purchase.id}-${availabilityRevision}`}
             lessonId={purchase.lessonId}
@@ -293,7 +293,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
           {creditStart && <button type="button" onClick={() => void scheduleCredit()} disabled={busy} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-full bg-ink px-5 text-[12px] font-extrabold text-white disabled:opacity-60">{busy ? "Scheduling…" : "Schedule this session"}</button>}
         </div>
       )}
-      {purchase.paymentStatus === "pending" && <p className="mt-2 text-[12px] text-soft">Credits become available after Stripe confirms payment.</p>}
+      {purchase.paymentStatus === "pending" && <p className="mt-2 text-[12px] text-soft">Lessons become available after Stripe confirms payment.</p>}
     </section>
   ) : null;
 
@@ -450,7 +450,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
           </label>
           {option && <>
             <div className="mt-4 flex flex-wrap gap-2">{Array.from({ length: option.sessionCount }, (_, index) => <button key={index} type="button" onClick={() => setUpgradeSessionIndex(index)} aria-pressed={upgradeSessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold ${upgradeSessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>Session {index + 1}{upgradeSessions[index] ? " ✓" : ""}</button>)}</div>
-            <div className="mt-3"><DateTimeStep lessonId={option.id} selectedStart={upgradeSessions[upgradeSessionIndex] ?? null} maxDate={upgradeSessions[0] ? addMonthsToKey(dayKeyOf(upgradeSessions[0]), 2) : undefined} minDate={upgradeSessionIndex > 0 && upgradeSessions[0] ? dayKeyOf(upgradeSessions[0]) : undefined} horizonDays={150} onSelect={(slot) => { setUpgradeSessions((current) => { const next = [...current]; next[upgradeSessionIndex] = slot; return next; }); setUpgradeSessionIndex((index) => Math.min(index + 1, option.sessionCount - 1)); }} /></div>
+            <div className="mt-3"><DateTimeStep lessonId={option.id} selectedStart={upgradeSessions[upgradeSessionIndex] ?? null} maxDate={upgradeSessions[0] ? addMonthsToKey(dayKeyOf(upgradeSessions[0]), 6) : undefined} minDate={upgradeSessionIndex > 0 && upgradeSessions[0] ? dayKeyOf(upgradeSessions[0]) : undefined} horizonDays={370} onSelect={(slot) => { setUpgradeSessions((current) => { const next = [...current]; next[upgradeSessionIndex] = slot; return next; }); setUpgradeSessionIndex((index) => Math.min(index + 1, option.sessionCount - 1)); }} /></div>
             <div className="mt-3"><StripeUpgradeButton targetLessonId={option.id} amountCad={option.balanceCad} sessions={upgradeSessions} disabled={upgradeSessions.length !== option.sessionCount || upgradeSessions.some((slot) => !slot)} /></div>
           </>}
         </section>;
@@ -533,7 +533,8 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
             lessonId={selectedSession.lessonId}
             selectedStart={pendingStart}
             minDate={selectedSession.packageWindowStart}
-            maxDate={addMonthsToKey(selectedSession.packageWindowStart, 2)}
+            maxDate={addMonthsToKey(selectedSession.packageWindowStart, 6)}
+            horizonDays={370}
             onSelect={(slot) => {
               setPendingStart(slot);
               setActionError(null);

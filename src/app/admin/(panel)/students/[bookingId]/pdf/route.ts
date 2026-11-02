@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { getStudentBookingsByAnchor } from "@/lib/admin/student-record";
 import { createStudentBookingPdf } from "@/lib/admin/student-booking-pdf";
+import { getStore } from "@/lib/booking/store";
 import { logSafeError } from "@/lib/server/safe-log";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,9 @@ export async function GET(
     if (!bookings?.length) {
       return NextResponse.json({ error: "Student record not found." }, { status: 404, headers: privateHeaders });
     }
-    const pdf = createStudentBookingPdf(bookings);
+    const anchor = bookings.find((booking) => booking.sessionIndex === 1) ?? bookings[0];
+    const studentDetails = await getStore().getBookingStudentDetails(anchor.id);
+    const pdf = createStudentBookingPdf(bookings, new Date(), studentDetails);
     const reference = bookings[0].reference.replace(/[^A-Za-z0-9-]/g, "");
     return new Response(Buffer.from(pdf), {
       headers: {

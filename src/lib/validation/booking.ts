@@ -31,6 +31,11 @@ export const createBookingSchema = z.object({
     lessonId: z.string().trim().min(1).max(64),
     quantity: z.number().int().safe().min(1).max(100_000),
   }).strict()).max(20).optional(),
+  packageSchedules: z.array(z.object({
+    lessonId: z.string().trim().min(1).max(64),
+    quantity: z.number().int().safe().min(1).max(100_000),
+    startsAt: z.array(isoDateTimeSchema).min(1).max(200),
+  }).strict()).min(1).max(20).optional(),
   studentName: z.string().trim().min(2, "Please enter your name.").max(80),
   email: z.email("Please enter a valid email address.").max(160),
   phone: z
@@ -38,15 +43,23 @@ export const createBookingSchema = z.object({
     .trim()
     .min(7, "Please enter a phone number we can reach you at.")
     .max(25),
+  dateOfBirth: dateOnlySchema.refine((value) => value <= new Date().toISOString().slice(0, 10), "Date of birth cannot be in the future."),
+  gender: z.enum(["woman", "man", "non_binary", "another_identity", "prefer_not_to_say"]),
+  licenseNumber: z.string().trim().min(4, "Enter your driver’s licence number.").max(32),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
   /** Honeypot — bots fill it and the route silently pretends to succeed. */
   website: z.string().trim().max(120).optional().or(z.literal("")),
   consent: z.literal(true, {
     message: "You must agree to the privacy policy.",
   }),
-}).strict().refine((value) => Boolean(value.startsAt) !== Boolean(value.sessions), {
+}).strict().refine((value) => value.packageSchedules
+  ? !value.startsAt && !value.sessions
+  : Boolean(value.startsAt) !== Boolean(value.sessions), {
   message: "Provide either a single start time or the package session times.",
   path: ["sessions"],
+}).refine((value) => !(value.addOnPackages?.length) || Boolean(value.packageSchedules), {
+  message: "Choose a date and time for every lesson in each additional package.",
+  path: ["packageSchedules"],
 });
 
 export const manageSchema = z.object({
