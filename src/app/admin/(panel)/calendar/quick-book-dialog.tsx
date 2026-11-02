@@ -25,6 +25,7 @@ export function QuickBookDialog({ dayKey, startMin, lessons, onClose }: QuickBoo
 
   useEffect(() => {
     if (state.ok) router.refresh();
+    else if (state.message.includes("slot was just taken")) router.refresh();
   }, [state, router]);
 
   const time = `${String(Math.floor(startMin / 60)).padStart(2, "0")}:${String(startMin % 60).padStart(2, "0")}`;

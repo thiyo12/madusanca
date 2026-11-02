@@ -5,6 +5,11 @@ export const SLOT_STEP_MIN = 30;
 export const LEAD_TIME_MIN = 120;
 export const HORIZON_DAYS = 150;
 
+/** A standard 90-minute lesson reserves two hours on the instructor calendar. */
+export function occupiedDurationMin(lessonDurationMin: number): number {
+  return lessonDurationMin === 90 ? 120 : lessonDurationMin;
+}
+
 /** Default school hours: Mon–Sat 09:00–18:00, Sunday closed. */
 export const DEFAULT_RULES: AvailabilityRule[] = [
   { weekday: 1, startMin: 9 * 60, endMin: 18 * 60 },
@@ -125,7 +130,7 @@ export function generateSlots(query: SlotQuery): string[] {
     query.toDayKey && query.toDayKey < horizonKey ? query.toDayKey : horizonKey;
   if (toKey < fromKey) return [];
 
-  const durationMs = query.lessonDurationMin * 60000;
+  const occupiedMs = occupiedDurationMin(query.lessonDurationMin) * 60000;
   const busyRanges = toBusyRanges(query.busy);
   const blackoutSet = new Set(query.blackouts.map((b) => b.date));
   const rulesByWeekday = new Map<number, AvailabilityRule>();
@@ -147,11 +152,11 @@ export function generateSlots(query: SlotQuery): string[] {
       const windowEnd = zonedToUtc(year, month, day, rule.endMin);
       for (
         let start = windowStart.getTime();
-        start + durationMs <= windowEnd.getTime();
+        start + occupiedMs <= windowEnd.getTime();
         start += SLOT_STEP_MIN * 60000
       ) {
         if (start < earliestMs) continue;
-        const end = start + durationMs;
+        const end = start + occupiedMs;
         if (busyRanges.some(([bs, be]) => overlaps(start, end, bs, be))) continue;
         slots.push(new Date(start).toISOString());
       }
@@ -185,7 +190,7 @@ export function validateSlot(
     return { valid: false, reason: "beyond_horizon" };
   }
 
-  const endMs = startMs + query.lessonDurationMin * 60000;
+  const endMs = startMs + occupiedDurationMin(query.lessonDurationMin) * 60000;
   const busyRanges = toBusyRanges(query.busy);
   if (busyRanges.some(([bs, be]) => overlaps(startMs, endMs, bs, be))) {
     return { valid: false, reason: "occupied" };

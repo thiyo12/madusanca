@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { DEFAULT_RULES } from "@/lib/booking/slots";
+import { DEFAULT_RULES, occupiedDurationMin } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { lessons as defaultLessons, type Lesson } from "@/lib/data/lessons";
 import { customerCanAccessBooking } from "@/lib/booking/customer-access";
@@ -161,15 +161,19 @@ export const supabaseStore: BookingStore = {
   async getBusy(fromIso: string, toIso: string): Promise<BusyInterval[]> {
     const [bookings, upgrades] = await Promise.all([adminClient()
       .from("bookings")
-      .select("starts_at, ends_at, stripe_upgrade_target_sessions")
+      .select("starts_at, duration_min")
       .or(`status.in.(confirmed,rescheduled),and(status.eq.pending_payment,or(stripe_checkout_expires_at.is.null,stripe_checkout_expires_at.gt.${new Date().toISOString()}))`)
       .lt("starts_at", toIso)
-      .gt("ends_at", fromIso), adminClient().from("bookings").select("stripe_upgrade_target_sessions").not("stripe_upgrade_checkout_session_id", "is", null)]);
+      .gt("starts_at", new Date(Date.parse(fromIso) - 600 * 60_000).toISOString()), adminClient().from("bookings").select("stripe_upgrade_target_sessions, stripe_upgrade_target_duration_min").not("stripe_upgrade_checkout_session_id", "is", null)]);
     if (bookings.error || upgrades.error) throw new Error(`Failed to load booking availability: ${bookings.error?.message ?? upgrades.error?.message}`);
     const intervals = (bookings.data ?? []).flatMap((row) => {
-      const base = [{ startsAt: new Date(row.starts_at).toISOString(), endsAt: new Date(row.ends_at).toISOString() }];
-      return base;
-    }).concat((upgrades.data ?? []).flatMap((row) => ((row.stripe_upgrade_target_sessions ?? []) as Array<{ startsAt: string; endsAt: string }>))
+      const startsAt = new Date(row.starts_at).toISOString();
+      const endsAt = new Date(Date.parse(startsAt) + occupiedDurationMin(row.duration_min) * 60_000).toISOString();
+      return new Date(endsAt) > new Date(fromIso) ? [{ startsAt, endsAt }] : [];
+    }).concat((upgrades.data ?? []).flatMap((row) => ((row.stripe_upgrade_target_sessions ?? []) as Array<{ startsAt: string; endsAt: string }>).map((item) => ({
+      startsAt: item.startsAt,
+      endsAt: new Date(Date.parse(item.startsAt) + occupiedDurationMin(row.stripe_upgrade_target_duration_min ?? 600) * 60_000).toISOString(),
+    })))
       .filter((item) => new Date(item.startsAt) < new Date(toIso) && new Date(item.endsAt) > new Date(fromIso)));
     return intervals;
   },

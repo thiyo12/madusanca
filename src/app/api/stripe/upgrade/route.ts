@@ -12,7 +12,7 @@ import { logSafeError } from "@/lib/server/safe-log";
 import { getManageToken } from "@/lib/booking/manage-cookie";
 import { isStripePaymentsEnabled } from "@/lib/stripe/payment-validation";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
-import { validateSlot } from "@/lib/booking/slots";
+import { occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
 import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 
 export const dynamic = "force-dynamic";
@@ -64,18 +64,22 @@ export async function POST(request: Request): Promise<NextResponse> {
     const firstDay = dayKeyOf(proposed[0].startsAt);
     if (proposed.some((item) => dayKeyOf(item.startsAt) > addMonthsToKey(firstDay, 2))) return NextResponse.json({ ok: false, error: "All package sessions must be within two months of the first session." }, { status: 400 });
     for (let index = 1; index < proposed.length; index += 1) {
-      if (Date.parse(proposed[index].startsAt) < Date.parse(proposed[index - 1].endsAt)) return NextResponse.json({ ok: false, error: "Package sessions cannot overlap." }, { status: 400 });
+      const previousOccupiedEnd = Date.parse(proposed[index - 1].startsAt) + occupiedDurationMin(target.durationMin) * 60_000;
+      if (Date.parse(proposed[index].startsAt) < previousOccupiedEnd) return NextResponse.json({ ok: false, error: "Package sessions cannot overlap." }, { status: 400 });
     }
-    const oldSchedule = new Set(found.sessions.map((item) => `${item.startsAt}|${item.endsAt}`));
-    const oldProposedSchedule = new Set((booking.stripeUpgradeTargetSessions ?? []).map((item) => `${item.startsAt}|${item.endsAt}`));
+    const oldSchedule = new Set(found.sessions.map((item) => item.startsAt));
+    const oldProposedSchedule = new Set((booking.stripeUpgradeTargetSessions ?? []).map((item) => item.startsAt));
     const from = new Date(Date.now()).toISOString();
     const to = proposed.at(-1)!.endsAt;
     const [busy, blackouts, rules] = await Promise.all([store.getBusy(from, to), store.getBlackouts(), store.getRules()]);
-    const availableBusy = busy.filter((item) => !oldSchedule.has(`${item.startsAt}|${item.endsAt}`) && !oldProposedSchedule.has(`${item.startsAt}|${item.endsAt}`));
+    const availableBusy = busy.filter((item) => !oldSchedule.has(item.startsAt) && !oldProposedSchedule.has(item.startsAt));
     for (const item of proposed) {
       const validation = validateSlot(item.startsAt, { lessonDurationMin: target.durationMin, busy: availableBusy, blackouts, rules, now: new Date() });
       if (!validation.valid) return NextResponse.json({ ok: false, error: "One of those times is no longer available. Please choose new session times." }, { status: 409 });
-      availableBusy.push(item);
+      availableBusy.push({
+        startsAt: item.startsAt,
+        endsAt: new Date(Date.parse(item.startsAt) + occupiedDurationMin(target.durationMin) * 60_000).toISOString(),
+      });
     }
     const amountCad = Math.round((target.priceCad - currentPriceCad) * 100) / 100;
     const stripe = getStripe();

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { AvailabilityRule, BlackoutDate, BookingRecord } from "@/lib/booking/types";
 import { dayNumber, formatSlotTime, weekdayLabel } from "@/lib/booking/format";
-import { LEAD_TIME_MIN, zonedToUtc } from "@/lib/booking/slots";
+import { LEAD_TIME_MIN, occupiedDurationMin, zonedToUtc } from "@/lib/booking/slots";
 import type { Lesson } from "@/lib/data/lessons";
 import { adminStudentHref } from "@/lib/admin/urls";
 import { rescheduleBookingAction } from "../bookings/actions";
@@ -64,7 +64,7 @@ function assignLanes(bookings: BookingRecord[]): Array<{ booking: BookingRecord;
   const laneEnds: number[] = [];
   return sorted.map((booking) => {
     const start = Date.parse(booking.startsAt);
-    const end = Date.parse(booking.endsAt);
+    const end = start + occupiedDurationMin(booking.durationMin) * 60_000;
     let lane = laneEnds.findIndex((laneEnd) => laneEnd <= start);
     if (lane === -1) {
       lane = laneEnds.length;
@@ -116,7 +116,7 @@ export function ScheduleGrid({
       (booking) =>
         isActive(booking) &&
         vancouverMinutes(booking.startsAt) < startMin + SLOT_STEP_MIN &&
-        vancouverMinutes(booking.endsAt) > startMin,
+        vancouverMinutes(booking.startsAt) + occupiedDurationMin(booking.durationMin) > startMin,
     );
   }
 
@@ -128,13 +128,13 @@ export function ScheduleGrid({
   ): Lesson[] {
     if (!rule || blackout) return [];
     return lessons.filter((lesson) => {
-      const endMin = startMin + lesson.durationMin;
+      const endMin = startMin + occupiedDurationMin(lesson.durationMin);
       if (endMin > rule.endMin) return false;
       return !bookings.some(
         (booking) =>
           isActive(booking) &&
           vancouverMinutes(booking.startsAt) < endMin &&
-          vancouverMinutes(booking.endsAt) > startMin,
+          vancouverMinutes(booking.startsAt) + occupiedDurationMin(booking.durationMin) > startMin,
       );
     });
   }
@@ -281,7 +281,7 @@ export function ScheduleGrid({
                 <div className="absolute inset-0">
                   {laidOut.map(({ booking, lane }) => {
                     const startMin = vancouverMinutes(booking.startsAt);
-                    const endMin = vancouverMinutes(booking.endsAt);
+                    const endMin = startMin + occupiedDurationMin(booking.durationMin);
                     const topPx =
                       ((Math.max(startMin, gridStartMin) - gridStartMin) / SLOT_STEP_MIN) * ROW_H;
                     const bottomPx =

@@ -315,8 +315,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     ]);
     // The customer's own current slot counts as free while rescheduling.
     const ownBusy = busy.filter(
-      (interval) =>
-        !(interval.startsAt === targetBooking.startsAt && interval.endsAt === targetBooking.endsAt),
+      (interval) => interval.startsAt !== targetBooking.startsAt,
     );
 
     const validation = validateSlot(new Date(startMs).toISOString(), {

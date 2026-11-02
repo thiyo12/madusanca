@@ -24,6 +24,7 @@ import { hasTrustedRequestOrigin } from "../src/lib/server/request-origin.ts";
 import { createStudentBookingPdf } from "../src/lib/admin/student-booking-pdf.ts";
 import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts";
 import { addMonthsToKey } from "../src/lib/booking/format.ts";
+import { generateSlots, occupiedDurationMin, zonedToUtc } from "../src/lib/booking/slots.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -33,6 +34,32 @@ test("manage tokens are random URL-safe values and only the hash should be persi
   assert.notEqual(hashToken(token), token);
   assert.equal(tokensMatch(token, token), true);
   assert.equal(tokensMatch(token, `${token}x`), false);
+});
+
+test("90-minute lessons reserve 120 minutes and show the next slot after occupied time", () => {
+  assert.equal(occupiedDurationMin(90), 120);
+  assert.equal(occupiedDurationMin(45), 45);
+  assert.equal(occupiedDurationMin(120), 120);
+
+  const firstStart = zonedToUtc(2026, 11, 3, 9 * 60 + 30);
+  const secondStart = zonedToUtc(2026, 11, 3, 11 * 60);
+  const nextAvailable = zonedToUtc(2026, 11, 3, 13 * 60);
+  const slots = generateSlots({
+    lessonDurationMin: 90,
+    fromDayKey: "2026-11-03",
+    toDayKey: "2026-11-03",
+    busy: [
+      { startsAt: firstStart.toISOString(), endsAt: new Date(firstStart.getTime() + 120 * 60_000).toISOString() },
+      { startsAt: secondStart.toISOString(), endsAt: new Date(secondStart.getTime() + 120 * 60_000).toISOString() },
+    ],
+    blackouts: [],
+    rules: [{ weekday: 2, startMin: 9 * 60, endMin: 18 * 60 }],
+    now: new Date("2026-11-01T20:00:00.000Z"),
+  });
+
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60).toISOString()), false);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 12 * 60 + 30).toISOString()), false);
+  assert.equal(slots.includes(nextAvailable.toISOString()), true);
 });
 
 test("OTP generation is six digits and hashes bind case-insensitively to email", () => {

@@ -244,7 +244,7 @@ export async function rescheduleBookingAction(
     ),
   ]);
   const otherBusy = busy.filter(
-    (interval) => interval.startsAt !== booking.startsAt || interval.endsAt !== booking.endsAt,
+    (interval) => interval.startsAt !== booking.startsAt,
   );
   const validation = validateSlot(startsAt, {
     lessonDurationMin: booking.durationMin,

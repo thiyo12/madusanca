@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
-import { validateSlot } from "@/lib/booking/slots";
+import { occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
 import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { createBookingSchema } from "@/lib/validation/booking";
@@ -83,6 +83,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const [rules, blackouts] = await Promise.all([store.getRules(), store.getBlackouts()]);
+    const selectedBusy: Array<{ startsAt: string; endsAt: string }> = [];
     for (const selectedStart of sortedStarts) {
       const startMs = Date.parse(selectedStart);
       const busy = await store.getBusy(
@@ -91,7 +92,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
       const validation = validateSlot(selectedStart, {
         lessonDurationMin: lesson.durationMin,
-        busy,
+        busy: [...busy, ...selectedBusy],
         blackouts,
         rules,
         now: new Date(),
@@ -104,6 +105,10 @@ export async function POST(request: Request): Promise<NextResponse> {
             : "One of those times is no longer available. Please review your selections.",
         }, { status: 409 });
       }
+      selectedBusy.push({
+        startsAt: new Date(startMs).toISOString(),
+        endsAt: new Date(startMs + occupiedDurationMin(lesson.durationMin) * 60_000).toISOString(),
+      });
     }
 
     const token = generateToken();
