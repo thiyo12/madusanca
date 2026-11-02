@@ -9,6 +9,7 @@ import { BookingSummary } from "@/components/booking/booking-summary";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { formatLessonPrice, type Lesson } from "@/lib/data/lessons";
 import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
+import type { PackageQuantitySelection } from "@/lib/booking/types";
 
 export interface BookingWizardProps {
   lessons: Lesson[];
@@ -34,8 +35,8 @@ interface SuccessData {
   email: string;
   priceCad: number;
   emailSent: boolean;
-  addOnLessonIds: string[];
-  addOns: Array<{ id: string; name: string; priceCad: number; sessionCount: number }>;
+  addOnPackages: PackageQuantitySelection[];
+  addOns: Array<{ id: string; name: string; priceCad: number; sessionCount: number; quantity: number }>;
 }
 
 export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) {
@@ -45,7 +46,10 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
     return lessons.find((l) => l.id === initialLessonId) ?? null;
   });
   const [startsAt, setStartsAt] = useState<string[]>([]);
-  const [addOnLessonIds, setAddOnLessonIds] = useState<string[]>([]);
+  const [packageQuantities, setPackageQuantities] = useState<Record<string, number>>({});
+  const addOnPackages = useMemo(() => Object.entries(packageQuantities)
+    .filter(([, quantity]) => quantity > 0)
+    .map(([lessonId, quantity]) => ({ lessonId, quantity })), [packageQuantities]);
   const [showAddOns, setShowAddOns] = useState(false);
   const [sessionIndex, setSessionIndex] = useState(0);
   const [details, setDetails] = useState<DetailsValue>(emptyDetails);
@@ -128,7 +132,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         body: JSON.stringify({
           lessonId: lesson.id,
           sessions: startsAt,
-          addOnLessonIds,
+          addOnPackages,
           studentName: details.studentName.trim(),
           email: details.email.trim(),
           phone: details.phone.trim(),
@@ -160,7 +164,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           email?: string;
         };
           emailSent?: boolean;
-        addOns?: Array<{ id: string; name: string; priceCad: number; sessionCount: number }>;
+        addOns?: Array<{ id: string; name: string; priceCad: number; sessionCount: number; quantity: number }>;
       };
 
       if (!response.ok || !result.ok || !result.booking || !result.manageToken) {
@@ -185,7 +189,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         email: details.email.trim(),
         priceCad: result.booking.priceCad ?? lesson.priceCad,
         emailSent: result.emailSent === true,
-        addOnLessonIds: (result.addOns ?? []).map((item) => item.id),
+        addOnPackages: (result.addOns ?? []).map((item) => ({ lessonId: item.id, quantity: item.quantity })),
         addOns: result.addOns ?? [],
       });
     } catch {
@@ -231,14 +235,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             <h3 className="text-sm font-extrabold text-ink">Checkout review</h3>
             <ul className="mt-2 grid gap-2 text-[13px]">
               <li className="flex justify-between gap-3"><span className="text-soft">{success.lessonName}</span><strong className="text-ink">${success.priceCad.toFixed(2)} CAD</strong></li>
-              {success.addOns.map((item) => <li key={item.id} className="flex justify-between gap-3"><span className="text-soft">{item.name} · {item.sessionCount} credit{item.sessionCount === 1 ? "" : "s"}</span><strong className="text-ink">${item.priceCad.toFixed(2)} CAD</strong></li>)}
-              <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>Subtotal</span><span>${(success.priceCad + success.addOns.reduce((sum, item) => sum + item.priceCad, 0)).toFixed(2)} CAD</span></li>
+              {success.addOns.map((item) => <li key={item.id} className="flex justify-between gap-3"><span className="text-soft">{item.name} × {item.quantity} · {item.sessionCount * item.quantity} lesson credits</span><strong className="text-ink">${(item.priceCad * item.quantity).toFixed(2)} CAD</strong></li>)}
+              <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>Subtotal</span><span>${(success.priceCad + success.addOns.reduce((sum, item) => sum + item.priceCad * item.quantity, 0)).toFixed(2)} CAD</span></li>
             </ul>
             <p className="mt-2 text-[11px] text-soft">Applicable tax will be calculated and shown by Stripe Checkout before payment.</p>
           </section>
         )}
         <div className="mt-5 flex flex-wrap gap-3">
-          <StripeCheckoutButton manageToken={success.manageToken} addOnLessonIds={success.addOnLessonIds} />
+          <StripeCheckoutButton manageToken={success.manageToken} addOnPackages={success.addOnPackages} />
           <Button href="/booking/manage" variant="outline">
             My Booking (email code)
           </Button>
@@ -287,7 +291,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
 
       {step === "lesson" && (
         <div className="grid gap-5">
-          <LessonStep lessons={lessons} selectedId={lesson?.id ?? null} onSelect={(selected) => { setLesson(selected); setAddOnLessonIds([]); }} />
+          <LessonStep lessons={lessons} selectedId={lesson?.id ?? null} onSelect={setLesson} />
           {lesson && (
             <section className="rounded-[16px] border border-line bg-[#fbfcf9] p-4 sm:p-5">
               <button type="button" onClick={() => setShowAddOns((open) => !open)} aria-expanded={showAddOns} className="flex w-full items-center justify-between gap-3 text-left">
@@ -296,19 +300,25 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
               </button>
               {showAddOns && (
                 <div className="mt-3 grid gap-2">
-                  {lessons.filter((item) => item.category === "package" && item.id !== lesson.id).map((item) => {
-                    const selected = addOnLessonIds.includes(item.id);
-                    return (
-                      <label key={item.id} className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-white p-3">
-                        <input type="checkbox" checked={selected} onChange={() => setAddOnLessonIds((current) => selected ? current.filter((id) => id !== item.id) : [...current, item.id])} className="mt-1 h-4 w-4 accent-[#6a9d42]" />
-                        <span className="grid gap-0.5">
-                          <span className="text-[13px] font-extrabold text-ink">{item.name}</span>
-                          <span className="text-[12px] text-soft">{item.sessionCount} lesson credit{item.sessionCount === 1 ? "" : "s"} · {item.durationMin} min · {formatLessonPrice(item.priceCad)}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                  <p className="text-[11px] leading-relaxed text-soft">Extra credits are purchased with this booking but are not scheduled automatically. Taxes are calculated by Stripe at checkout.</p>
+                   {lessons.filter((item) => item.category === "package").map((item) => {
+                     const quantity = packageQuantities[item.id] ?? 0;
+                     return (
+                       <label key={item.id} className="flex items-center gap-3 rounded-xl border border-line bg-white p-3">
+                         <span className="grid gap-0.5">
+                           <span className="text-[13px] font-extrabold text-ink">{item.name}{item.id === lesson.id ? " · same package as selected" : ""}</span>
+                           <span className="text-[12px] text-soft">{item.sessionCount} lesson credits per package · {item.durationMin} min each · {formatLessonPrice(item.priceCad)}</span>
+                         </span>
+                         <span className="ml-auto grid shrink-0 gap-1 text-right">
+                           <span className="text-[10px] font-bold uppercase tracking-wide text-soft">Packages</span>
+                           <input type="number" min="0" step="1" inputMode="numeric" aria-label={`Additional ${item.name} packages`} value={quantity || ""} placeholder="0" onChange={(event) => {
+                             const next = Number.parseInt(event.target.value, 10);
+                             setPackageQuantities((current) => ({ ...current, [item.id]: Number.isSafeInteger(next) && next > 0 ? next : 0 }));
+                           }} className="h-10 w-20 rounded-lg border border-line px-2 text-center text-sm font-bold text-ink" />
+                         </span>
+                       </label>
+                     );
+                   })}
+                   <p className="text-[11px] leading-relaxed text-soft">Set a quantity for any package, including the package selected above. All selected packages are added to one checkout; additional credits can be scheduled later in My Booking. Applicable taxes are calculated at checkout.</p>
                 </div>
               )}
             </section>
@@ -341,6 +351,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             maxDate={packageWindowEnd}
             minDate={sessionIndex > 0 && startsAt[0] ? dayKeyOf(startsAt[0]) : undefined}
             horizonDays={lesson.sessionCount > 1 && sessionIndex > 0 ? 150 : 90}
+            blockedStartsAt={startsAt.filter((_, index) => index !== sessionIndex)}
             onSelect={(slot) => {
               setSubmitError(null);
               setStartsAt((current) => {
@@ -375,15 +386,15 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
               email: details.email.trim(),
             }}
           />
-          {addOnLessonIds.length > 0 && (
+          {addOnPackages.length > 0 && (
             <section className="mt-4 rounded-[17px] border border-line p-4 sm:p-5">
               <h3 className="text-sm font-extrabold text-ink">Additional lesson credits</h3>
               <ul className="mt-2 grid gap-2 text-[13px]">
-                {addOnLessonIds.map((id) => {
+                {addOnPackages.map(({ lessonId: id, quantity }) => {
                   const extra = lessons.find((item) => item.id === id);
-                  return extra ? <li key={id} className="flex justify-between gap-3"><span className="text-soft">{extra.name} · {extra.sessionCount} credit{extra.sessionCount === 1 ? "" : "s"}</span><strong className="text-ink">{formatLessonPrice(extra.priceCad)}</strong></li> : null;
+                  return extra ? <li key={id} className="flex justify-between gap-3"><span className="text-soft">{extra.name} × {quantity} · {extra.sessionCount * quantity} lesson credits</span><strong className="text-ink">{formatLessonPrice(extra.priceCad * quantity)}</strong></li> : null;
                 })}
-                <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>New items subtotal</span><span>${(lesson.priceCad + addOnLessonIds.reduce((sum, id) => sum + (lessons.find((item) => item.id === id)?.priceCad ?? 0), 0)).toFixed(2)} CAD + applicable taxes</span></li>
+                <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>New items subtotal</span><span>${(lesson.priceCad + addOnPackages.reduce((sum, selection) => sum + (lessons.find((item) => item.id === selection.lessonId)?.priceCad ?? 0) * selection.quantity, 0)).toFixed(2)} CAD + applicable taxes</span></li>
               </ul>
               <p className="mt-2 text-[11px] leading-relaxed text-soft">Stripe will calculate applicable tax and show the final payable total before you pay.</p>
             </section>

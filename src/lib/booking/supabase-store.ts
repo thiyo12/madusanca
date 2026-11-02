@@ -22,6 +22,7 @@ import type {
   PackagePurchaseRecord,
   PackageCreditEventRecord,
   PaymentStatus,
+  PackageQuantitySelection,
   StripePackagePurchaseEvent,
   StripeCheckoutEvent,
   StripeUpgradeCheckoutEvent,
@@ -696,14 +697,14 @@ export const supabaseStore: BookingStore = {
     sessionId: string,
     expiresAt: string,
     expectedStartsAt: string,
-    addOnLessonIds: string[] = [],
+    addOnPackages: PackageQuantitySelection[] = [],
   ): Promise<void> {
     const { data, error } = await adminClient().rpc("set_booking_checkout_session_with_addons", {
       p_booking_id: bookingId,
       p_session_id: sessionId,
       p_expires_at: expiresAt,
       p_expected_starts_at: expectedStartsAt,
-      p_addon_lesson_ids: addOnLessonIds,
+      p_addon_packages: addOnPackages,
     });
     if (error) throw new Error(`Failed to save Checkout Session: ${error.message}`);
     if (data !== true) throw new Error("Booking is no longer eligible for Checkout or the selected add-ons changed.");

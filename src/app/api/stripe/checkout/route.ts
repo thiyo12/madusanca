@@ -18,9 +18,12 @@ const MAX_BODY_BYTES = 2_048;
 
 const checkoutSchema = z.object({
   manageToken: z.string().min(32).max(256).optional(),
-  addOnLessonIds: z.array(z.string().trim().min(1).max(64)).max(10).optional(),
-}).strict().refine((value) => new Set(value.addOnLessonIds ?? []).size === (value.addOnLessonIds ?? []).length, {
-  message: "Choose each additional lesson only once.",
+  addOnPackages: z.array(z.object({
+    lessonId: z.string().trim().min(1).max(64),
+    quantity: z.number().int().safe().min(1).max(100_000),
+  }).strict()).max(20).optional(),
+}).strict().refine((value) => new Set((value.addOnPackages ?? []).map((item) => item.lessonId)).size === (value.addOnPackages ?? []).length, {
+  message: "Choose each package once and set its quantity.",
 });
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -60,7 +63,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const store = getStore();
-    const addOnLessonIds = parsed.data.addOnLessonIds ?? [];
+    const addOnPackages = parsed.data.addOnPackages ?? [];
     const token = parsed.data.manageToken ?? await getManageToken();
     if (!token) return NextResponse.json({ ok: false, error: "Open the private manage link for this booking." }, { status: 401 });
     const tokenHash = hashToken(token);
@@ -81,15 +84,21 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: "There is no online payment due for this booking." }, { status: 409 });
     }
     const stripe = getStripe();
+    const lessons = await store.getLessons();
     if (found.booking.stripeCheckoutSessionId) {
       const existing = await stripe.checkout.sessions.retrieve(found.booking.stripeCheckoutSessionId);
       const sessionStillValid = !found.booking.stripeCheckoutExpiresAt ||
         Date.parse(found.booking.stripeCheckoutExpiresAt) > Date.now();
       if (existing.status === "open" && existing.url && sessionStillValid) {
         const savedAddons = await store.getBookingCheckoutAddons(found.booking.id, existing.id);
-        const requestedIds = [...addOnLessonIds].sort();
-        const savedIds = savedAddons.map((item) => item.lessonId).sort();
-        if (JSON.stringify(requestedIds) !== JSON.stringify(savedIds)) {
+        const requestedAmounts = addOnPackages.map((selection) => {
+          const item = lessons.find((lesson) => lesson.id === selection.lessonId && lesson.category === "package");
+          return item ? `${item.id}:${Math.round(item.priceCad * selection.quantity * 100)}` : `${selection.lessonId}:invalid`;
+        }).sort();
+        const savedAmountMap = new Map<string, number>();
+        for (const purchase of savedAddons) savedAmountMap.set(purchase.lessonId, (savedAmountMap.get(purchase.lessonId) ?? 0) + Math.round(purchase.amountCad * 100));
+        const savedAmounts = [...savedAmountMap].map(([id, cents]) => `${id}:${cents}`).sort();
+        if (JSON.stringify(requestedAmounts) !== JSON.stringify(savedAmounts)) {
           return NextResponse.json({ ok: false, error: "A Checkout session is already open with a different selection. Finish or wait for it to expire before changing extras." }, { status: 409 });
         }
         return NextResponse.json({ ok: true, url: existing.url });
@@ -147,15 +156,18 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const taxCode = stripeTaxCode();
-    const lessons = await store.getLessons();
-    const addOns = addOnLessonIds.map((id) => lessons.find((lesson) => lesson.id === id && lesson.category === "package"));
-    if (addOns.some((lesson) => !lesson)) {
+    const addOns = addOnPackages.map((selection) => ({
+      quantity: selection.quantity,
+      lesson: lessons.find((lesson) => lesson.id === selection.lessonId && lesson.category === "package"),
+    }));
+    if (addOns.some((selection) => !selection.lesson)) {
       return NextResponse.json({ ok: false, error: "An additional lesson is no longer available. Return to the catalogue and review your selection." }, { status: 409 });
     }
-    if (addOnLessonIds.includes(found.booking.lessonId)) {
-      return NextResponse.json({ ok: false, error: "The selected lesson is already included in this booking." }, { status: 400 });
+    const addOnSubtotal = addOns.reduce((sum, item) => sum + (item.lesson?.priceCad ?? 0) * item.quantity, 0);
+    if (found.booking.packagePriceCad! + addOnSubtotal > 999_999.99) {
+      return NextResponse.json({ ok: false, error: "The selected total exceeds the secure checkout limit. Reduce package quantities and try again." }, { status: 400 });
     }
-    const validAddOns = addOns as NonNullable<(typeof addOns)[number]>[];
+    const validAddOns = addOns as Array<{ quantity: number; lesson: NonNullable<(typeof addOns)[number]["lesson"]> }>;
     const checkoutExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -171,7 +183,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       invoice_creation: {
         enabled: true,
         invoice_data: {
-            description: `${found.booking.lessonName}${validAddOns.length ? ` + ${validAddOns.map((item) => item.name).join(", ")}` : ""} · ${found.booking.reference}`,
+            description: `${found.booking.lessonName}${validAddOns.length ? ` + ${validAddOns.map(({ lesson, quantity }) => `${lesson.name} × ${quantity}`).join(", ")}` : ""} · ${found.booking.reference}`,
           metadata: {
             booking_id: found.booking.id,
             booking_reference: found.booking.reference,
@@ -194,15 +206,15 @@ export async function POST(request: Request): Promise<NextResponse> {
             },
           },
         },
-      }, ...validAddOns.map((addon) => ({
-        quantity: 1,
+      }, ...validAddOns.map(({ lesson: addon, quantity }) => ({
+        quantity,
         price_data: {
           currency: "cad",
           unit_amount: Math.round(addon.priceCad * 100),
           tax_behavior: "exclusive" as const,
           product_data: {
             name: addon.name,
-            description: `${addon.sessionCount} lesson credit${addon.sessionCount === 1 ? "" : "s"}; schedule later from My Booking. GST calculated by Stripe Tax.`,
+            description: `${addon.sessionCount * quantity} lesson credits across ${quantity} package${quantity === 1 ? "" : "s"}; schedule later from My Booking. GST calculated by Stripe Tax.`,
             tax_code: taxCode,
             metadata: { lesson_id: addon.id, booking_reference: found!.booking.reference },
           },
@@ -232,7 +244,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         session.id,
         new Date(session.expires_at * 1000).toISOString(),
         found.booking.startsAt,
-        addOnLessonIds,
+        addOnPackages,
       );
     } catch (error) {
       // A booking may have been cancelled/rescheduled while Stripe created the

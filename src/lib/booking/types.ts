@@ -135,6 +135,11 @@ export interface CreatePackagePurchaseInput {
   amountCad: number;
 }
 
+export interface PackageQuantitySelection {
+  lessonId: string;
+  quantity: number;
+}
+
 export interface StripePackagePurchaseEvent {
   eventId: string;
   eventType: "paid" | "expired";
@@ -349,7 +354,7 @@ export interface BookingStore {
     sessionId: string,
     expiresAt: string,
     expectedStartsAt: string,
-    addOnLessonIds?: string[],
+    addOnPackages?: PackageQuantitySelection[],
   ): Promise<void>;
   getBookingCheckoutAddons(bookingId: string, sessionId: string): Promise<PackagePurchaseRecord[]>;
   setStripeUpgradeCheckoutSession(

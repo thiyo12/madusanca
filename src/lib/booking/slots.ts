@@ -159,7 +159,9 @@ export function generateSlots(query: SlotQuery): string[] {
     query.toDayKey && query.toDayKey < horizonKey ? query.toDayKey : horizonKey;
   if (toKey < fromKey) return [];
 
-  const occupiedMs = occupiedDurationMin(query.lessonDurationMin) * 60000;
+  const occupiedMinutes = occupiedDurationMin(query.lessonDurationMin);
+  const occupiedMs = occupiedMinutes * 60000;
+  const slotStepMs = SLOT_STEP_MIN * 60000;
   const busyRanges = toBusyRanges(query.busy);
   const blackoutSet = new Set(query.blackouts.map((b) => b.date));
   const rulesByWeekday = new Map<number, AvailabilityRule>();
@@ -182,7 +184,7 @@ export function generateSlots(query: SlotQuery): string[] {
       for (
         let start = windowStart.getTime();
         start + occupiedMs <= windowEnd.getTime();
-        start += SLOT_STEP_MIN * 60000
+        start += slotStepMs
       ) {
         if (start < earliestMs) continue;
         const end = start + occupiedMs;

@@ -47,9 +47,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { lessonId, studentName, email, phone, notes, website } = parsed.data;
-  const addOnLessonIds = parsed.data.addOnLessonIds ?? [];
-  if (new Set(addOnLessonIds).size !== addOnLessonIds.length || addOnLessonIds.includes(lessonId)) {
-    return NextResponse.json({ ok: false, error: "Choose each additional lesson only once." }, { status: 400 });
+  const addOnPackages = parsed.data.addOnPackages ?? [];
+  if (new Set(addOnPackages.map((item) => item.lessonId)).size !== addOnPackages.length) {
+    return NextResponse.json({ ok: false, error: "Choose each package once, then set its quantity." }, { status: 400 });
   }
 
   if (await isRateLimitedShared(`booking-email:${email.trim().toLowerCase()}`, 5, 10 * 60 * 1000)) {
@@ -71,9 +71,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!lesson) {
       return NextResponse.json({ ok: false, error: "Lesson not found." }, { status: 404 });
     }
-    const addOns = addOnLessonIds.map((id) => catalogue.find((item) => item.id === id && item.category === "package"));
-    if (addOns.some((item) => !item)) {
+    const addOns = addOnPackages.map((selection) => ({
+      quantity: selection.quantity,
+      lesson: catalogue.find((item) => item.id === selection.lessonId && item.category === "package"),
+    }));
+    if (addOns.some((item) => !item.lesson)) {
       return NextResponse.json({ ok: false, error: "An additional lesson is no longer available. Refresh the catalogue and review your booking." }, { status: 409 });
+    }
+    const addOnSubtotal = addOns.reduce((sum, item) => sum + (item.lesson?.priceCad ?? 0) * item.quantity, 0);
+    if (!Number.isSafeInteger(Math.round((lesson.priceCad + addOnSubtotal) * 100)) || lesson.priceCad + addOnSubtotal > 999_999.99) {
+      return NextResponse.json({ ok: false, error: "The selected total exceeds the secure checkout limit. Reduce package quantities and try again." }, { status: 400 });
     }
     const startsAt = parsed.data.sessions ?? [parsed.data.startsAt!];
     if (startsAt.length !== lesson.sessionCount) {
@@ -174,11 +181,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
       manageToken: token,
       emailSent,
-      addOns: addOns.map((item) => ({
+      addOns: addOns.map(({ lesson: item, quantity }) => ({
         id: item!.id,
         name: item!.name,
         priceCad: item!.priceCad,
         sessionCount: item!.sessionCount,
+        quantity,
       })),
     });
     // Booking creation must not grant this browser an authenticated manage

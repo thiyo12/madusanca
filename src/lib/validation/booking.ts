@@ -27,7 +27,10 @@ export const createBookingSchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
   startsAt: isoDateTimeSchema.optional(),
   sessions: z.array(isoDateTimeSchema).min(1).max(20).optional(),
-  addOnLessonIds: z.array(z.string().trim().min(1).max(64)).max(10).optional(),
+  addOnPackages: z.array(z.object({
+    lessonId: z.string().trim().min(1).max(64),
+    quantity: z.number().int().safe().min(1).max(100_000),
+  }).strict()).max(20).optional(),
   studentName: z.string().trim().min(2, "Please enter your name.").max(80),
   email: z.email("Please enter a valid email address.").max(160),
   phone: z
