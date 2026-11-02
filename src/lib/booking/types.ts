@@ -1,5 +1,6 @@
 export type BookingStatus = "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed";
 export type PaymentStatus = "due" | "paid" | "refunded" | "waived";
+export type ChequeStatus = "none" | "received" | "cleared" | "returned";
 
 import type { Lesson } from "@/lib/data/lessons";
 
@@ -40,6 +41,9 @@ export interface BookingRecord {
   notes: string;
   status: BookingStatus;
   paymentStatus?: PaymentStatus;
+  chequeStatus?: ChequeStatus;
+  chequeReference?: string;
+  chequeReceivedAt?: string;
   /** Number of student-initiated reschedules; admin changes do not count. */
   studentRescheduleCount?: number;
   stripeCheckoutSessionId?: string;
@@ -87,6 +91,9 @@ export interface PackagePurchaseRecord {
   amountCad: number;
   currency: "cad";
   paymentStatus: PackagePurchasePaymentStatus;
+  chequeStatus?: ChequeStatus;
+  chequeReference?: string;
+  chequeReceivedAt?: string;
   purchasedAt?: string;
   validUntil?: string;
   stripeCheckoutSessionId?: string;
@@ -298,6 +305,8 @@ export interface BookingStore {
     id: string,
     paymentStatus: PaymentStatus,
   ): Promise<StoreResult<BookingRecord>>;
+  updateBookingCheque(id: string, status: ChequeStatus, reference?: string): Promise<StoreResult<BookingRecord>>;
+  updatePackagePurchaseCheque(id: string, status: ChequeStatus, reference?: string): Promise<StoreResult<PackagePurchaseRecord>>;
   /** Admin: move a booking to a new time with atomic conflict check. */
   adminRescheduleBooking(
     id: string,

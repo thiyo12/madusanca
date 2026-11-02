@@ -19,6 +19,7 @@ import { isoDateTimeSchema } from "@/lib/validation/booking";
 const idSchema = z.string().min(1).max(64);
 const statusSchema = z.enum(["confirmed", "completed", "cancelled"]);
 const paymentStatusSchema = z.enum(["due", "paid", "refunded", "waived"]);
+const chequeStatusSchema = z.enum(["none", "received", "cleared", "returned"]);
 
 function revalidateAdmin(): void {
   revalidatePath("/admin/bookings");
@@ -136,6 +137,60 @@ export async function setBookingPaymentAction(
   }
 
   revalidateAdmin();
+}
+
+export async function updateBookingChequeAction(formData: FormData): Promise<void> {
+  await requireAdmin("/admin/payments");
+  const parsed = z.object({ bookingId: idSchema, status: chequeStatusSchema, reference: z.string().trim().max(80) }).safeParse({ bookingId: formData.get("bookingId"), status: formData.get("status"), reference: formData.get("reference") });
+  if (!parsed.success) redirect("/admin/payments?error=Invalid+cheque+details.");
+  const store = getStore();
+  const booking = await store.getBookingById(parsed.data.bookingId);
+  if (!booking) redirect("/admin/payments?error=Booking+not+found.");
+  if (booking.stripePaymentIntentId && booking.paymentStatus === "paid" && status !== "none") {
+    redirect("/admin/payments?error=This+booking+is+already+paid+through+Stripe.");
+  }
+  if ((status === "received" || status === "cleared") && booking.paymentStatus === "due") {
+    const sameEmailBookings = await store.listBookings({ search: booking.email });
+    const checkoutOwner = sameEmailBookings.find((item) => (item.packageId ?? item.id) === (booking.packageId ?? booking.id) && item.stripeCheckoutSessionId);
+    if (checkoutOwner) await expireOpenCheckout(checkoutOwner);
+  }
+  const result = await store.updateBookingCheque(booking.id, parsed.data.status, parsed.data.reference);
+  if (!result.ok) redirect("/admin/payments?error=Could+not+update+cheque+tracking.");
+  revalidatePath("/admin/payments");
+  revalidateAdmin();
+}
+
+export async function updatePackageChequeAction(formData: FormData): Promise<void> {
+  await requireAdmin("/admin/payments");
+  const parsed = z.object({ purchaseId: z.uuid(), status: chequeStatusSchema, reference: z.string().trim().max(80) }).safeParse({ purchaseId: formData.get("purchaseId"), status: formData.get("status"), reference: formData.get("reference") });
+  if (!parsed.success) redirect("/admin/payments?error=Invalid+cheque+details.");
+  const store = getStore();
+  const purchase = await store.getPackagePurchaseById(parsed.data.purchaseId);
+  if (!purchase) redirect("/admin/payments?error=Package+purchase+not+found.");
+  if (purchase.stripePaymentIntentId && purchase.paymentStatus === "paid" && status !== "none") {
+    redirect("/admin/payments?error=This+purchase+is+already+paid+through+Stripe.");
+  }
+  if ((status === "received" || status === "cleared") && purchase.paymentStatus === "pending" && purchase.stripeCheckoutSessionId) {
+    try {
+      const stripe = getStripe();
+      const session = await stripe.checkout.sessions.retrieve(purchase.stripeCheckoutSessionId);
+      if (session.status === "complete") redirect("/admin/payments?error=Stripe+Checkout+is+complete+or+processing.+Verify+it+before+recording+a+cheque.");
+      if (session.status === "open") await stripe.checkout.sessions.expire(session.id);
+      await store.handleStripePackagePurchaseEvent({
+        eventId: `admin-cheque-expire-${session.id}`,
+        eventType: "expired",
+        purchaseId: purchase.id,
+        sessionId: session.id,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
+      logSafeError("[admin/payments] package Checkout expiry failed", error);
+      redirect("/admin/payments?error=Could+not+verify+or+close+the+Stripe+Checkout+session.");
+    }
+  }
+  const result = await store.updatePackagePurchaseCheque(purchase.id, parsed.data.status, parsed.data.reference);
+  if (!result.ok) redirect("/admin/payments?error=Could+not+update+package+cheque+tracking.");
+  revalidatePath("/admin/payments");
 }
 
 async function expireOpenCheckout(booking: BookingRecord): Promise<void> {

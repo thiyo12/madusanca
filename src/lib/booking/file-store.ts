@@ -16,6 +16,7 @@ import type {
   BookingFilter,
   BookingRecord,
   BookingStatus,
+  ChequeStatus,
   BookingStore,
   BusyInterval,
   CreateBookingInput,
@@ -474,6 +475,55 @@ export const fileStore: BookingStore = {
       });
       save(data);
       return Promise.resolve({ ok: true as const, value: booking });
+    });
+  },
+
+  updateBookingCheque(id: string, status: ChequeStatus, reference?: string) {
+    return withLock(async () => {
+      const data = load();
+      const booking = data.bookings.find((item) => item.id === id);
+      if (!booking) return { ok: false as const, error: "not_found" as const };
+      const now = new Date().toISOString();
+      const packageId = booking.packageId ?? booking.id;
+      for (const session of data.bookings.filter((item) => (item.packageId ?? item.id) === packageId)) {
+        session.chequeStatus = status;
+        session.chequeReference = status === "none" ? undefined : reference?.trim() || undefined;
+        session.chequeReceivedAt = status === "received" || status === "cleared" ? now : undefined;
+        if (status === "cleared") session.paymentStatus = "paid";
+        if (status === "returned") session.paymentStatus = "due";
+        session.updatedAt = now;
+      }
+      save(data);
+      return { ok: true as const, value: booking };
+    });
+  },
+
+  updatePackagePurchaseCheque(id: string, status: ChequeStatus, reference?: string) {
+    return withLock(async () => {
+      const data = load();
+      const purchase = data.packagePurchases.find((item) => item.id === id);
+      if (!purchase) return { ok: false as const, error: "not_found" as const };
+      const now = new Date().toISOString();
+      purchase.chequeStatus = status;
+      purchase.chequeReference = status === "none" ? undefined : reference?.trim() || undefined;
+      purchase.chequeReceivedAt = status === "received" || status === "cleared" ? now : undefined;
+      if (status === "cleared" && (purchase.paymentStatus === "pending" || purchase.paymentStatus === "failed")) {
+        purchase.paymentStatus = "paid";
+        purchase.purchasedAt = now;
+        const expiry = new Date(now);
+        expiry.setMonth(expiry.getMonth() + 6);
+        purchase.validUntil = expiry.toISOString();
+        data.packageCreditEvents.push({ purchaseId: id, eventType: "grant", quantityDelta: purchase.creditsPurchased, sourceKey: `cheque-cleared:${id}:${now}`, note: "Cheque payment cleared", createdAt: now });
+      } else if (status === "returned" && purchase.paymentStatus === "paid") {
+        purchase.paymentStatus = "pending";
+        purchase.purchasedAt = undefined;
+        purchase.validUntil = undefined;
+        data.packageCreditEvents.push({ purchaseId: id, eventType: "refund", quantityDelta: -purchase.creditsPurchased, sourceKey: `cheque-returned:${id}:${now}`, note: "Cheque returned", createdAt: now });
+      }
+      purchase.updatedAt = now;
+      save(data);
+      const creditsAvailable = data.packageCreditEvents.filter((event) => event.purchaseId === id).reduce((sum, event) => sum + event.quantityDelta, 0);
+      return { ok: true as const, value: { ...purchase, creditsAvailable } };
     });
   },
 

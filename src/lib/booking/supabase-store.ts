@@ -11,6 +11,7 @@ import type {
   BlackoutDate,
   BookingFilter,
   BookingRecord,
+  ChequeStatus,
   BookingStore,
   BookingStatus,
   BusyInterval,
@@ -59,6 +60,9 @@ interface BookingRow {
   notes: string;
   status: BookingStatus;
   payment_status?: BookingRecord["paymentStatus"];
+  cheque_status?: ChequeStatus;
+  cheque_reference?: string | null;
+  cheque_received_at?: string | null;
   student_reschedule_count?: number;
   stripe_checkout_session_id?: string | null;
   stripe_checkout_attempt?: number;
@@ -105,6 +109,9 @@ function toRecord(row: BookingRow): BookingRecord {
     notes: row.notes,
     status: row.status,
     paymentStatus: row.payment_status ?? "due",
+    chequeStatus: row.cheque_status ?? "none",
+    chequeReference: row.cheque_reference ?? undefined,
+    chequeReceivedAt: row.cheque_received_at ?? undefined,
     studentRescheduleCount: row.student_reschedule_count ?? 0,
     stripeCheckoutSessionId: row.stripe_checkout_session_id ?? undefined,
     stripeCheckoutAttempt: row.stripe_checkout_attempt ?? 0,
@@ -150,6 +157,9 @@ interface PackagePurchaseRow {
   amount_cad: number;
   currency: "cad";
   payment_status: PackagePurchaseRecord["paymentStatus"];
+  cheque_status?: ChequeStatus;
+  cheque_reference?: string | null;
+  cheque_received_at?: string | null;
   purchased_at: string | null;
   valid_until: string | null;
   stripe_checkout_session_id: string | null;
@@ -180,6 +190,9 @@ function toPackagePurchase(row: PackagePurchaseRow, creditsAvailable = 0): Packa
     amountCad: Number(row.amount_cad),
     currency: "cad",
     paymentStatus: row.payment_status,
+    chequeStatus: row.cheque_status ?? "none",
+    chequeReference: row.cheque_reference ?? undefined,
+    chequeReceivedAt: row.cheque_received_at ?? undefined,
     purchasedAt: row.purchased_at ?? undefined,
     validUntil: row.valid_until ?? undefined,
     stripeCheckoutSessionId: row.stripe_checkout_session_id ?? undefined,
@@ -445,6 +458,38 @@ export const supabaseStore: BookingStore = {
     if (error) throw new Error(`Failed to update payment status: ${error.message}`);
     const row = (data ?? []).find((item) => item.id === id);
     return row ? { ok: true, value: toRecord(row) } : { ok: false, error: "not_found" };
+  },
+
+  async updateBookingCheque(id: string, status: ChequeStatus, reference?: string): Promise<StoreResult<BookingRecord>> {
+    const existing = await adminClient().from("bookings").select("id, package_id").eq("id", id).maybeSingle();
+    if (existing.error) throw new Error(`Failed to load booking: ${existing.error.message}`);
+    if (!existing.data) return { ok: false, error: "not_found" };
+    const now = new Date().toISOString();
+    const { data, error } = await adminClient().from("bookings").update({
+      cheque_status: status,
+      cheque_reference: status === "none" ? null : reference?.trim() || null,
+      cheque_received_at: status === "received" || status === "cleared" ? now : null,
+      ...(status === "cleared" ? { payment_status: "paid" } : status === "returned" ? { payment_status: "due" } : {}),
+      updated_at: now,
+    }).eq("package_id", existing.data.package_id ?? existing.data.id).select();
+    if (error) throw new Error(`Failed to update cheque: ${error.message}`);
+    const row = (data ?? []).find((item) => item.id === id);
+    return row ? { ok: true, value: toRecord(row) } : { ok: false, error: "not_found" };
+  },
+
+  async updatePackagePurchaseCheque(id: string, status: ChequeStatus, reference?: string): Promise<StoreResult<PackagePurchaseRecord>> {
+    const { data: purchaseId, error } = await adminClient().rpc("record_package_cheque", {
+      p_purchase_id: id,
+      p_status: status,
+      p_reference: reference ?? null,
+    });
+    if (error) throw new Error(`Failed to update package cheque: ${error.message}`);
+    if (!purchaseId) return { ok: false, error: "not_found" };
+    const { data, error: loadError } = await adminClient().from("package_purchases").select("*").eq("id", id).single();
+    if (loadError || !data) throw new Error(`Failed to reload package purchase: ${loadError?.message ?? "not found"}`);
+    const { data: events, error: eventsError } = await adminClient().from("package_credit_events").select("quantity_delta").eq("purchase_id", id);
+    if (eventsError) throw new Error(`Failed to load package credit balance: ${eventsError.message}`);
+    return { ok: true, value: toPackagePurchase(data as PackagePurchaseRow, (events ?? []).reduce((sum, event) => sum + event.quantity_delta, 0)) };
   },
 
   async adminRescheduleBooking(

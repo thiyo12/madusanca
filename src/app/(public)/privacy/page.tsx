@@ -100,9 +100,11 @@ const sections: { heading: string; body: React.ReactNode }[] = [
     heading: "How long we keep it",
     body: (
       <p>
-        Booking records are kept for up to <strong>two years</strong> after your
-        last lesson, then deleted or made anonymous, unless the law requires a
-        longer period. Contact-form messages are kept for up to{" "}
+        Booking, payment, and package-credit records are kept for up to{" "}
+        <strong>five years</strong> after your last lesson or purchase, then
+        deleted or made anonymous, unless a longer period is required to meet
+        legal, tax, accounting, or dispute-resolution obligations. Contact-form
+        messages are kept for up to{" "}
         <strong>twelve months</strong>. You can ask us to delete your information
         sooner (see your rights below).
       </p>
@@ -173,7 +175,7 @@ export default function PrivacyPage() {
       <section className="bg-white py-12 sm:py-16">
         <article className="mx-auto max-w-3xl px-5 sm:px-6">
           <p className="text-[13px] font-bold uppercase tracking-wider text-soft">
-            Last updated: October 25, 2026
+            Last updated: November 2, 2026
           </p>
 
           <div className="mt-8 space-y-9">

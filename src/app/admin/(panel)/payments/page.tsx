@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getStore } from "@/lib/booking/store";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
-import { setBookingPaymentAction } from "../bookings/actions";
+import { setBookingPaymentAction, updateBookingChequeAction, updatePackageChequeAction } from "../bookings/actions";
 import { listPaidCheckoutSessions, paymentReportRange } from "@/lib/stripe/payment-report";
 import { stripeMode } from "@/lib/stripe/server";
 import { logSafeError } from "@/lib/server/safe-log";
@@ -289,6 +289,14 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                             {booking.paymentStatus === "waived" ? "Restore Due" : "Waive Balance"}
                           </button>
                         </form>}
+                        <form action={updateBookingChequeAction} className="mt-2 grid gap-1.5">
+                          <input type="hidden" name="bookingId" value={booking.id} />
+                          <select name="status" defaultValue={booking.chequeStatus ?? "none"} aria-label={`Cheque status for ${booking.reference}`} className="h-8 rounded border border-line bg-white px-2 text-[11px]">
+                            <option value="none">No cheque</option><option value="received">Received</option><option value="cleared">Cleared</option><option value="returned">Returned</option>
+                          </select>
+                          <input name="reference" defaultValue={booking.chequeReference ?? ""} maxLength={80} aria-label={`Cheque reference for ${booking.reference}`} placeholder="Cheque ref (optional)" className="h-8 w-32 rounded border border-line px-2 text-[10px]" />
+                          <button type="submit" className="h-7 rounded bg-mist px-2 text-[10px] font-bold text-ink hover:bg-line">Save cheque</button>
+                        </form>
                       </div>
                     </td>
                   </tr>
@@ -347,6 +355,15 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                       </td>
                       <td className="px-4 py-3.5">
                         <PackagePaymentChip status={purchase.paymentStatus} />
+                        <p className="mt-1 text-[10px] font-semibold text-soft">Cheque: {purchase.chequeStatus ?? "none"}{purchase.chequeReference ? ` · ${purchase.chequeReference}` : ""}</p>
+                        <form action={updatePackageChequeAction} className="mt-2 grid gap-1.5">
+                          <input type="hidden" name="purchaseId" value={purchase.id} />
+                          <select name="status" defaultValue={purchase.chequeStatus ?? "none"} aria-label={`Cheque status for package ${purchase.reference}`} className="h-8 rounded border border-line bg-white px-2 text-[11px]">
+                            <option value="none">No cheque</option><option value="received">Received</option><option value="cleared">Cleared</option><option value="returned">Returned</option>
+                          </select>
+                          <input name="reference" defaultValue={purchase.chequeReference ?? ""} maxLength={80} aria-label={`Cheque reference for package ${purchase.reference}`} placeholder="Cheque ref (optional)" className="h-8 w-32 rounded border border-line px-2 text-[10px]" />
+                          <button type="submit" className="h-7 rounded bg-mist px-2 text-[10px] font-bold text-ink hover:bg-line">Save cheque</button>
+                        </form>
                         {purchase.stripePaymentIntentId && <p className="mt-1 max-w-[150px] truncate text-[10px] text-soft" title={purchase.stripePaymentIntentId}>PI {purchase.stripePaymentIntentId}</p>}
                       </td>
                       <td className="px-4 py-3.5 text-right">
