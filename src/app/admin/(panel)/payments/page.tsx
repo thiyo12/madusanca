@@ -36,6 +36,20 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
   const bookings = await store.listBookings({
     search: q || undefined,
   });
+  const packagePurchases = await store.listPackagePurchases(200);
+  const filteredPurchases = q
+    ? packagePurchases.filter((purchase) =>
+        `${purchase.reference} ${purchase.studentName} ${purchase.email} ${purchase.lessonName}`
+          .toLowerCase().includes(q.toLowerCase()),
+      )
+    : packagePurchases;
+  const creditEvents = await store.listPackageCreditEvents(filteredPurchases.map((purchase) => purchase.id));
+  const eventsByPurchase = new Map<string, typeof creditEvents>();
+  for (const event of creditEvents) {
+    const events = eventsByPurchase.get(event.purchaseId) ?? [];
+    events.push(event);
+    eventsByPurchase.set(event.purchaseId, events);
+  }
   const mode = stripeMode();
   let reportSessions: Awaited<ReturnType<typeof listPaidCheckoutSessions>> | null = null;
   if (mode !== "unconfigured") {
@@ -283,6 +297,100 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
           </div>
         )}
       </div>
+
+      <section className="mt-8" aria-labelledby="package-purchases-title">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="package-purchases-title" className="font-display text-xl font-extrabold text-ink">Package purchases &amp; credit balances</h2>
+            <p className="mt-1 text-[12.5px] text-soft">Recent purchase snapshots with credit totals derived from the append-only ledger. This view is read-only; refunds and credit corrections require review.</p>
+          </div>
+          <p className="text-[12px] font-bold text-soft">Showing up to 200 recent purchases</p>
+        </div>
+        <div className="mt-4 overflow-hidden rounded-[18px] border border-line bg-white">
+          {filteredPurchases.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-soft">No package purchases match this view.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[850px] border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-line bg-mist text-[11px] font-extrabold uppercase tracking-wide text-soft">
+                    <th scope="col" className="px-4 py-3">Purchased</th>
+                    <th scope="col" className="px-4 py-3">Customer</th>
+                    <th scope="col" className="px-4 py-3">Package</th>
+                    <th scope="col" className="px-4 py-3">Reference / source</th>
+                    <th scope="col" className="px-4 py-3">Payment</th>
+                    <th scope="col" className="px-4 py-3 text-right">Credits</th>
+                    <th scope="col" className="px-4 py-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {filteredPurchases.map((purchase) => (
+                    <tr key={purchase.id} className="align-top hover:bg-[#fcfcfd]">
+                      <td className="px-4 py-3.5 text-[12.5px] text-ink">
+                        {purchase.purchasedAt ? formatSlotDay(purchase.purchasedAt) : "Legacy date unavailable"}
+                        {purchase.validUntil && <p className="mt-1 text-[11px] text-soft">Valid until {formatSlotDay(purchase.validUntil)}</p>}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <p className="text-[13px] font-bold text-ink">{purchase.studentName}</p>
+                        <p className="text-[12px] text-soft">{purchase.email}</p>
+                        {purchase.phone && <p className="text-[12px] text-soft">{purchase.phone}</p>}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <p className="text-[13px] font-semibold text-ink">{purchase.lessonName}</p>
+                        <p className="text-[12px] text-soft">{purchase.durationMin} min/session · {purchase.creditsPurchased} purchased</p>
+                      </td>
+                      <td className="px-4 py-3.5 text-[12px]">
+                        <p className="font-bold text-ink">{purchase.reference}</p>
+                        <p className="mt-1 text-soft">{purchase.source === "legacy_backfill" ? "Legacy package" : "Independent purchase"}</p>
+                        {purchase.stripeInvoiceUrl && <a href={purchase.stripeInvoiceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block font-bold text-[#426a2c] underline">Stripe invoice</a>}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <PackagePaymentChip status={purchase.paymentStatus} />
+                        {purchase.stripePaymentIntentId && <p className="mt-1 max-w-[150px] truncate text-[10px] text-soft" title={purchase.stripePaymentIntentId}>PI {purchase.stripePaymentIntentId}</p>}
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <p className="text-[13px] font-extrabold text-ink">{purchase.creditsAvailable} available</p>
+                        <p className="text-[11px] text-soft">of {purchase.creditsPurchased}</p>
+                        <details className="mt-2 text-left">
+                          <summary className="cursor-pointer text-[10.5px] font-bold text-[#426a2c] underline underline-offset-2">
+                            Ledger ({eventsByPurchase.get(purchase.id)?.length ?? 0})
+                          </summary>
+                          <ol className="mt-2 grid min-w-[230px] gap-2">
+                            {(eventsByPurchase.get(purchase.id) ?? []).map((event) => (
+                              <li key={event.id} className="rounded-[9px] bg-mist p-2 text-[10.5px] leading-relaxed">
+                                <p className="font-extrabold text-ink">{event.eventType.replaceAll("_", " ")} · {event.quantityDelta > 0 ? "+" : ""}{event.quantityDelta}</p>
+                                <p className="text-soft">{new Date(event.createdAt).toLocaleString("en-CA", { timeZone: "America/Vancouver" })}</p>
+                                {event.bookingId && <p className="break-all text-soft">Booking {event.bookingId}</p>}
+                                {event.note && <p className="text-soft">{event.note}</p>}
+                                <p className="break-all text-[9px] text-soft">{event.sourceKey}</p>
+                              </li>
+                            ))}
+                          </ol>
+                        </details>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <p className="text-[13px] font-extrabold text-ink">{purchase.amountCad.toLocaleString("en-CA", { style: "currency", currency: "CAD" })}</p>
+                        {purchase.stripeTotalCad !== undefined && <p className="text-[11px] text-soft">{purchase.stripeTotalCad.toLocaleString("en-CA", { style: "currency", currency: "CAD" })} incl. tax</p>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
+}
+
+function PackagePaymentChip({ status }: { status: string }) {
+  const tone = status === "paid"
+    ? "bg-[#e6f6ec] text-[#1f7a45]"
+    : status === "refunded" || status === "failed"
+      ? "bg-[#fdecea] text-[#bc4633]"
+      : status === "waived"
+        ? "bg-[#fff9e9] text-[#735c1e]"
+        : "bg-mist text-soft";
+  return <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[10.5px] font-extrabold uppercase tracking-wide ${tone}`}>{status.replaceAll("_", " ")}</span>;
 }

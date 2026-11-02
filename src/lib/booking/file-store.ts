@@ -3,7 +3,7 @@ import "server-only";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { DEFAULT_RULES } from "@/lib/booking/slots";
+import { addVancouverCalendarMonths, DEFAULT_RULES, occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { OTP_MAX_ATTEMPTS } from "@/lib/booking/otp";
 import { customerCanAccessBooking } from "@/lib/booking/customer-access";
@@ -20,8 +20,12 @@ import type {
   BusyInterval,
   CreateBookingInput,
   CreateBookingPackageInput,
+  CreatePackagePurchaseInput,
   OtpSendPermit,
+  PackagePurchaseRecord,
+  PackageCreditEventRecord,
   PaymentStatus,
+  StripePackagePurchaseEvent,
   StripeCheckoutEvent,
   StripeUpgradeCheckoutEvent,
   StoreResult,
@@ -31,6 +35,18 @@ interface FileData {
   rules: AvailabilityRule[];
   blackouts: BlackoutDate[];
   bookings: BookingRecord[];
+  packagePurchases: PackagePurchaseRecord[];
+  packageCreditEvents: Array<{
+    purchaseId: string;
+    bookingId?: string;
+    eventType: "grant" | "redeem" | "refund" | "expire" | "admin_adjustment";
+    quantityDelta: number;
+    sourceKey: string;
+    note?: string;
+    createdAt: string;
+  }>;
+  packagePurchaseTokens: Array<{ tokenHash: string; purchaseId: string; expiresAt: string }>;
+  bookingCheckoutAddons: Array<{ bookingId: string; sessionId: string; purchaseId: string; lessonId: string }>;
   tokens: Array<{ tokenHash: string; bookingId: string; expiresAt: string }>;
   lessons: Lesson[];
   otps: Array<{
@@ -57,6 +73,10 @@ function load(): FileData {
       rules: DEFAULT_RULES,
       blackouts: [],
       bookings: [],
+      packagePurchases: [],
+      packageCreditEvents: [],
+      packagePurchaseTokens: [],
+      bookingCheckoutAddons: [],
       tokens: [],
       lessons: structuredClone(defaultLessons),
       otps: [],
@@ -77,6 +97,10 @@ function load(): FileData {
   if (!Array.isArray(data.otps)) data.otps = [];
   if (!Array.isArray(data.otpSendLimits)) data.otpSendLimits = [];
   if (!Array.isArray(data.stripeWebhookEvents)) data.stripeWebhookEvents = [];
+  if (!Array.isArray(data.packagePurchases)) data.packagePurchases = [];
+  if (!Array.isArray(data.packageCreditEvents)) data.packageCreditEvents = [];
+  if (!Array.isArray(data.packagePurchaseTokens)) data.packagePurchaseTokens = [];
+  if (!Array.isArray(data.bookingCheckoutAddons)) data.bookingCheckoutAddons = [];
   return data;
 }
 
@@ -95,6 +119,10 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
 
 function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
   return aStart < bEnd && bStart < aEnd;
+}
+
+function occupiedEnd(startsAt: string, durationMin: number): number {
+  return Date.parse(startsAt) + occupiedDurationMin(durationMin) * 60_000;
 }
 
 function activeBookings(data: FileData): BookingRecord[] {
@@ -140,9 +168,14 @@ export const fileStore: BookingStore = {
     const to = Date.parse(toIso);
     const data = load();
     const booked = activeBookings(data)
-      .filter((b) => overlaps(Date.parse(b.startsAt), Date.parse(b.endsAt), from, to))
-      .map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt }));
-    const reserved = data.bookings.flatMap((booking) => booking.stripeUpgradeCheckoutSessionId ? booking.stripeUpgradeTargetSessions ?? [] : [])
+      .filter((b) => overlaps(Date.parse(b.startsAt), occupiedEnd(b.startsAt, b.durationMin), from, to))
+      .map((b) => ({ startsAt: b.startsAt, endsAt: new Date(occupiedEnd(b.startsAt, b.durationMin)).toISOString() }));
+    const reserved = data.bookings.flatMap((booking) => booking.stripeUpgradeCheckoutSessionId
+      ? (booking.stripeUpgradeTargetSessions ?? []).map((item) => ({
+          startsAt: item.startsAt,
+          endsAt: new Date(occupiedEnd(item.startsAt, booking.stripeUpgradeTargetDurationMin ?? 600)).toISOString(),
+        }))
+      : [])
       .filter((item) => overlaps(Date.parse(item.startsAt), Date.parse(item.endsAt), from, to));
     return [...booked, ...reserved];
   },
@@ -154,9 +187,9 @@ export const fileStore: BookingStore = {
     return withLock((): Promise<StoreResult<BookingRecord>> => {
       const data = load();
       const start = Date.parse(input.startsAt);
-      const end = Date.parse(input.endsAt);
+      const end = occupiedEnd(input.startsAt, input.durationMin);
       const conflict = activeBookings(data).some((b) =>
-        overlaps(start, end, Date.parse(b.startsAt), Date.parse(b.endsAt)),
+        overlaps(start, end, Date.parse(b.startsAt), occupiedEnd(b.startsAt, b.durationMin)),
       );
       if (conflict) return Promise.resolve({ ok: false, error: "conflict" as const });
 
@@ -195,7 +228,7 @@ export const fileStore: BookingStore = {
       if (!sessions.length || sessions.length > 20 || input.packagePriceCad < 0) {
         return Promise.resolve({ ok: false, error: "not_found" as const });
       }
-      const parsed = sessions.map((session) => ({ start: Date.parse(session.startsAt), end: Date.parse(session.endsAt) }));
+      const parsed = sessions.map((session) => ({ start: Date.parse(session.startsAt), end: occupiedEnd(session.startsAt, input.durationMin) }));
       if (parsed.some((item) => !Number.isFinite(item.start) || !Number.isFinite(item.end) || item.end <= item.start)) {
         return Promise.resolve({ ok: false, error: "not_found" as const });
       }
@@ -210,7 +243,7 @@ export const fileStore: BookingStore = {
 
       const active = activeBookings(data);
       const overlapsExisting = parsed.some((slot) => active.some((booking) =>
-        overlaps(slot.start, slot.end, Date.parse(booking.startsAt), Date.parse(booking.endsAt)),
+        overlaps(slot.start, slot.end, Date.parse(booking.startsAt), occupiedEnd(booking.startsAt, booking.durationMin)),
       ));
       const overlapsSelected = parsed.some((slot, index) => parsed.slice(index + 1).some((other) =>
         overlaps(slot.start, slot.end, other.start, other.end),
@@ -294,9 +327,9 @@ export const fileStore: BookingStore = {
       }
 
       const start = Date.parse(startsAt);
-      const end = Date.parse(endsAt);
+      const end = occupiedEnd(startsAt, booking.durationMin);
       const conflict = activeBookings(data).some(
-        (b) => b.id !== booking.id && overlaps(start, end, Date.parse(b.startsAt), Date.parse(b.endsAt)),
+        (b) => b.id !== booking.id && overlaps(start, end, Date.parse(b.startsAt), occupiedEnd(b.startsAt, b.durationMin)),
       );
       if (conflict) return Promise.resolve({ ok: false, error: "conflict" as const });
 
@@ -335,15 +368,15 @@ export const fileStore: BookingStore = {
       if ((target.studentRescheduleCount ?? 0) >= 2) return Promise.resolve({ ok: false, error: "reschedule_limit" as const });
       if (Date.parse(target.startsAt) - Date.now() < 48 * 60 * 60 * 1000) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       const start = Date.parse(startsAt);
-      const end = Date.parse(endsAt);
-      const conflict = activeBookings(data).some((item) => item.id !== target.id && overlaps(start, end, Date.parse(item.startsAt), Date.parse(item.endsAt)));
+      const end = occupiedEnd(startsAt, target.durationMin);
+      const conflict = activeBookings(data).some((item) => item.id !== target.id && overlaps(start, end, Date.parse(item.startsAt), occupiedEnd(item.startsAt, item.durationMin)));
       if (conflict) return Promise.resolve({ ok: false, error: "conflict" as const });
       const packageStart = target.packageWindowStart ?? dayKeyOf(anchor.startsAt);
       if (dayKeyOf(new Date(start).toISOString()) < packageStart || dayKeyOf(new Date(start).toISOString()) > addMonthsToKey(packageStart, 2)) {
         return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       }
       target.startsAt = new Date(start).toISOString();
-      target.endsAt = new Date(end).toISOString();
+      target.endsAt = endsAt;
       target.status = "rescheduled";
       target.studentRescheduleCount = (target.studentRescheduleCount ?? 0) + 1;
       target.updatedAt = new Date().toISOString();
@@ -357,22 +390,6 @@ export const fileStore: BookingStore = {
       data.tokens.push({ tokenHash: newToken.hash, bookingId: packageAnchor.id, expiresAt: newToken.expiresAt });
       save(data);
       return Promise.resolve({ ok: true as const, value: target });
-    });
-  },
-
-  cancelBookingByToken(tokenHash: string): Promise<StoreResult<BookingRecord>> {
-    return withLock((): Promise<StoreResult<BookingRecord>> => {
-      const data = load();
-      const entry = data.tokens.find((t) => t.tokenHash === tokenHash);
-      if (!entry || Date.parse(entry.expiresAt) < Date.now()) {
-        return Promise.resolve({ ok: false, error: "expired" as const });
-      }
-      const booking = data.bookings.find((b) => b.id === entry.bookingId);
-      if (!booking || !cancelPackage(data, booking)) {
-        return Promise.resolve({ ok: false, error: "not_modifiable" as const });
-      }
-      save(data);
-      return Promise.resolve({ ok: true as const, value: booking });
     });
   },
 
@@ -407,11 +424,20 @@ export const fileStore: BookingStore = {
       if (status === "completed") {
         const packageId = booking.packageId ?? booking.id;
         const now = new Date().toISOString();
-        data.bookings.filter((item) => (item.packageId ?? item.id) === packageId)
-          .forEach((item) => { item.status = "completed"; item.updatedAt = now; });
-        data.tokens = data.tokens.filter((entry) => !data.bookings.some((item) =>
-          (item.packageId ?? item.id) === packageId && item.id === entry.bookingId,
-        ));
+        if (["cancelled", "completed"].includes(booking.status)) {
+          return Promise.resolve({ ok: false, error: "not_modifiable" as const });
+        }
+        booking.status = "completed";
+        booking.updatedAt = now;
+        const remainingActiveSessions = data.bookings.some((item) =>
+          (item.packageId ?? item.id) === packageId && item.id !== booking.id &&
+          !["cancelled", "completed"].includes(item.status),
+        );
+        if (!remainingActiveSessions) {
+          data.tokens = data.tokens.filter((entry) => !data.bookings.some((item) =>
+            (item.packageId ?? item.id) === packageId && item.id === entry.bookingId,
+          ));
+        }
       } else if (status === "cancelled") {
         if (!cancelPackage(data, booking)) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       } else {
@@ -465,9 +491,8 @@ export const fileStore: BookingStore = {
       }
 
       const start = Date.parse(startsAt);
-      const end = Date.parse(endsAt);
       const conflict = activeBookings(data).some(
-        (b) => b.id !== id && overlaps(start, end, Date.parse(b.startsAt), Date.parse(b.endsAt)),
+        (b) => b.id !== id && overlaps(start, occupiedEnd(startsAt, booking.durationMin), Date.parse(b.startsAt), occupiedEnd(b.startsAt, b.durationMin)),
       );
       if (conflict) return Promise.resolve({ ok: false, error: "conflict" as const });
 
@@ -688,6 +713,7 @@ export const fileStore: BookingStore = {
     sessionId: string,
     expiresAt: string,
     expectedStartsAt: string,
+    addOnLessonIds: string[] = [],
   ): Promise<void> {
     return withLock((): Promise<void> => {
       const data = load();
@@ -695,6 +721,44 @@ export const fileStore: BookingStore = {
       if (!booking) throw new Error("Booking not found while saving Checkout Session.");
       if (booking.status === "cancelled" || booking.status === "completed" || booking.paymentStatus !== "due" || booking.startsAt !== expectedStartsAt) {
         throw new Error("Booking is no longer eligible for Checkout.");
+      }
+      if (new Set(addOnLessonIds).size !== addOnLessonIds.length || addOnLessonIds.length > 10) {
+        throw new Error("Checkout add-on selection is invalid.");
+      }
+      const alreadySaved = data.bookingCheckoutAddons.filter((item) => item.sessionId === sessionId);
+      if (alreadySaved.length) {
+        const savedIds = alreadySaved.map((item) => item.lessonId).sort();
+        if (JSON.stringify(savedIds) !== JSON.stringify([...addOnLessonIds].sort())) {
+          throw new Error("Checkout add-ons do not match the saved payment session.");
+        }
+      } else {
+        for (const lessonId of addOnLessonIds) {
+          const lesson = data.lessons.find((item) => item.id === lessonId && item.category === "package");
+          if (!lesson) throw new Error("A selected add-on is no longer available.");
+          const purchaseId = randomUUID();
+          const now = new Date().toISOString();
+          const reference = `WDA-A-${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
+          data.packagePurchases.push({
+            id: purchaseId,
+            reference,
+            studentName: booking.studentName,
+            email: booking.email.toLowerCase(),
+            phone: booking.phone,
+            notes: `Additional lesson credits purchased with booking ${booking.reference}.`,
+            lessonId: lesson.id,
+            lessonName: lesson.name,
+            durationMin: lesson.durationMin,
+            creditsPurchased: lesson.sessionCount,
+            amountCad: lesson.priceCad,
+            currency: "cad",
+            paymentStatus: "pending",
+            source: "new",
+            createdAt: now,
+            updatedAt: now,
+            creditsAvailable: 0,
+          });
+          data.bookingCheckoutAddons.push({ bookingId, sessionId, purchaseId, lessonId });
+        }
       }
       booking.stripeCheckoutSessionId = sessionId;
       booking.stripeCheckoutExpiresAt = expiresAt;
@@ -707,6 +771,21 @@ export const fileStore: BookingStore = {
     return load().bookings.find((booking) => booking.stripeCheckoutSessionId === sessionId) ?? null;
   },
 
+  async getBookingCheckoutAddons(bookingId: string, sessionId: string): Promise<PackagePurchaseRecord[]> {
+    const data = load();
+    return data.bookingCheckoutAddons
+      .filter((item) => item.bookingId === bookingId && item.sessionId === sessionId)
+      .map(({ purchaseId }) => {
+        const purchase = data.packagePurchases.find((item) => item.id === purchaseId);
+        if (!purchase) return null;
+        const creditsAvailable = data.packageCreditEvents
+          .filter((event) => event.purchaseId === purchase.id)
+          .reduce((balance, event) => balance + event.quantityDelta, 0);
+        return { ...purchase, creditsAvailable };
+      })
+      .filter((purchase): purchase is PackagePurchaseRecord => purchase !== null);
+  },
+
   setStripeUpgradeCheckoutSession(bookingId, sessionId, targetLesson, fromPriceCad, amountCad, expectedStartsAt, proposedSessions) {
     return withLock(async () => {
       const data = load();
@@ -715,10 +794,10 @@ export const fileStore: BookingStore = {
       const sessions = packageId ? data.bookings.filter((item) => (item.packageId ?? item.id) === packageId) : [];
       const currentPriceCad = booking?.packagePriceCad ?? booking?.priceCad;
       const proposedConflicts = proposedSessions.some((candidate, index) =>
-        proposedSessions.some((other, otherIndex) => index !== otherIndex && overlaps(Date.parse(candidate.startsAt), Date.parse(candidate.endsAt), Date.parse(other.startsAt), Date.parse(other.endsAt))) ||
-        activeBookings(data).some((item) => (item.packageId ?? item.id) !== packageId && overlaps(Date.parse(candidate.startsAt), Date.parse(candidate.endsAt), Date.parse(item.startsAt), Date.parse(item.endsAt))) ||
+        proposedSessions.some((other, otherIndex) => index !== otherIndex && overlaps(Date.parse(candidate.startsAt), occupiedEnd(candidate.startsAt, targetLesson.durationMin), Date.parse(other.startsAt), occupiedEnd(other.startsAt, targetLesson.durationMin))) ||
+        activeBookings(data).some((item) => (item.packageId ?? item.id) !== packageId && overlaps(Date.parse(candidate.startsAt), occupiedEnd(candidate.startsAt, targetLesson.durationMin), Date.parse(item.startsAt), occupiedEnd(item.startsAt, item.durationMin))) ||
         data.bookings.some((item) => item.stripeUpgradeCheckoutSessionId && (item.packageId ?? item.id) !== packageId &&
-          (item.stripeUpgradeTargetSessions ?? []).some((reserved) => overlaps(Date.parse(candidate.startsAt), Date.parse(candidate.endsAt), Date.parse(reserved.startsAt), Date.parse(reserved.endsAt))))
+          (item.stripeUpgradeTargetSessions ?? []).some((reserved) => overlaps(Date.parse(candidate.startsAt), occupiedEnd(candidate.startsAt, targetLesson.durationMin), Date.parse(reserved.startsAt), occupiedEnd(reserved.startsAt, item.stripeUpgradeTargetDurationMin ?? item.durationMin))))
       );
       if (!booking || !sessions.every((item) => ["confirmed", "rescheduled"].includes(item.status) && item.paymentStatus === "paid") ||
          booking.startsAt !== expectedStartsAt || currentPriceCad !== fromPriceCad ||
@@ -749,7 +828,10 @@ export const fileStore: BookingStore = {
       const data = load();
       if (data.stripeWebhookEvents.includes(event.eventId)) return Promise.resolve();
       const booking = data.bookings.find((item) => item.id === event.bookingId);
-      const paymentTotalsMatch = event.subtotalCents === Math.round((booking?.packagePriceCad ?? booking?.priceCad ?? -1) * 100) &&
+      const addonLinks = data.bookingCheckoutAddons.filter((item) => item.bookingId === event.bookingId && item.sessionId === event.sessionId);
+      const addonPurchases = addonLinks.map((link) => data.packagePurchases.find((item) => item.id === link.purchaseId)).filter((item): item is PackagePurchaseRecord => Boolean(item));
+      const expectedSubtotalCents = Math.round(((booking?.packagePriceCad ?? booking?.priceCad ?? -1) + addonPurchases.reduce((sum, item) => sum + item.amountCad, 0)) * 100);
+      const paymentTotalsMatch = event.subtotalCents === expectedSubtotalCents &&
         event.taxCents !== undefined && event.taxCents >= 0 &&
         event.totalCents === event.subtotalCents + event.taxCents &&
         event.currency?.toLowerCase() === "cad";
@@ -780,6 +862,28 @@ export const fileStore: BookingStore = {
           session.stripeCurrency = event.currency?.toUpperCase();
           session.updatedAt = now;
         });
+        addonPurchases.forEach((purchase) => {
+          if (purchase.paymentStatus !== "pending") return;
+          purchase.paymentStatus = "paid";
+          purchase.purchasedAt = now;
+          purchase.validUntil = addVancouverCalendarMonths(new Date(now), 6).toISOString();
+          purchase.stripePaymentIntentId = event.paymentIntentId;
+          purchase.stripeInvoiceId = event.invoiceId;
+          purchase.stripeInvoiceUrl = event.invoiceUrl;
+          purchase.stripeSubtotalCad = purchase.amountCad;
+          purchase.updatedAt = now;
+          const sourceKey = `booking-addon-grant:${purchase.id}`;
+          if (!data.packageCreditEvents.some((entry) => entry.sourceKey === sourceKey)) {
+            data.packageCreditEvents.push({
+              purchaseId: purchase.id,
+              eventType: "grant",
+              quantityDelta: purchase.creditsPurchased,
+              sourceKey,
+              note: `Additional credits paid with booking ${booking.reference}.`,
+              createdAt: now,
+            });
+          }
+        });
       } else if (
         booking &&
         event.eventType === "expired" &&
@@ -789,6 +893,12 @@ export const fileStore: BookingStore = {
         booking.stripeCheckoutExpiresAt = undefined;
         booking.stripeCheckoutAttempt = (booking.stripeCheckoutAttempt ?? 0) + 1;
         booking.updatedAt = new Date().toISOString();
+        addonPurchases.forEach((purchase) => {
+          if (purchase.paymentStatus === "pending") {
+            purchase.paymentStatus = "failed";
+            purchase.updatedAt = booking.updatedAt;
+          }
+        });
       }
       save(data);
       return Promise.resolve();
@@ -857,6 +967,293 @@ export const fileStore: BookingStore = {
         booking.updatedAt = new Date().toISOString();
       }
       save(data);
+    });
+  },
+
+  async createPackagePurchase(input: CreatePackagePurchaseInput): Promise<PackagePurchaseRecord> {
+    return withLock(async () => {
+      const data = load();
+      const now = new Date().toISOString();
+      const purchase: PackagePurchaseRecord = {
+        id: randomUUID(),
+        reference: input.reference,
+        studentName: input.studentName.trim(),
+        email: input.email.trim().toLowerCase(),
+        phone: input.phone.trim(),
+        notes: input.notes.trim(),
+        lessonId: input.lessonId,
+        lessonName: input.lessonName,
+        durationMin: input.durationMin,
+        creditsPurchased: input.creditsPurchased,
+        amountCad: input.amountCad,
+        currency: "cad",
+        paymentStatus: "pending",
+        source: "new",
+        createdAt: now,
+        updatedAt: now,
+        creditsAvailable: 0,
+      };
+      data.packagePurchases.push(purchase);
+      save(data);
+      return purchase;
+    });
+  },
+
+  setStripePackagePurchaseCheckout(purchaseId, sessionId, expiresAt) {
+    return withLock(async () => {
+      const data = load();
+      const purchase = data.packagePurchases.find((item) => item.id === purchaseId);
+      if (!purchase || !["pending", "failed"].includes(purchase.paymentStatus)) {
+        throw new Error("Package purchase is no longer eligible for Checkout.");
+      }
+      purchase.paymentStatus = "pending";
+      purchase.stripeCheckoutSessionId = sessionId;
+      purchase.stripeCheckoutExpiresAt = expiresAt;
+      purchase.updatedAt = new Date().toISOString();
+      save(data);
+    });
+  },
+
+  async getPackagePurchaseByCheckoutSession(sessionId) {
+    return load().packagePurchases.find((item) => item.stripeCheckoutSessionId === sessionId) ?? null;
+  },
+
+  async findPackagePurchasesByEmail(email) {
+    const data = load();
+    return data.packagePurchases
+      .filter((item) => item.email === email.trim().toLowerCase())
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .map((purchase) => ({
+        ...purchase,
+        creditsAvailable: data.packageCreditEvents
+          .filter((event) => event.purchaseId === purchase.id)
+          .reduce((balance, event) => balance + event.quantityDelta, 0),
+      }));
+  },
+
+  async listPackagePurchases(limit = 200) {
+    const data = load();
+    return [...data.packagePurchases]
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+      .slice(0, Math.max(1, Math.min(500, limit)))
+      .map((purchase) => ({
+        ...purchase,
+        creditsAvailable: data.packageCreditEvents
+          .filter((event) => event.purchaseId === purchase.id)
+          .reduce((balance, event) => balance + event.quantityDelta, 0),
+      }));
+  },
+
+  async listPackageCreditEvents(purchaseIds): Promise<PackageCreditEventRecord[]> {
+    if (!purchaseIds.length) return [];
+    const wanted = new Set(purchaseIds);
+    return load().packageCreditEvents
+      .filter((event) => wanted.has(event.purchaseId))
+      .map((event) => ({
+        id: event.sourceKey,
+        purchaseId: event.purchaseId,
+        bookingId: event.bookingId,
+        eventType: event.eventType,
+        quantityDelta: event.quantityDelta,
+        sourceKey: event.sourceKey,
+        note: event.note,
+        createdAt: event.createdAt,
+      }))
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  },
+
+  async getPackagePurchaseByToken(tokenHash) {
+    const data = load();
+    const token = data.packagePurchaseTokens.find((item) => item.tokenHash === tokenHash && Date.parse(item.expiresAt) >= Date.now());
+    const purchase = token && data.packagePurchases.find((item) => item.id === token.purchaseId);
+    if (!purchase) return null;
+    const creditsAvailable = data.packageCreditEvents
+      .filter((event) => event.purchaseId === purchase.id)
+      .reduce((balance, event) => balance + event.quantityDelta, 0);
+    return { ...purchase, creditsAvailable };
+  },
+
+  async getPackagePurchaseById(purchaseId) {
+    const data = load();
+    const purchase = data.packagePurchases.find((item) => item.id === purchaseId);
+    if (!purchase) return null;
+    const creditsAvailable = data.packageCreditEvents
+      .filter((event) => event.purchaseId === purchase.id)
+      .reduce((balance, event) => balance + event.quantityDelta, 0);
+    return { ...purchase, creditsAvailable };
+  },
+
+  async findBookingsByPurchaseId(purchaseId) {
+    return load().bookings
+      .filter((booking) => booking.purchaseId === purchaseId)
+      .sort((a, b) => (a.sessionIndex ?? 0) - (b.sessionIndex ?? 0));
+  },
+
+  issuePackagePurchaseManageToken(purchaseId) {
+    return withLock(async () => {
+      const data = load();
+      if (!data.packagePurchases.some((item) => item.id === purchaseId)) return null;
+      const rawToken = generateToken();
+      data.packagePurchaseTokens = data.packagePurchaseTokens.filter((item) => item.purchaseId !== purchaseId);
+      data.packagePurchaseTokens.push({ tokenHash: hashToken(rawToken), purchaseId, expiresAt: tokenExpiry() });
+      save(data);
+      return rawToken;
+    });
+  },
+
+  handleStripePackagePurchaseEvent(event: StripePackagePurchaseEvent): Promise<void> {
+    return withLock(async () => {
+      const data = load();
+      if (data.stripeWebhookEvents.includes(event.eventId)) return;
+      const purchase = data.packagePurchases.find((item) => item.id === event.purchaseId);
+      if (!purchase || purchase.source !== "new" || purchase.stripeCheckoutSessionId !== event.sessionId) {
+        throw new Error("Stripe event does not match the stored package purchase.");
+      }
+      if (event.eventType === "expired") {
+        if (purchase.paymentStatus === "pending") {
+          data.stripeWebhookEvents.push(event.eventId);
+          purchase.paymentStatus = "failed";
+          purchase.stripeCheckoutSessionId = undefined;
+          purchase.stripeCheckoutExpiresAt = undefined;
+          purchase.updatedAt = new Date().toISOString();
+          save(data);
+        }
+        return;
+      }
+      const totalsMatch = event.subtotalCents === Math.round(purchase.amountCad * 100) &&
+        event.taxCents !== undefined && event.taxCents >= 0 &&
+        event.totalCents === event.subtotalCents + event.taxCents &&
+        event.currency?.toLowerCase() === "cad" &&
+        typeof event.paidAt === "string" && Number.isFinite(Date.parse(event.paidAt)) &&
+        Date.parse(event.paidAt) <= Date.now() + 5 * 60_000;
+      if (!totalsMatch || !["pending", "paid"].includes(purchase.paymentStatus)) {
+        throw new Error("Stripe Checkout event does not match the package purchase amount or status.");
+      }
+      data.stripeWebhookEvents.push(event.eventId);
+      const purchasedAt = purchase.purchasedAt ?? new Date(event.paidAt!).toISOString();
+      purchase.paymentStatus = "paid";
+      purchase.purchasedAt = purchasedAt;
+      purchase.validUntil = addVancouverCalendarMonths(new Date(purchasedAt), 6).toISOString();
+      purchase.stripePaymentIntentId = event.paymentIntentId;
+      purchase.stripeInvoiceId = event.invoiceId;
+      purchase.stripeInvoiceUrl = event.invoiceUrl;
+      purchase.stripeSubtotalCad = centsToCad(event.subtotalCents);
+      purchase.stripeTaxCad = centsToCad(event.taxCents);
+      purchase.stripeTotalCad = centsToCad(event.totalCents);
+      purchase.updatedAt = new Date().toISOString();
+      const sourceKey = `stripe-purchase-grant:${purchase.id}`;
+      if (!data.packageCreditEvents.some((entry) => entry.sourceKey === sourceKey)) {
+        data.packageCreditEvents.push({
+          purchaseId: purchase.id,
+          eventType: "grant",
+          quantityDelta: purchase.creditsPurchased,
+          sourceKey,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      purchase.creditsAvailable = data.packageCreditEvents
+        .filter((entry) => entry.purchaseId === purchase.id)
+        .reduce((balance, entry) => balance + entry.quantityDelta, 0);
+      save(data);
+    });
+  },
+
+  schedulePackageCredit(purchaseId, startsAt, token) {
+    return withLock(async () => {
+      const data = load();
+      const purchase = data.packagePurchases.find((item) => item.id === purchaseId);
+      if (!purchase || purchase.paymentStatus !== "paid" || !purchase.validUntil || Date.parse(purchase.validUntil) <= Date.now()) {
+        return { ok: false, error: "expired" as const };
+      }
+      const currentToken = data.packagePurchaseTokens.find((item) =>
+        item.tokenHash === token.currentHash && item.purchaseId === purchase.id && Date.parse(item.expiresAt) >= Date.now(),
+      );
+      if (!currentToken) return { ok: false, error: "not_found" as const };
+      const available = data.packageCreditEvents
+        .filter((event) => event.purchaseId === purchase.id)
+        .reduce((balance, event) => balance + event.quantityDelta, 0);
+      if (available < 1) return { ok: false, error: "not_modifiable" as const };
+      const startsAtMs = Date.parse(startsAt);
+      if (!Number.isFinite(startsAtMs) || startsAtMs >= Date.parse(purchase.validUntil)) {
+        return { ok: false, error: "expired" as const };
+      }
+      const busy: BusyInterval[] = [
+        ...activeBookings(data).map((booking) => ({
+          startsAt: booking.startsAt,
+          endsAt: new Date(occupiedEnd(booking.startsAt, booking.durationMin)).toISOString(),
+        })),
+        ...data.bookings.flatMap((booking) => booking.stripeUpgradeCheckoutSessionId
+          ? (booking.stripeUpgradeTargetSessions ?? []).map((item) => ({
+              startsAt: item.startsAt,
+              endsAt: new Date(occupiedEnd(item.startsAt, booking.stripeUpgradeTargetDurationMin ?? booking.durationMin)).toISOString(),
+            }))
+          : []),
+      ];
+      const validation = validateSlot(startsAt, {
+        lessonDurationMin: purchase.durationMin,
+        busy,
+        blackouts: data.blackouts,
+        rules: data.rules.length ? data.rules : DEFAULT_RULES,
+        now: new Date(),
+      });
+      if (!validation.valid) return { ok: false, error: validation.reason === "occupied" ? "conflict" as const : "not_found" as const };
+
+      const sessionIndex = data.bookings
+        .filter((booking) => booking.purchaseId === purchase.id)
+        .reduce((max, booking) => Math.max(max, booking.sessionIndex ?? 0), 0) + 1;
+      if (sessionIndex > purchase.creditsPurchased) return { ok: false, error: "not_modifiable" as const };
+      const totalCents = Math.round(purchase.amountCad * 100);
+      const baseCents = Math.floor(totalCents / purchase.creditsPurchased);
+      const remainder = totalCents % purchase.creditsPurchased;
+      const now = new Date().toISOString();
+      const booking: BookingRecord = {
+        id: randomUUID(),
+        reference: makeReference(),
+        lessonId: purchase.lessonId,
+        lessonName: purchase.lessonName,
+        durationMin: purchase.durationMin,
+        priceCad: (baseCents + (sessionIndex <= remainder ? 1 : 0)) / 100,
+        startsAt: new Date(startsAtMs).toISOString(),
+        endsAt: new Date(startsAtMs + purchase.durationMin * 60_000).toISOString(),
+        studentName: purchase.studentName,
+        email: purchase.email,
+        phone: purchase.phone,
+        notes: purchase.notes,
+        status: "confirmed",
+        paymentStatus: "paid",
+        stripePaymentIntentId: purchase.stripePaymentIntentId,
+        stripeInvoiceId: purchase.stripeInvoiceId,
+        stripeInvoiceUrl: purchase.stripeInvoiceUrl,
+        stripeCurrency: "CAD",
+        createdAt: now,
+        updatedAt: now,
+        packageId: purchase.id,
+        purchaseId: purchase.id,
+        sessionIndex,
+        sessionCount: purchase.creditsPurchased,
+        packagePriceCad: purchase.amountCad,
+        packageWindowStart: dayKeyOf(new Date(startsAtMs).toISOString()),
+      };
+      const sourceKey = `scheduled-credit:${booking.id}`;
+      data.bookings.push(booking);
+      data.tokens = data.tokens.filter((entry) => !data.bookings.some((session) =>
+        session.purchaseId === purchase.id && session.id === entry.bookingId,
+      ));
+      data.tokens.push({ tokenHash: token.hash, bookingId: booking.id, expiresAt: token.expiresAt });
+      data.packageCreditEvents.push({
+        purchaseId: purchase.id,
+        bookingId: booking.id,
+        eventType: "redeem",
+        quantityDelta: -1,
+        sourceKey,
+        createdAt: now,
+      });
+      purchase.creditsAvailable = available - 1;
+      purchase.updatedAt = now;
+      data.packagePurchaseTokens = data.packagePurchaseTokens.filter((item) => item.purchaseId !== purchase.id);
+      data.packagePurchaseTokens.push({ tokenHash: token.hash, purchaseId: purchase.id, expiresAt: token.expiresAt });
+      save(data);
+      return { ok: true, value: booking };
     });
   },
 };

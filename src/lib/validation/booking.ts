@@ -27,6 +27,7 @@ export const createBookingSchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
   startsAt: isoDateTimeSchema.optional(),
   sessions: z.array(isoDateTimeSchema).min(1).max(20).optional(),
+  addOnLessonIds: z.array(z.string().trim().min(1).max(64)).max(10).optional(),
   studentName: z.string().trim().min(2, "Please enter your name.").max(80),
   email: z.email("Please enter a valid email address.").max(160),
   phone: z
@@ -68,7 +69,7 @@ export const otpSchema = z
     reference: z
       .string()
       .trim()
-      .regex(/^WDA-[A-Z0-9]{6}$/i, "Reference looks like WDA-XXXXXX.")
+      .regex(/^WDA-(?:[A-Z0-9]{6}|P-[A-Z0-9]{8})$/i, "Enter a valid booking or purchase reference.")
       .optional()
       .or(z.literal("")),
   }).strict()

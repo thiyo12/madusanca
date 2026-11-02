@@ -30,7 +30,7 @@ export default async function BookingManagePage({ searchParams }: ManagePageProp
         eyebrow="Your booking"
         title="Manage your"
         accent="lesson."
-        lead="View your scheduled time, reschedule to another slot or cancel — all from this page."
+        lead="View your scheduled sessions and payment status, or reschedule an eligible session. Contact your instructor if you need to cancel."
       />
       <section className="bg-[#f7f7f3] pb-20 sm:pb-24">
         <div className="mx-auto max-w-3xl px-5 sm:px-6">
@@ -50,8 +50,7 @@ export default async function BookingManagePage({ searchParams }: ManagePageProp
                <div className="rounded-[25px] border border-line bg-white p-6 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
                  <BookingFind />
                 <p className="mt-6 border-t border-line pt-5 text-[13px] leading-relaxed text-soft">
-                  Your confirmation email also contains a direct manage link —
-                  it works without a code. Still stuck?{" "}
+                  For your security, every My Booking visit requires email verification. Still stuck?{" "}
                   <a
                     href="/contact"
                     className="font-bold text-gold-deep underline-offset-4 hover:underline"

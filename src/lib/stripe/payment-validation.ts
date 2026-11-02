@@ -46,6 +46,7 @@ export function matchesInitialBookingPayment(
     "id" | "mode" | "currency" | "client_reference_id" | "metadata" |
     "amount_subtotal" | "amount_total" | "total_details">,
   booking: { id: string; reference: string; priceCad: number; packagePriceCad?: number; stripeCheckoutSessionId?: string },
+  addOnAmountCad = 0,
 ): boolean {
   return Boolean(
     booking.stripeCheckoutSessionId &&
@@ -55,7 +56,7 @@ export function matchesInitialBookingPayment(
     session.currency?.toLowerCase() === "cad" &&
     session.client_reference_id === booking.reference &&
     session.metadata?.booking_reference === booking.reference &&
-    session.amount_subtotal === Math.round((booking.packagePriceCad ?? booking.priceCad) * 100) &&
+    session.amount_subtotal === Math.round(((booking.packagePriceCad ?? booking.priceCad) + addOnAmountCad) * 100) &&
     hasConsistentCadTotal(session),
   );
 }
@@ -103,6 +104,32 @@ export function matchesUpgradeBookingPayment(
     targetPriceCad === booking.stripeUpgradeTargetPriceCad &&
     fromPriceCad === booking.stripeUpgradeFromPriceCad &&
     session.amount_subtotal === Math.round(amountCad * 100) &&
+    hasConsistentCadTotal(session),
+  );
+}
+
+/** Validate a paid Checkout Session against one independent package purchase. */
+export function matchesPackagePurchasePayment(
+  session: Pick<Stripe.Checkout.Session,
+    "id" | "mode" | "currency" | "client_reference_id" | "metadata" |
+    "amount_subtotal" | "amount_total" | "total_details">,
+  purchase: {
+    id: string;
+    reference: string;
+    amountCad: number;
+    stripeCheckoutSessionId?: string;
+  },
+): boolean {
+  return Boolean(
+    purchase.stripeCheckoutSessionId &&
+    session.id === purchase.stripeCheckoutSessionId &&
+    session.mode === "payment" &&
+    session.currency?.toLowerCase() === "cad" &&
+    session.client_reference_id === purchase.reference &&
+    session.metadata?.checkout_kind === "package_purchase" &&
+    session.metadata.purchase_id === purchase.id &&
+    session.metadata.purchase_reference === purchase.reference &&
+    session.amount_subtotal === Math.round(purchase.amountCad * 100) &&
     hasConsistentCadTotal(session),
   );
 }

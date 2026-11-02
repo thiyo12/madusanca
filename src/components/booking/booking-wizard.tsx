@@ -7,7 +7,7 @@ import { DateTimeStep } from "@/components/booking/date-time-step";
 import { DetailsStep, emptyDetails, type DetailsValue } from "@/components/booking/details-step";
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
-import type { Lesson } from "@/lib/data/lessons";
+import { formatLessonPrice, type Lesson } from "@/lib/data/lessons";
 import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 
 export interface BookingWizardProps {
@@ -34,6 +34,8 @@ interface SuccessData {
   email: string;
   priceCad: number;
   emailSent: boolean;
+  addOnLessonIds: string[];
+  addOns: Array<{ id: string; name: string; priceCad: number; sessionCount: number }>;
 }
 
 export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) {
@@ -43,11 +45,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
     return lessons.find((l) => l.id === initialLessonId) ?? null;
   });
   const [startsAt, setStartsAt] = useState<string[]>([]);
+  const [addOnLessonIds, setAddOnLessonIds] = useState<string[]>([]);
+  const [showAddOns, setShowAddOns] = useState(false);
   const [sessionIndex, setSessionIndex] = useState(0);
   const [details, setDetails] = useState<DetailsValue>(emptyDetails);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [availabilityRevision, setAvailabilityRevision] = useState(0);
   const [success, setSuccess] = useState<SuccessData | null>(null);
 
   const step = STEPS[stepIndex]?.key ?? "lesson";
@@ -123,6 +128,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         body: JSON.stringify({
           lessonId: lesson.id,
           sessions: startsAt,
+          addOnLessonIds,
           studentName: details.studentName.trim(),
           email: details.email.trim(),
           phone: details.phone.trim(),
@@ -147,12 +153,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           reference: string;
           lessonName: string;
           durationMin: number;
+          priceCad?: number;
           startsAt: string;
           sessions?: Array<{ startsAt: string }>;
           studentName: string;
           email?: string;
         };
-        emailSent?: boolean;
+          emailSent?: boolean;
+        addOns?: Array<{ id: string; name: string; priceCad: number; sessionCount: number }>;
       };
 
       if (!response.ok || !result.ok || !result.booking || !result.manageToken) {
@@ -162,6 +170,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           setStepIndex(1);
           setSessionIndex(0);
           setStartsAt([]);
+          setAvailabilityRevision((revision) => revision + 1);
         }
         return;
       }
@@ -174,8 +183,10 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         startsAt: result.booking.startsAt,
         studentName: result.booking.studentName,
         email: details.email.trim(),
-        priceCad: lesson.priceCad,
+        priceCad: result.booking.priceCad ?? lesson.priceCad,
         emailSent: result.emailSent === true,
+        addOnLessonIds: (result.addOns ?? []).map((item) => item.id),
+        addOns: result.addOns ?? [],
       });
     } catch {
       setSubmitError("Network error. Please try again.");
@@ -195,7 +206,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         </h2>
         {success.emailSent ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
-            A confirmation is on its way to <strong>{details.email.trim()}</strong> with your private booking link.
+            A confirmation is on its way to <strong>{details.email.trim()}</strong>. To manage this booking, verify your email on My Booking.
           </p>
         ) : (
           <p role="alert" className="mt-2 rounded-[12px] bg-[#eaf5df] px-3.5 py-2.5 text-[13px] leading-relaxed text-[#31543a]">
@@ -215,8 +226,19 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             email: success.email,
           }}
         />
+        {success.addOns.length > 0 && (
+          <section className="mt-4 rounded-[17px] border border-line bg-white p-4 sm:p-5">
+            <h3 className="text-sm font-extrabold text-ink">Checkout review</h3>
+            <ul className="mt-2 grid gap-2 text-[13px]">
+              <li className="flex justify-between gap-3"><span className="text-soft">{success.lessonName}</span><strong className="text-ink">${success.priceCad.toFixed(2)} CAD</strong></li>
+              {success.addOns.map((item) => <li key={item.id} className="flex justify-between gap-3"><span className="text-soft">{item.name} · {item.sessionCount} credit{item.sessionCount === 1 ? "" : "s"}</span><strong className="text-ink">${item.priceCad.toFixed(2)} CAD</strong></li>)}
+              <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>Subtotal</span><span>${(success.priceCad + success.addOns.reduce((sum, item) => sum + item.priceCad, 0)).toFixed(2)} CAD</span></li>
+            </ul>
+            <p className="mt-2 text-[11px] text-soft">Applicable tax will be calculated and shown by Stripe Checkout before payment.</p>
+          </section>
+        )}
         <div className="mt-5 flex flex-wrap gap-3">
-          <StripeCheckoutButton manageToken={success.manageToken} />
+          <StripeCheckoutButton manageToken={success.manageToken} addOnLessonIds={success.addOnLessonIds} />
           <Button href="/booking/manage" variant="outline">
             My Booking (email code)
           </Button>
@@ -264,7 +286,34 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
       </ol>
 
       {step === "lesson" && (
-        <LessonStep lessons={lessons} selectedId={lesson?.id ?? null} onSelect={setLesson} />
+        <div className="grid gap-5">
+          <LessonStep lessons={lessons} selectedId={lesson?.id ?? null} onSelect={(selected) => { setLesson(selected); setAddOnLessonIds([]); }} />
+          {lesson && (
+            <section className="rounded-[16px] border border-line bg-[#fbfcf9] p-4 sm:p-5">
+              <button type="button" onClick={() => setShowAddOns((open) => !open)} aria-expanded={showAddOns} className="flex w-full items-center justify-between gap-3 text-left">
+                <span className="text-sm font-extrabold text-ink">Need extra driving lessons?</span>
+                <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-[#eaf5df] text-lg font-bold text-[#426a2c]">{showAddOns ? "−" : "+"}</span>
+              </button>
+              {showAddOns && (
+                <div className="mt-3 grid gap-2">
+                  {lessons.filter((item) => item.category === "package" && item.id !== lesson.id).map((item) => {
+                    const selected = addOnLessonIds.includes(item.id);
+                    return (
+                      <label key={item.id} className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-white p-3">
+                        <input type="checkbox" checked={selected} onChange={() => setAddOnLessonIds((current) => selected ? current.filter((id) => id !== item.id) : [...current, item.id])} className="mt-1 h-4 w-4 accent-[#6a9d42]" />
+                        <span className="grid gap-0.5">
+                          <span className="text-[13px] font-extrabold text-ink">{item.name}</span>
+                          <span className="text-[12px] text-soft">{item.sessionCount} lesson credit{item.sessionCount === 1 ? "" : "s"} · {item.durationMin} min · {formatLessonPrice(item.priceCad)}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                  <p className="text-[11px] leading-relaxed text-soft">Extra credits are purchased with this booking but are not scheduled automatically. Taxes are calculated by Stripe at checkout.</p>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
       )}
 
       {step === "when" && lesson && (
@@ -286,6 +335,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           </div>
           {packageWindowEnd && <p className="mb-3 text-xs text-soft">All sessions must be booked by {packageWindowEnd} (two months from your first session).</p>}
           <DateTimeStep
+            key={`${lesson.id}-${availabilityRevision}`}
             lessonId={lesson.id}
             selectedStart={startsAt[sessionIndex] ?? null}
             maxDate={packageWindowEnd}
@@ -325,6 +375,19 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
               email: details.email.trim(),
             }}
           />
+          {addOnLessonIds.length > 0 && (
+            <section className="mt-4 rounded-[17px] border border-line p-4 sm:p-5">
+              <h3 className="text-sm font-extrabold text-ink">Additional lesson credits</h3>
+              <ul className="mt-2 grid gap-2 text-[13px]">
+                {addOnLessonIds.map((id) => {
+                  const extra = lessons.find((item) => item.id === id);
+                  return extra ? <li key={id} className="flex justify-between gap-3"><span className="text-soft">{extra.name} · {extra.sessionCount} credit{extra.sessionCount === 1 ? "" : "s"}</span><strong className="text-ink">{formatLessonPrice(extra.priceCad)}</strong></li> : null;
+                })}
+                <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>New items subtotal</span><span>${(lesson.priceCad + addOnLessonIds.reduce((sum, id) => sum + (lessons.find((item) => item.id === id)?.priceCad ?? 0), 0)).toFixed(2)} CAD + applicable taxes</span></li>
+              </ul>
+              <p className="mt-2 text-[11px] leading-relaxed text-soft">Stripe will calculate applicable tax and show the final payable total before you pay.</p>
+            </section>
+          )}
           <section className="mt-4 rounded-[17px] border border-line p-4 sm:p-5">
             <h3 className="text-sm font-extrabold text-ink">Your details</h3>
             <dl className="mt-2 grid gap-2 text-[13px] sm:grid-cols-2">
@@ -339,8 +402,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           </section>
           <div className="mt-4 space-y-2 text-[13px] leading-relaxed text-soft">
             <p>
-              Confirming reserves this time. You&rsquo;ll receive a private manage link by
-              email to change or cancel online at least 48 hours before the lesson.
+              Confirming reserves this time. Your confirmation email links to My Booking,
+              where you must verify your email before viewing or changing bookings.
             </p>
             {lesson.sessionCount > 1 ? (
               <div>
@@ -367,6 +430,9 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             </Button>
             <Button variant="outline" onClick={goBack} disabled={submitting}>
               Change details
+            </Button>
+            <Button variant="outline" onClick={() => { setSubmitError(null); setStepIndex(0); }} disabled={submitting}>
+              Change lesson / extras
             </Button>
             <Button variant="outline" onClick={() => { setSubmitError(null); setStepIndex(1); setSessionIndex(0); }} disabled={submitting}>
               Change date / time

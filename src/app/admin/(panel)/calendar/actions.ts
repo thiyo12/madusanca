@@ -107,7 +107,7 @@ export async function createCalendarBookingAction(
       startsAt: created.value.startsAt,
       studentName: created.value.studentName,
       studentEmail: created.value.email,
-      manageUrl: manageUrl(token),
+      manageUrl: manageUrl(),
     });
 
     revalidatePath("/admin/calendar");

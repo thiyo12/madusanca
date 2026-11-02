@@ -152,7 +152,7 @@ export function ScheduleGrid({
     startTransition(async () => {
       const result = await rescheduleBookingAction({ error: null }, formData);
       if (result.error) setDropError(result.error);
-      else router.refresh();
+      router.refresh();
     });
   }
 

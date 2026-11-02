@@ -16,7 +16,12 @@ import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 2_048;
 
-const checkoutSchema = z.object({ manageToken: z.string().min(32).max(256).optional() }).strict();
+const checkoutSchema = z.object({
+  manageToken: z.string().min(32).max(256).optional(),
+  addOnLessonIds: z.array(z.string().trim().min(1).max(64)).max(10).optional(),
+}).strict().refine((value) => new Set(value.addOnLessonIds ?? []).size === (value.addOnLessonIds ?? []).length, {
+  message: "Choose each additional lesson only once.",
+});
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
@@ -55,6 +60,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const store = getStore();
+    const addOnLessonIds = parsed.data.addOnLessonIds ?? [];
     const token = parsed.data.manageToken ?? await getManageToken();
     if (!token) return NextResponse.json({ ok: false, error: "Open the private manage link for this booking." }, { status: 401 });
     const tokenHash = hashToken(token);
@@ -80,6 +86,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       const sessionStillValid = !found.booking.stripeCheckoutExpiresAt ||
         Date.parse(found.booking.stripeCheckoutExpiresAt) > Date.now();
       if (existing.status === "open" && existing.url && sessionStillValid) {
+        const savedAddons = await store.getBookingCheckoutAddons(found.booking.id, existing.id);
+        const requestedIds = [...addOnLessonIds].sort();
+        const savedIds = savedAddons.map((item) => item.lessonId).sort();
+        if (JSON.stringify(requestedIds) !== JSON.stringify(savedIds)) {
+          return NextResponse.json({ ok: false, error: "A Checkout session is already open with a different selection. Finish or wait for it to expire before changing extras." }, { status: 409 });
+        }
         return NextResponse.json({ ok: true, url: existing.url });
       }
       if (existing.status === "open") {
@@ -135,6 +147,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const taxCode = stripeTaxCode();
+    const lessons = await store.getLessons();
+    const addOns = addOnLessonIds.map((id) => lessons.find((lesson) => lesson.id === id && lesson.category === "package"));
+    if (addOns.some((lesson) => !lesson)) {
+      return NextResponse.json({ ok: false, error: "An additional lesson is no longer available. Return to the catalogue and review your selection." }, { status: 409 });
+    }
+    if (addOnLessonIds.includes(found.booking.lessonId)) {
+      return NextResponse.json({ ok: false, error: "The selected lesson is already included in this booking." }, { status: 400 });
+    }
+    const validAddOns = addOns as NonNullable<(typeof addOns)[number]>[];
     const checkoutExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -150,7 +171,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       invoice_creation: {
         enabled: true,
         invoice_data: {
-          description: `${found.booking.lessonName} · ${found.booking.reference}`,
+            description: `${found.booking.lessonName}${validAddOns.length ? ` + ${validAddOns.map((item) => item.name).join(", ")}` : ""} · ${found.booking.reference}`,
           metadata: {
             booking_id: found.booking.id,
             booking_reference: found.booking.reference,
@@ -173,7 +194,20 @@ export async function POST(request: Request): Promise<NextResponse> {
             },
           },
         },
-      }],
+      }, ...validAddOns.map((addon) => ({
+        quantity: 1,
+        price_data: {
+          currency: "cad",
+          unit_amount: Math.round(addon.priceCad * 100),
+          tax_behavior: "exclusive" as const,
+          product_data: {
+            name: addon.name,
+            description: `${addon.sessionCount} lesson credit${addon.sessionCount === 1 ? "" : "s"}; schedule later from My Booking. GST calculated by Stripe Tax.`,
+            tax_code: taxCode,
+            metadata: { lesson_id: addon.id, booking_reference: found!.booking.reference },
+          },
+        },
+      }))],
       client_reference_id: found.booking.reference,
       metadata: {
         booking_id: found.booking.id,
@@ -198,6 +232,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         session.id,
         new Date(session.expires_at * 1000).toISOString(),
         found.booking.startsAt,
+        addOnLessonIds,
       );
     } catch (error) {
       // A booking may have been cancelled/rescheduled while Stripe created the

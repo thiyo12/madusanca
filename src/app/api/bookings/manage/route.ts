@@ -6,11 +6,10 @@ import { manageSchema } from "@/lib/validation/booking";
 import { maskEmail } from "@/lib/booking/format";
 import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import {
-  sendBookingCancelledEmail,
   sendBookingRescheduledEmail,
 } from "@/lib/email/booking-emails";
-import type { BookingRecord } from "@/lib/booking/types";
-import { manageUrl as buildManageUrl, siteBase } from "@/lib/booking/urls";
+import type { BookingRecord, PackagePurchaseRecord } from "@/lib/booking/types";
+import { manageUrl as buildManageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { getStripe } from "@/lib/stripe/server";
@@ -85,6 +84,22 @@ function safeView(booking: BookingRecord): {
   };
 }
 
+function safePurchaseView(purchase: PackagePurchaseRecord) {
+  return {
+    id: purchase.id,
+    reference: purchase.reference,
+    lessonId: purchase.lessonId,
+    lessonName: purchase.lessonName,
+    durationMin: purchase.durationMin,
+    creditsPurchased: purchase.creditsPurchased,
+    creditsAvailable: purchase.creditsAvailable,
+    amountCad: purchase.amountCad,
+    paymentStatus: purchase.paymentStatus,
+    purchasedAt: purchase.purchasedAt,
+    validUntil: purchase.validUntil,
+  };
+}
+
 async function load(hash: string) {
   const store = getStore();
   return store.getBookingByToken(hash);
@@ -150,6 +165,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { action, startsAt, sessionId } = parsed.data;
+  if (action === "cancel") {
+    return NextResponse.json({
+      ok: false,
+      error: "Students cannot cancel sessions online. Please contact your driving instructor for help.",
+    }, { status: 403 });
+  }
   const token = await getManageToken();
   if (!token) return errorResponse("not_found", "Open the private booking link or verify your email to continue.");
   const hash = hashToken(token);
@@ -161,8 +182,22 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (action === "get") {
       const found = await load(hash);
       if (!found) {
+        const purchase = await getStore().getPackagePurchaseByToken(hash);
+        if (purchase) {
+          const purchaseBookings = await getStore().findBookingsByPurchaseId(purchase.id);
+          const sessions = purchaseBookings.map(safeView);
+          const activeBooking = purchaseBookings.find((session) => !["cancelled", "completed"].includes(session.status));
+          return NextResponse.json({
+            ok: true,
+            purchase: safePurchaseView(purchase),
+            ...(activeBooking ? { booking: safeView(activeBooking) } : {}),
+            sessions,
+          });
+        }
         return errorResponse("not_found", "This booking link is invalid or has expired.");
       }
+      const purchaseId = found.sessions.find((session) => session.purchaseId)?.purchaseId;
+      const purchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
       const currentPackagePrice = found.booking.packagePriceCad ?? found.booking.priceCad;
       const upgradeOptions = found.sessions.every((session) => ["confirmed", "rescheduled"].includes(session.status)) && found.booking.paymentStatus === "paid"
         ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package" && lesson.priceCad > currentPackagePrice)
@@ -172,73 +207,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         ok: true,
         booking: { ...safeView(found.booking), upgradeOptions },
         sessions: found.sessions.map(safeView),
-      });
-    }
-
-    if (action === "cancel") {
-      const store = getStore();
-      const found = await load(hash);
-      if (!found) {
-        return errorResponse("not_found", "This booking link is invalid or has expired.");
-      }
-      const paymentBooking = found.sessions.find((session) => session.stripeCheckoutSessionId) ?? found.booking;
-      if (found.sessions.every((session) => ["cancelled", "completed"].includes(session.status))) {
-        return errorResponse("not_modifiable", "This booking can no longer be changed.");
-      }
-      if (found.sessions.some((session) => session.paymentStatus === "paid")) {
-        return errorResponse("not_modifiable", "This package has been paid. Contact the school for cancellation or refund help.");
-      }
-      try {
-        if (await expireUpgradeCheckout(paymentBooking)) {
-          return errorResponse("not_modifiable", "An upgrade payment is complete or processing. Refresh the booking and try again.");
-        }
-      } catch (error) {
-        logSafeError("[bookings/manage] upgrade cancellation check failed", error);
-        return NextResponse.json({ ok: false, error: "Could not verify upgrade payment status. Please try again shortly." }, { status: 503 });
-      }
-      if (found.sessions.some((session) => isInsideSelfServiceWindow(session.startsAt))) {
-        return errorResponse("cutoff", messageFor("cutoff"));
-      }
-      if (paymentBooking.stripeCheckoutSessionId) {
-        try {
-          const stripe = (await import("@/lib/stripe/server")).getStripe();
-          const session = await stripe.checkout.sessions.retrieve(paymentBooking.stripeCheckoutSessionId);
-          if (session.status === "complete") {
-            return errorResponse("not_modifiable", session.payment_status === "paid"
-              ? "This booking has already been paid. Contact the school for cancellation or refund help."
-              : "Payment is still processing. Please try again after Stripe confirms its status.");
-          }
-          if (session.status === "open") await stripe.checkout.sessions.expire(session.id);
-          await store.handleStripeCheckoutEvent({
-            eventId: `customer-cancel-expire-${session.id}`,
-            eventType: "expired",
-            bookingId: paymentBooking.id,
-            sessionId: session.id,
-          });
-        } catch (error) {
-          logSafeError("[bookings/manage] Checkout cancellation check failed", error);
-          return NextResponse.json({ ok: false, error: "Could not verify payment status. Please try again shortly." }, { status: 503 });
-        }
-      }
-      const result = await store.cancelBookingByToken(hash);
-      if (!result.ok) {
-        return errorResponse(result.error, messageFor(result.error));
-      }
-      const emailSent = await sendBookingCancelledEmail({
-        reference: result.value.reference,
-        lessonName: result.value.lessonName,
-        durationMin: result.value.durationMin,
-        startsAt: result.value.startsAt,
-        studentName: result.value.studentName,
-        studentEmail: result.value.email,
-        manageUrl: siteBase(),
-      });
-      const updated = await store.getBookingByToken(hash);
-      return NextResponse.json({
-        ok: true,
-        booking: safeView(result.value),
-        sessions: updated?.sessions.map(safeView) ?? [safeView(result.value)],
-        emailSent,
+        ...(purchase ? { purchase: safePurchaseView(purchase) } : {}),
       });
     }
 
@@ -348,7 +317,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return errorResponse(result.error, messageFor(result.error));
     }
 
-    const manageUrl = buildManageUrl(newToken);
+    const manageUrl = buildManageUrl();
     const emailSent = await sendBookingRescheduledEmail({
       reference: result.value.reference,
       lessonName: result.value.lessonName,
@@ -387,7 +356,7 @@ function messageFor(error: string): string {
     case "conflict":
       return "That time was just taken. Please pick another slot.";
     case "cutoff":
-      return "Online changes close 48 hours before the lesson. Please call the school for help with this booking.";
+      return "This appointment is within 48 hours. Please contact your driving instructor to request a change.";
     case "reschedule_limit":
       return "This booking has already been rescheduled twice online. Call Shan at +1 236-234-3229 for help.";
     default:

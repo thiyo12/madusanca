@@ -6,7 +6,9 @@ import { cookies } from "next/headers";
 export const MANAGE_COOKIE_NAME = process.env.NODE_ENV === "production"
   ? "__Host-wda_manage_v2"
   : "wda_manage_v2";
-export const MANAGE_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+// A private manage session is deliberately short-lived; returning later
+// requires fresh email verification.
+export const MANAGE_TOKEN_TTL_SECONDS = 30 * 60;
 
 export async function getManageToken(): Promise<string | null> {
   const cookieToken = (await cookies()).get(MANAGE_COOKIE_NAME)?.value;

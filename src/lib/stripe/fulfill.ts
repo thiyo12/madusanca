@@ -5,6 +5,7 @@ import { getStore } from "@/lib/booking/store";
 import { getStripe } from "@/lib/stripe/server";
 import {
   matchesInitialBookingPayment,
+  matchesPackagePurchasePayment,
   matchesUpgradeBookingPayment,
 } from "@/lib/stripe/payment-validation";
 
@@ -18,9 +19,15 @@ export async function recordPaidCheckoutSession(
 
   // Trust the stored booking/session relationship, not webhook-supplied metadata
   // alone. Stripe Tax is additive, so compare the pre-tax subtotal to our price.
-  const booking = await getStore().getBookingByCheckoutSession(session.id);
-  if (!booking || booking.id !== bookingId || !matchesInitialBookingPayment(session, booking)) {
+  const store = getStore();
+  const booking = await store.getBookingByCheckoutSession(session.id);
+  if (!booking || booking.id !== bookingId) {
     throw new Error("Stripe Checkout session does not match the stored booking payment.");
+  }
+  const addons = await store.getBookingCheckoutAddons(booking.id, session.id);
+  const addonAmountCad = addons.reduce((sum, addon) => sum + addon.amountCad, 0);
+  if (!matchesInitialBookingPayment(session, booking, addonAmountCad)) {
+    throw new Error("Stripe Checkout session does not match the stored booking and add-on payment.");
   }
 
   const invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id;
@@ -38,7 +45,7 @@ export async function recordPaidCheckoutSession(
     }
   }
 
-  await getStore().handleStripeCheckoutEvent({
+  await store.handleStripeCheckoutEvent({
     eventId,
     eventType: "paid",
     bookingId,
@@ -85,5 +92,40 @@ export async function recordPaidUpgradeCheckoutSession(session: Stripe.Checkout.
     taxCents: session.total_details?.amount_tax ?? undefined, totalCents: session.amount_total ?? undefined,
     currency: session.currency ?? undefined, targetLessonId, targetLessonName,
     targetDurationMin, targetPriceCad, fromPriceCad,
+  });
+}
+
+export async function recordPaidPackagePurchaseCheckoutSession(
+  session: Stripe.Checkout.Session,
+  eventId: string,
+  paidAt: Date,
+): Promise<void> {
+  const purchaseId = session.metadata?.purchase_id;
+  if (session.payment_status !== "paid" || session.metadata?.checkout_kind !== "package_purchase" || !purchaseId) return;
+  const purchase = await getStore().getPackagePurchaseByCheckoutSession(session.id);
+  if (!purchase || purchase.id !== purchaseId || !matchesPackagePurchasePayment(session, purchase)) {
+    throw new Error("Stripe Checkout session does not match the stored package purchase.");
+  }
+
+  const invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id;
+  let invoiceUrl = typeof session.invoice === "object" ? session.invoice?.hosted_invoice_url ?? undefined : undefined;
+  if (invoiceId && !invoiceUrl) {
+    try { invoiceUrl = (await getStripe().invoices.retrieve(invoiceId)).hosted_invoice_url ?? undefined; }
+    catch (error) { console.error("[stripe] package purchase invoice lookup failed", error instanceof Error ? error.name : "unknown error"); }
+  }
+
+  await getStore().handleStripePackagePurchaseEvent({
+    eventId,
+    eventType: "paid",
+    purchaseId,
+    sessionId: session.id,
+    paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id,
+    invoiceId,
+    invoiceUrl,
+    subtotalCents: session.amount_subtotal ?? undefined,
+    taxCents: session.total_details?.amount_tax ?? undefined,
+    totalCents: session.amount_total ?? undefined,
+    currency: session.currency ?? undefined,
+    paidAt: paidAt.toISOString(),
   });
 }

@@ -284,7 +284,7 @@ export async function rescheduleBookingAction(
         previousStartsAt,
         studentName: result.value.booking.studentName,
         studentEmail: result.value.booking.email,
-        manageUrl: manageUrl(result.value.newToken),
+        manageUrl: manageUrl(),
       });
       if (!emailSent) console.error("[admin] reschedule notification was not delivered");
     } catch (error) {

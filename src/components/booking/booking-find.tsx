@@ -8,6 +8,7 @@ import { formatSlotFull } from "@/lib/booking/format";
 type Step = "email" | "code" | "list";
 
 interface FoundBooking {
+  studentName: string;
   reference: string;
   lessonName: string;
   durationMin: number;
@@ -17,12 +18,26 @@ interface FoundBooking {
   canOpen: boolean;
 }
 
+interface FoundPurchase {
+  studentName: string;
+  reference: string;
+  lessonName: string;
+  creditsPurchased: number;
+  creditsAvailable: number;
+  paymentStatus: string;
+  purchasedAt?: string;
+  validUntil?: string;
+  canOpen: boolean;
+}
+
 interface OtpResponse {
   ok?: boolean;
   error?: string;
   message?: string;
   bookings?: FoundBooking[];
+  purchases?: FoundPurchase[];
   retryAfterSeconds?: number;
+  studentName?: string | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -39,11 +54,13 @@ export function BookingFind() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [bookings, setBookings] = useState<FoundBooking[]>([]);
+  const [purchases, setPurchases] = useState<FoundPurchase[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [retryAfter, setRetryAfter] = useState(0);
   const [sendCount, setSendCount] = useState(0);
+  const [studentName, setStudentName] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -101,6 +118,8 @@ export function BookingFind() {
         return;
       }
       setBookings(result.bookings);
+      setPurchases(result.purchases ?? []);
+      setStudentName(result.studentName?.trim().split(/\s+/)[0] ?? "");
       setStep("list");
     } catch {
       setError("Network error. Please try again.");
@@ -131,10 +150,12 @@ export function BookingFind() {
     setEmail("");
     setCode("");
     setBookings([]);
+    setPurchases([]);
     setMessage(null);
     setError(null);
     setRetryAfter(0);
     setSendCount(0);
+    setStudentName("");
   }
 
   return (
@@ -145,7 +166,7 @@ export function BookingFind() {
         </h3>
         <p className="mt-1 text-[13.5px] leading-relaxed text-soft">
           Enter the email you booked with. Online changes are available until
-          48 hours before the lesson; for later changes, call Shan at{" "}
+          48 hours before the lesson. To cancel, or for a later change, contact Shan at{" "}
           <a href="tel:+12362343229" className="font-bold text-gold-deep underline-offset-2 hover:underline">
             +1 236-234-3229
           </a>.
@@ -237,11 +258,16 @@ export function BookingFind() {
 
       {step === "list" && (
         <div className="grid gap-3">
-          {bookings.length === 0 ? (
+          {studentName && (
+            <h3 className="font-display text-[23px] font-extrabold tracking-[-0.04em] text-ink">
+              Welcome back, {studentName}!
+            </h3>
+          )}
+          {bookings.length === 0 && purchases.length === 0 ? (
             <p className="rounded-[10px] bg-mist px-3.5 py-2.5 text-[13px] font-bold text-soft">
-              No bookings found for {email}.
+              No bookings or package purchases were found for {email}.
             </p>
-          ) : (
+          ) : bookings.length > 0 && (
             bookings.map((booking) => (
               <div
                 key={booking.reference}
@@ -291,6 +317,29 @@ export function BookingFind() {
               </div>
             ))
           )}
+          {purchases.length > 0 && (
+            <div className="mt-2 grid gap-2 border-t border-line pt-4">
+              <h4 className="text-[12px] font-extrabold uppercase tracking-[0.12em] text-[#426a2c]">Package purchases</h4>
+              {purchases.map((purchase) => (
+                <div key={purchase.reference} className="flex flex-wrap items-center justify-between gap-3 rounded-[17px] border border-line bg-white px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-extrabold text-ink">{purchase.lessonName}</p>
+                    <p className="mt-0.5 text-[12.5px] text-soft">{purchase.creditsAvailable} of {purchase.creditsPurchased} lessons remaining to schedule · {purchase.paymentStatus === "paid" ? "Paid" : purchase.paymentStatus}</p>
+                    {purchase.purchasedAt && <p className="mt-0.5 text-[11px] text-soft">Purchased {new Date(purchase.purchasedAt).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })} · {purchase.reference}</p>}
+                    {purchase.validUntil && <p className="mt-0.5 text-[11px] text-soft">Valid through {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}</p>}
+                  </div>
+                  {purchase.canOpen && (
+                    <button type="button" onClick={() => openBooking(purchase.reference)} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
+                      Manage credits
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <Link href="/lessons" className="inline-flex min-h-10 w-fit items-center rounded-full bg-ink px-5 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37]">
+            Add More Lessons
+          </Link>
           <div>
             <button
               type="button"

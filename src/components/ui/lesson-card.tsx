@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { fadeUp } from "@/lib/motion";
 import { formatLessonPrice } from "@/lib/data/lessons";
+import type { Lesson } from "@/lib/data/lessons";
 
 export interface LessonCardProps {
   id: string;
@@ -14,6 +15,7 @@ export interface LessonCardProps {
   description: string;
   features: string[];
   popular?: boolean;
+  category: Lesson["category"];
   className?: string;
 }
 
@@ -26,6 +28,7 @@ export function LessonCard({
   description,
   features,
   popular = false,
+  category,
   className = "",
 }: LessonCardProps) {
   return (
@@ -78,6 +81,11 @@ export function LessonCard({
       >
         Select &amp; book <span aria-hidden="true">↗</span>
       </Link>
+      {category === "package" && (
+        <Link href={`/booking/purchase?lesson=${encodeURIComponent(id)}`} className={`mt-3 inline-flex min-h-8 items-center justify-center text-[12px] font-bold underline-offset-4 hover:underline ${popular ? "text-[#d6edc5]" : "text-[#426a2c]"}`}>
+          Buy now, schedule later
+        </Link>
+      )}
     </motion.article>
   );
 }

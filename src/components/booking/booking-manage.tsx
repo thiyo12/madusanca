@@ -39,10 +39,26 @@ interface BookingView {
 interface ManageResponse {
   ok?: boolean;
   error?: string;
+  httpStatus?: number;
   booking?: BookingView;
   sessions?: BookingView[];
+  purchase?: PurchaseView;
   manageUrl?: string;
   emailSent?: boolean;
+}
+
+interface PurchaseView {
+  id: string;
+  reference: string;
+  lessonId: string;
+  lessonName: string;
+  durationMin: number;
+  creditsPurchased: number;
+  creditsAvailable: number;
+  amountCad: number;
+  paymentStatus: string;
+  purchasedAt?: string;
+  validUntil?: string;
 }
 
 type Mode = "view" | "reschedule";
@@ -61,17 +77,20 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState<BookingView | null>(null);
+  const [purchase, setPurchase] = useState<PurchaseView | null>(null);
   const [sessions, setSessions] = useState<BookingView[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [now, setNow] = useState<number | null>(null);
   const [mode, setMode] = useState<Mode>("view");
   const [pendingStart, setPendingStart] = useState<string | null>(null);
+  const [availabilityRevision, setAvailabilityRevision] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
   const [upgradeLessonId, setUpgradeLessonId] = useState("");
   const [upgradeSessions, setUpgradeSessions] = useState<string[]>([]);
   const [upgradeSessionIndex, setUpgradeSessionIndex] = useState(0);
+  const [creditStart, setCreditStart] = useState<string | null>(null);
 
   useEffect(() => {
     const clearSession = () => {
@@ -112,7 +131,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      return (await response.json()) as ManageResponse;
+      return { ...((await response.json()) as ManageResponse), httpStatus: response.status };
     },
     [],
   );
@@ -122,14 +141,15 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     callManage({ action: "get" })
       .then((result) => {
         if (cancelled) return;
-        if (!result.ok || !result.booking) {
+        if (!result.ok || (!result.booking && !result.purchase)) {
           setStatus("error");
           setError(result.error ?? "This booking link is invalid or has expired.");
           return;
         }
-        setBooking(result.booking);
-        setSessions(result.sessions ?? [result.booking]);
-        setActiveSessionId(result.booking.id);
+        setPurchase(result.purchase ?? null);
+        setBooking(result.booking ?? null);
+        setSessions(result.sessions ?? (result.booking ? [result.booking] : []));
+        setActiveSessionId(result.booking?.id ?? null);
         setNow(Date.now());
         setStatus("ready");
       })
@@ -142,6 +162,43 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
       cancelled = true;
     };
   }, [callManage]);
+
+  async function scheduleCredit() {
+    if (!purchase || !creditStart) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const response = await fetch("/api/package-purchases/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purchaseId: purchase.id, startsAt: creditStart }),
+      });
+      const result = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) {
+        setActionError(result.error ?? "Could not schedule this session.");
+        if (response.status === 409) {
+          setCreditStart(null);
+          setAvailabilityRevision((revision) => revision + 1);
+        }
+        return;
+      }
+      const updated = await callManage({ action: "get" });
+      if (!updated.ok || (!updated.booking && !updated.purchase)) {
+        setActionError(updated.error ?? "Session was saved, but the updated purchase view could not load. Refresh the page.");
+        return;
+      }
+      setPurchase(updated.purchase ?? null);
+      setBooking(updated.booking ?? null);
+      setSessions(updated.sessions ?? (updated.booking ? [updated.booking] : []));
+      setActiveSessionId(updated.booking?.id ?? null);
+      setCreditStart(null);
+      setNow(Date.now());
+    } catch {
+      setActionError("Network error. Your credit was not deducted unless the appointment appears here; refresh to check.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (paymentReturn !== "success") return;
@@ -161,31 +218,6 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [paymentReturn, callManage]);
 
-  async function cancelBooking() {
-    if (!confirm("Cancel this lesson? This cannot be undone.")) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      const result = await callManage({ action: "cancel" });
-      if (!result.ok || !result.booking) {
-        setActionError(result.error ?? "Could not cancel the booking.");
-        return;
-      }
-      setBooking(result.booking);
-      setSessions(result.sessions ?? [{ ...result.booking, status: "cancelled" }, ...sessions.filter((session) => session.id !== result.booking!.id).map((session) => ({ ...session, status: "cancelled" }))]);
-      setMode("view");
-      setEmailNotice(
-        result.emailSent === false
-          ? "Your cancellation is saved, but the email could not be delivered. Please contact the school if you need written confirmation."
-          : "Cancellation confirmation sent to your booking email.",
-      );
-    } catch {
-      setActionError("Network error. Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function rescheduleBooking() {
     if (!pendingStart) return;
     setBusy(true);
@@ -194,6 +226,10 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
       const result = await callManage({ action: "reschedule", startsAt: pendingStart, sessionId: activeSessionId ?? booking?.id });
       if (!result.ok || !result.booking) {
         setActionError(result.error ?? "Could not reschedule the booking.");
+        if (result.httpStatus === 409) {
+          setPendingStart(null);
+          setAvailabilityRevision((revision) => revision + 1);
+        }
         return;
       }
       setBooking(result.booking);
@@ -221,7 +257,7 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
     );
   }
 
-  if (status === "error" || !booking) {
+  if (status === "error" || (!booking && !purchase)) {
     return (
       <div role="alert" className="rounded-[25px] border border-[#f3d1c9] bg-[#fff5f2] p-6 sm:p-8">
         <h2 className="font-display text-xl font-extrabold text-ink">Booking link not found</h2>
@@ -236,6 +272,59 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
       </div>
     );
   }
+
+  const creditPanel = purchase ? (
+    <section className="mt-5 rounded-[16px] border border-line p-4">
+      <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#426a2c]">Package purchase</p>
+      <h3 className="mt-1 text-sm font-extrabold text-ink">{purchase.lessonName}</h3>
+      <p className="mt-1 text-[12.5px] text-soft">{purchase.creditsAvailable} of {purchase.creditsPurchased} lesson credits available · {purchase.paymentStatus === "paid" ? "Paid" : purchase.paymentStatus}</p>
+      {purchase.validUntil && <p className="mt-1 text-[12px] text-soft">Schedule before {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}.</p>}
+      {purchase.paymentStatus === "paid" && purchase.creditsAvailable > 0 && (!purchase.validUntil || (now !== null && Date.parse(purchase.validUntil) > now)) && (
+        <div className="mt-3">
+          <p className="mb-2 text-[12px] font-bold text-ink">Choose a time for one available credit</p>
+          <DateTimeStep
+            key={`${purchase.id}-${availabilityRevision}`}
+            lessonId={purchase.lessonId}
+            selectedStart={creditStart}
+            maxDate={purchase.validUntil ? dayKeyOf(purchase.validUntil) : undefined}
+            horizonDays={185}
+            onSelect={(slot) => { setCreditStart(slot); setActionError(null); }}
+          />
+          {creditStart && <button type="button" onClick={() => void scheduleCredit()} disabled={busy} className="mt-3 inline-flex min-h-10 items-center justify-center rounded-full bg-ink px-5 text-[12px] font-extrabold text-white disabled:opacity-60">{busy ? "Scheduling…" : "Schedule this session"}</button>}
+        </div>
+      )}
+      {purchase.paymentStatus === "pending" && <p className="mt-2 text-[12px] text-soft">Credits become available after Stripe confirms payment.</p>}
+    </section>
+  ) : null;
+
+  if (!booking && purchase) {
+    return (
+      <div className="rounded-[25px] border border-line bg-white p-5 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-gold-deep">My Booking</p>
+        <h2 className="mt-2 font-display text-2xl font-extrabold text-ink">Your purchase</h2>
+        <p className="mt-1 text-[12.5px] text-soft">Reference {purchase.reference} · ${purchase.amountCad.toFixed(2)} CAD before GST</p>
+        {creditPanel}
+        {sessions.length > 0 && (
+          <section className="mt-5 rounded-[16px] border border-line p-4">
+            <h3 className="text-sm font-extrabold text-ink">Scheduled lessons</h3>
+            <ol className="mt-3 grid gap-2">
+              {sessions.map((session) => (
+                <li key={session.id} className="flex flex-wrap justify-between gap-2 rounded-[10px] bg-mist px-3 py-2 text-[12.5px]">
+                  <span className="font-bold text-ink">Lesson {session.sessionIndex}: {formatSlotFull(session.startsAt)}</span>
+                  <span className="text-soft">{STATUS_LABEL[session.status] ?? session.status}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+        {actionError && <p role="alert" className="mt-4 rounded-lg bg-[#fff0ed] px-4 py-3 text-[13px] font-semibold text-[#bc4633]">{actionError}</p>}
+        <Button href="/lessons" variant="dark" className="mt-5">Add More Lessons</Button>
+        <Button href="/contact" variant="outline" className="mt-5">Contact the school</Button>
+      </div>
+    );
+  }
+
+  if (!booking) return null;
 
   const closed = sessions.every((session) => session.status === "completed") ||
     (sessions.length === 1 && booking.status === "cancelled");
@@ -300,6 +389,9 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
           email: booking.emailMasked,
         }}
       />
+
+      {creditPanel}
+      {purchase && <Button href="/lessons" variant="dark" className="mt-5">Add More Lessons</Button>}
 
       {sessions.length > 1 && (
         <section className="mt-5 rounded-[16px] border border-line p-4">
@@ -402,20 +494,19 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
               for help.
             </p>
           )}
-          <Button variant="outline" onClick={cancelBooking} disabled={busy}>
-            {busy ? "Working…" : sessions.length > 1 ? "Cancel package" : "Cancel lesson"}
-          </Button>
+          <p className="max-w-md text-[13px] leading-relaxed text-soft">
+            Need to cancel a session? Please contact your driving instructor; sessions cannot be cancelled online.
+          </p>
         </div>
       )}
 
       {mode === "view" && !closed && selectedSessionOpen && withinCancellationWindow && (
         <div className="mt-6 border-t border-line pt-5">
           <p className="text-[13px] leading-relaxed text-soft">
-            Online changes close 48 hours before the lesson. Please call{" "}
+            This appointment is within 48 hours. Please contact your driving instructor to request a change. For assistance, call{" "}
             <a href="tel:+12362343229" className="font-extrabold text-gold-deep underline-offset-2 hover:underline">
               Shan at +1 236-234-3229
-            </a>{" "}
-            for help with a late change.
+            </a>.
           </p>
         </div>
       )}
@@ -438,12 +529,15 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
             Choose a new time below — your current slot stays held until you confirm.
           </p>
           <DateTimeStep
-            key={selectedSession.id}
+            key={`${selectedSession.id}-${availabilityRevision}`}
             lessonId={selectedSession.lessonId}
             selectedStart={pendingStart}
             minDate={selectedSession.packageWindowStart}
             maxDate={addMonthsToKey(selectedSession.packageWindowStart, 2)}
-            onSelect={setPendingStart}
+            onSelect={(slot) => {
+              setPendingStart(slot);
+              setActionError(null);
+            }}
           />
           <div className="mt-6 flex flex-wrap gap-3">
             <Button onClick={rescheduleBooking} disabled={!pendingStart || busy}>

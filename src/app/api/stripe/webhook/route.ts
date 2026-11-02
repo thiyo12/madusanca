@@ -2,7 +2,11 @@ import type Stripe from "stripe";
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
 import { getStripe } from "@/lib/stripe/server";
-import { recordPaidCheckoutSession, recordPaidUpgradeCheckoutSession } from "@/lib/stripe/fulfill";
+import {
+  recordPaidCheckoutSession,
+  recordPaidPackagePurchaseCheckoutSession,
+  recordPaidUpgradeCheckoutSession,
+} from "@/lib/stripe/fulfill";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 
@@ -39,8 +43,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const session = event.data.object as Stripe.Checkout.Session;
   const isUpgrade = session.metadata?.checkout_kind === "package_upgrade";
+  const isPackagePurchase = session.metadata?.checkout_kind === "package_purchase";
   const bookingId = session.metadata?.booking_id;
-  if (!bookingId) return NextResponse.json({ received: true });
+  const purchaseId = session.metadata?.purchase_id;
+  if ((isPackagePurchase && !purchaseId) || (!isPackagePurchase && !bookingId)) return NextResponse.json({ received: true });
 
   if (paidEvent && session.payment_status !== "paid") {
     // Some payment methods complete asynchronously; wait for the success event.
@@ -50,9 +56,20 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const store = getStore();
     if (paidEvent) {
-      if (isUpgrade) await recordPaidUpgradeCheckoutSession(session, event.id);
+      if (isPackagePurchase) await recordPaidPackagePurchaseCheckoutSession(session, event.id, new Date(event.created * 1000));
+      else if (isUpgrade) await recordPaidUpgradeCheckoutSession(session, event.id);
       else await recordPaidCheckoutSession(session, event.id);
     } else {
+      if (isPackagePurchase) {
+        await store.handleStripePackagePurchaseEvent({
+          eventId: event.id,
+          eventType: "expired",
+          purchaseId: purchaseId!,
+          sessionId: session.id,
+        });
+        return NextResponse.json({ received: true });
+      }
+      if (!bookingId) return NextResponse.json({ received: true });
       const expired = {
         eventId: event.id,
         eventType: "expired",

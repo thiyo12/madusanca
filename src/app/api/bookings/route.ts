@@ -47,6 +47,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { lessonId, studentName, email, phone, notes, website } = parsed.data;
+  const addOnLessonIds = parsed.data.addOnLessonIds ?? [];
+  if (new Set(addOnLessonIds).size !== addOnLessonIds.length || addOnLessonIds.includes(lessonId)) {
+    return NextResponse.json({ ok: false, error: "Choose each additional lesson only once." }, { status: 400 });
+  }
 
   if (await isRateLimitedShared(`booking-email:${email.trim().toLowerCase()}`, 5, 10 * 60 * 1000)) {
     return NextResponse.json(
@@ -62,9 +66,14 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const store = getStore();
-    const lesson = (await store.getLessons()).find((l) => l.id === lessonId);
+    const catalogue = await store.getLessons();
+    const lesson = catalogue.find((l) => l.id === lessonId);
     if (!lesson) {
       return NextResponse.json({ ok: false, error: "Lesson not found." }, { status: 404 });
+    }
+    const addOns = addOnLessonIds.map((id) => catalogue.find((item) => item.id === id && item.category === "package"));
+    if (addOns.some((item) => !item)) {
+      return NextResponse.json({ ok: false, error: "An additional lesson is no longer available. Refresh the catalogue and review your booking." }, { status: 409 });
     }
     const startsAt = parsed.data.sessions ?? [parsed.data.startsAt!];
     if (startsAt.length !== lesson.sessionCount) {
@@ -138,7 +147,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const booking = result.value[0];
-    const url = manageUrl(token);
+    const url = manageUrl();
     const emailSent = await sendBookingPaymentPendingEmail({
       reference: booking.reference,
       lessonName: booking.lessonName,
@@ -156,6 +165,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         reference: booking.reference,
         lessonName: booking.lessonName,
         durationMin: booking.durationMin,
+        priceCad: booking.packagePriceCad ?? booking.priceCad,
         startsAt: booking.startsAt,
         endsAt: booking.endsAt,
         studentName: booking.studentName,
@@ -164,9 +174,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
       manageToken: token,
       emailSent,
+      addOns: addOns.map((item) => ({
+        id: item!.id,
+        name: item!.name,
+        priceCad: item!.priceCad,
+        sessionCount: item!.sessionCount,
+      })),
     });
     // Booking creation must not grant this browser an authenticated manage
-    // session. Customers use the emailed link or complete My Booking OTP.
+    // session. Customers must verify their email in My Booking; the email link
+    // is only a route to that OTP entry point.
     response.cookies.delete(MANAGE_COOKIE_NAME);
     return response;
   } catch (error) {

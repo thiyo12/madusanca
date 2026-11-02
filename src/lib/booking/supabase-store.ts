@@ -16,8 +16,12 @@ import type {
   BusyInterval,
   CreateBookingInput,
   CreateBookingPackageInput,
+  CreatePackagePurchaseInput,
   OtpSendPermit,
+  PackagePurchaseRecord,
+  PackageCreditEventRecord,
   PaymentStatus,
+  StripePackagePurchaseEvent,
   StripeCheckoutEvent,
   StripeUpgradeCheckoutEvent,
   StoreResult,
@@ -82,6 +86,7 @@ interface BookingRow {
   session_count?: number;
   package_price_cad?: number;
   package_window_start?: string;
+  purchase_id?: string | null;
 }
 
 function toRecord(row: BookingRow): BookingRecord {
@@ -127,6 +132,68 @@ function toRecord(row: BookingRow): BookingRecord {
     sessionCount: row.session_count ?? 1,
     packagePriceCad: row.package_price_cad == null ? Number(row.price_cad) : Number(row.package_price_cad),
     packageWindowStart: row.package_window_start,
+    purchaseId: row.purchase_id ?? undefined,
+  };
+}
+
+interface PackagePurchaseRow {
+  id: string;
+  reference: string;
+  student_name: string;
+  email: string;
+  phone: string;
+  notes: string;
+  lesson_id: string;
+  lesson_name: string;
+  duration_min: number;
+  credits_purchased: number;
+  amount_cad: number;
+  currency: "cad";
+  payment_status: PackagePurchaseRecord["paymentStatus"];
+  purchased_at: string | null;
+  valid_until: string | null;
+  stripe_checkout_session_id: string | null;
+  stripe_checkout_expires_at: string | null;
+  stripe_payment_intent_id: string | null;
+  stripe_invoice_id: string | null;
+  stripe_invoice_url: string | null;
+  stripe_subtotal_cad: number | null;
+  stripe_tax_cad: number | null;
+  stripe_total_cad: number | null;
+  source: PackagePurchaseRecord["source"];
+  created_at: string;
+  updated_at: string;
+}
+
+function toPackagePurchase(row: PackagePurchaseRow, creditsAvailable = 0): PackagePurchaseRecord {
+  return {
+    id: row.id,
+    reference: row.reference,
+    studentName: row.student_name,
+    email: row.email,
+    phone: row.phone,
+    notes: row.notes,
+    lessonId: row.lesson_id,
+    lessonName: row.lesson_name,
+    durationMin: row.duration_min,
+    creditsPurchased: row.credits_purchased,
+    amountCad: Number(row.amount_cad),
+    currency: "cad",
+    paymentStatus: row.payment_status,
+    purchasedAt: row.purchased_at ?? undefined,
+    validUntil: row.valid_until ?? undefined,
+    stripeCheckoutSessionId: row.stripe_checkout_session_id ?? undefined,
+    stripeCheckoutExpiresAt: row.stripe_checkout_expires_at ?? undefined,
+    stripePaymentIntentId: row.stripe_payment_intent_id ?? undefined,
+    stripeInvoiceId: row.stripe_invoice_id ?? undefined,
+    stripeInvoiceUrl: row.stripe_invoice_url ?? undefined,
+    stripeSubtotalCad: row.stripe_subtotal_cad == null ? undefined : Number(row.stripe_subtotal_cad),
+    stripeTaxCad: row.stripe_tax_cad == null ? undefined : Number(row.stripe_tax_cad),
+    stripeTotalCad: row.stripe_total_cad == null ? undefined : Number(row.stripe_total_cad),
+    source: row.source,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+    creditsAvailable,
   };
 }
 
@@ -304,17 +371,6 @@ export const supabaseStore: BookingStore = {
     return { ok: true, value: toRecord(envelope.record) };
   },
 
-  async cancelBookingByToken(tokenHash: string): Promise<StoreResult<BookingRecord>> {
-    const { data, error } = await adminClient().rpc("cancel_booking_by_token", {
-      p_token_hash: tokenHash,
-    });
-    if (error) throw new Error(`Failed to cancel booking: ${error.message}`);
-    const envelope = data as RpcEnvelope<BookingRow>;
-    if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
-    if (!envelope.record) return { ok: false, error: "not_found" };
-    return { ok: true, value: toRecord(envelope.record) };
-  },
-
   async listBookings(filter: BookingFilter = {}): Promise<BookingRecord[]> {
     let query = adminClient().from("bookings").select("*");
     if (filter.fromIso) query = query.gte("starts_at", filter.fromIso);
@@ -343,8 +399,8 @@ export const supabaseStore: BookingStore = {
 
   async updateBookingStatus(id: string, status: BookingStatus): Promise<StoreResult<BookingRecord>> {
     if (status === "completed") {
-      const { data, error } = await adminClient().rpc("complete_booking_package", { p_booking_id: id });
-      if (error) throw new Error(`Failed to complete booking package: ${error.message}`);
+      const { data, error } = await adminClient().rpc("complete_booking_session", { p_booking_id: id });
+      if (error) throw new Error(`Failed to complete booking session: ${error.message}`);
       const envelope = data as RpcEnvelope<BookingRow>;
       if (!envelope.ok || !envelope.record) return { ok: false, error: "not_found" };
       return { ok: true, value: toRecord(envelope.record) };
@@ -595,18 +651,38 @@ export const supabaseStore: BookingStore = {
     sessionId: string,
     expiresAt: string,
     expectedStartsAt: string,
+    addOnLessonIds: string[] = [],
   ): Promise<void> {
-    const { error } = await adminClient()
-      .from("bookings")
-      .update({ stripe_checkout_session_id: sessionId, stripe_checkout_expires_at: expiresAt })
-      .eq("id", bookingId)
-      .in("status", ["pending_payment", "confirmed", "rescheduled"])
-      .eq("payment_status", "due")
-      .eq("starts_at", expectedStartsAt);
+    const { data, error } = await adminClient().rpc("set_booking_checkout_session_with_addons", {
+      p_booking_id: bookingId,
+      p_session_id: sessionId,
+      p_expires_at: expiresAt,
+      p_expected_starts_at: expectedStartsAt,
+      p_addon_lesson_ids: addOnLessonIds,
+    });
     if (error) throw new Error(`Failed to save Checkout Session: ${error.message}`);
-    const { data } = await adminClient().from("bookings").select("id")
-      .eq("id", bookingId).eq("stripe_checkout_session_id", sessionId).maybeSingle();
-    if (!data) throw new Error("Booking is no longer eligible for Checkout.");
+    if (data !== true) throw new Error("Booking is no longer eligible for Checkout or the selected add-ons changed.");
+  },
+
+  async getBookingCheckoutAddons(bookingId: string, sessionId: string): Promise<PackagePurchaseRecord[]> {
+    const { data: attempt, error: attemptError } = await adminClient().from("booking_checkout_addon_attempts")
+      .select("id").eq("booking_id", bookingId).eq("stripe_checkout_session_id", sessionId).maybeSingle();
+    if (attemptError) throw new Error(`Failed to load booking add-on payment: ${attemptError.message}`);
+    if (!attempt) return [];
+    const { data: items, error: itemsError } = await adminClient().from("booking_checkout_addon_items")
+      .select("purchase_id").eq("attempt_id", attempt.id);
+    if (itemsError) throw new Error(`Failed to load booking add-on items: ${itemsError.message}`);
+    const ids = (items ?? []).map((item) => item.purchase_id);
+    if (!ids.length) return [];
+    const { data: purchases, error: purchaseError } = await adminClient().from("package_purchases")
+      .select("*").in("id", ids);
+    if (purchaseError) throw new Error(`Failed to load add-on purchase records: ${purchaseError.message}`);
+    const { data: events, error: eventError } = await adminClient().from("package_credit_events")
+      .select("purchase_id, quantity_delta").in("purchase_id", ids);
+    if (eventError) throw new Error(`Failed to load add-on credit balances: ${eventError.message}`);
+    const balances = new Map<string, number>();
+    for (const event of events ?? []) balances.set(event.purchase_id, (balances.get(event.purchase_id) ?? 0) + event.quantity_delta);
+    return ((purchases ?? []) as PackagePurchaseRow[]).map((row) => toPackagePurchase(row, balances.get(row.id) ?? 0));
   },
 
   async getBookingByCheckoutSession(sessionId: string): Promise<BookingRecord | null> {
@@ -672,6 +748,180 @@ export const supabaseStore: BookingStore = {
       p_from_price_cad: event.fromPriceCad,
     });
     if (error) throw new Error(`Failed to record Stripe upgrade event: ${error.message}`);
+  },
+
+  async createPackagePurchase(input: CreatePackagePurchaseInput): Promise<PackagePurchaseRecord> {
+    const { data, error } = await adminClient().from("package_purchases").insert({
+      reference: input.reference,
+      student_name: input.studentName.trim(),
+      email: input.email.trim().toLowerCase(),
+      phone: input.phone.trim(),
+      notes: input.notes.trim(),
+      lesson_id: input.lessonId,
+      lesson_name: input.lessonName,
+      duration_min: input.durationMin,
+      credits_purchased: input.creditsPurchased,
+      amount_cad: input.amountCad,
+      currency: "cad",
+      payment_status: "pending",
+      source: "new",
+    }).select("*").single();
+    if (error || !data) throw new Error(`Failed to create package purchase: ${error?.message ?? "No purchase returned."}`);
+    return toPackagePurchase(data as PackagePurchaseRow);
+  },
+
+  async setStripePackagePurchaseCheckout(purchaseId: string, sessionId: string, expiresAt: string): Promise<void> {
+    const { data, error } = await adminClient().from("package_purchases")
+      .update({ payment_status: "pending", stripe_checkout_session_id: sessionId, stripe_checkout_expires_at: expiresAt, updated_at: new Date().toISOString() })
+      .eq("id", purchaseId)
+      .in("payment_status", ["pending", "failed"])
+      .select("id").maybeSingle();
+    if (error) throw new Error(`Failed to save package Checkout Session: ${error.message}`);
+    if (!data) throw new Error("Package purchase is no longer eligible for Checkout.");
+  },
+
+  async getPackagePurchaseByCheckoutSession(sessionId: string): Promise<PackagePurchaseRecord | null> {
+    const { data, error } = await adminClient().from("package_purchases").select("*")
+      .eq("stripe_checkout_session_id", sessionId).maybeSingle();
+    if (error) throw new Error(`Failed to load package purchase: ${error.message}`);
+    return data ? toPackagePurchase(data as PackagePurchaseRow) : null;
+  },
+
+  async findPackagePurchasesByEmail(email: string): Promise<PackagePurchaseRecord[]> {
+    const { data, error } = await adminClient().from("package_purchases").select("*")
+      .eq("email", email.trim().toLowerCase()).order("created_at", { ascending: false });
+    if (error) throw new Error(`Failed to list package purchases: ${error.message}`);
+    const rows = (data ?? []) as PackagePurchaseRow[];
+    if (!rows.length) return [];
+    const { data: events, error: eventsError } = await adminClient().from("package_credit_events")
+      .select("purchase_id, quantity_delta").in("purchase_id", rows.map((row) => row.id));
+    if (eventsError) throw new Error(`Failed to load package credit balances: ${eventsError.message}`);
+    const balances = new Map<string, number>();
+    for (const event of events ?? []) balances.set(event.purchase_id, (balances.get(event.purchase_id) ?? 0) + event.quantity_delta);
+    return rows.map((row) => toPackagePurchase(row, balances.get(row.id) ?? 0));
+  },
+
+  async listPackagePurchases(limit = 200): Promise<PackagePurchaseRecord[]> {
+    const { data, error } = await adminClient().from("package_purchases").select("*")
+      .order("created_at", { ascending: false }).limit(Math.max(1, Math.min(500, limit)));
+    if (error) throw new Error(`Failed to list package purchases: ${error.message}`);
+    const rows = (data ?? []) as PackagePurchaseRow[];
+    if (!rows.length) return [];
+    const { data: events, error: eventsError } = await adminClient().from("package_credit_events")
+      .select("purchase_id, quantity_delta").in("purchase_id", rows.map((row) => row.id));
+    if (eventsError) throw new Error(`Failed to load package credit balances: ${eventsError.message}`);
+    const balances = new Map<string, number>();
+    for (const event of events ?? []) balances.set(event.purchase_id, (balances.get(event.purchase_id) ?? 0) + event.quantity_delta);
+    return rows.map((row) => toPackagePurchase(row, balances.get(row.id) ?? 0));
+  },
+
+  async listPackageCreditEvents(purchaseIds: string[]): Promise<PackageCreditEventRecord[]> {
+    if (!purchaseIds.length) return [];
+    const { data, error } = await adminClient().from("package_credit_events").select("*")
+      .in("purchase_id", purchaseIds).order("created_at", { ascending: false });
+    if (error) throw new Error(`Failed to list package credit events: ${error.message}`);
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      purchaseId: row.purchase_id,
+      bookingId: row.booking_id ?? undefined,
+      eventType: row.event_type,
+      quantityDelta: row.quantity_delta,
+      sourceKey: row.source_key,
+      actorId: row.actor_id ?? undefined,
+      note: row.note ?? undefined,
+      createdAt: row.created_at,
+    }));
+  },
+
+  async getPackagePurchaseByToken(tokenHash: string): Promise<PackagePurchaseRecord | null> {
+    const { data: token, error: tokenError } = await adminClient().from("package_purchase_tokens")
+      .select("purchase_id, expires_at").eq("token_hash", tokenHash).maybeSingle();
+    if (tokenError) throw new Error(`Failed to load package manage token: ${tokenError.message}`);
+    if (!token || Date.parse(token.expires_at) < Date.now()) return null;
+    const { data, error } = await adminClient().from("package_purchases").select("*")
+      .eq("id", token.purchase_id).maybeSingle();
+    if (error) throw new Error(`Failed to load package purchase: ${error.message}`);
+    if (!data) return null;
+    const { data: events, error: eventsError } = await adminClient().from("package_credit_events")
+      .select("quantity_delta").eq("purchase_id", token.purchase_id);
+    if (eventsError) throw new Error(`Failed to load package credit balance: ${eventsError.message}`);
+    const balance = (events ?? []).reduce((sum, item) => sum + item.quantity_delta, 0);
+    return toPackagePurchase(data as PackagePurchaseRow, balance);
+  },
+
+  async getPackagePurchaseById(purchaseId: string): Promise<PackagePurchaseRecord | null> {
+    const { data, error } = await adminClient().from("package_purchases").select("*")
+      .eq("id", purchaseId).maybeSingle();
+    if (error) throw new Error(`Failed to load package purchase: ${error.message}`);
+    if (!data) return null;
+    const { data: events, error: eventsError } = await adminClient().from("package_credit_events")
+      .select("quantity_delta").eq("purchase_id", purchaseId);
+    if (eventsError) throw new Error(`Failed to load package credit balance: ${eventsError.message}`);
+    const balance = (events ?? []).reduce((sum, item) => sum + item.quantity_delta, 0);
+    return toPackagePurchase(data as PackagePurchaseRow, balance);
+  },
+
+  async findBookingsByPurchaseId(purchaseId: string): Promise<BookingRecord[]> {
+    const { data, error } = await adminClient().from("bookings").select("*")
+      .eq("purchase_id", purchaseId).order("session_index", { ascending: true });
+    if (error) throw new Error(`Failed to load purchased lesson sessions: ${error.message}`);
+    return (data ?? []).map(toRecord);
+  },
+
+  async issuePackagePurchaseManageToken(purchaseId: string): Promise<string | null> {
+    const rawToken = generateToken();
+    const tokenHash = hashToken(rawToken);
+    const { data, error } = await adminClient().rpc("rotate_package_purchase_token", {
+      p_purchase_id: purchaseId,
+      p_token_hash: tokenHash,
+      p_expires_at: tokenExpiry(),
+    });
+    if (error) throw new Error(`Failed to rotate package manage token: ${error.message}`);
+    if (data !== true) return null;
+    return rawToken;
+  },
+
+  async handleStripePackagePurchaseEvent(event: StripePackagePurchaseEvent): Promise<void> {
+    const client = adminClient();
+    if (event.eventType === "paid") {
+      const { data, error } = await client.rpc("fulfill_package_purchase_payment", {
+        p_event_id: event.eventId,
+        p_purchase_id: event.purchaseId,
+        p_session_id: event.sessionId,
+        p_payment_intent_id: event.paymentIntentId ?? null,
+        p_invoice_id: event.invoiceId ?? null,
+        p_invoice_url: event.invoiceUrl ?? null,
+        p_subtotal_cents: event.subtotalCents ?? null,
+        p_tax_cents: event.taxCents ?? null,
+        p_total_cents: event.totalCents ?? null,
+        p_currency: event.currency?.toLowerCase() ?? null,
+        p_paid_at: event.paidAt ?? null,
+      });
+      if (error) throw new Error(`Failed to fulfill package purchase: ${error.message}`);
+      if (data !== true) throw new Error("Package purchase payment did not match its stored Checkout order.");
+      return;
+    }
+    const { error } = await client.rpc("expire_package_purchase_checkout", {
+      p_event_id: event.eventId,
+      p_purchase_id: event.purchaseId,
+      p_session_id: event.sessionId,
+    });
+    if (error) throw new Error(`Failed to expire package purchase: ${error.message}`);
+  },
+
+  async schedulePackageCredit(purchaseId, startsAt, token) {
+    const { data, error } = await adminClient().rpc("schedule_package_credit", {
+      p_purchase_id: purchaseId,
+      p_starts_at: startsAt,
+      p_current_token_hash: token.currentHash,
+      p_token_hash: token.hash,
+      p_token_expires_at: token.expiresAt,
+    });
+    if (error) throw new Error(`Failed to schedule package credit: ${error.message}`);
+    const envelope = data as RpcEnvelope<BookingRow>;
+    if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
+    if (!envelope.record) return { ok: false, error: "not_found" };
+    return { ok: true, value: toRecord(envelope.record) };
   },
 };
 

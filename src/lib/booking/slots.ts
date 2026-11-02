@@ -3,9 +3,9 @@ import type { AvailabilityRule, BlackoutDate, BusyInterval } from "@/lib/booking
 export const TZ = "America/Vancouver";
 export const SLOT_STEP_MIN = 30;
 export const LEAD_TIME_MIN = 120;
-export const HORIZON_DAYS = 150;
+export const HORIZON_DAYS = 185;
 
-/** A standard 90-minute lesson reserves two hours on the instructor calendar. */
+/** Instructor occupancy is distinct from the lesson duration shown to students. */
 export function occupiedDurationMin(lessonDurationMin: number): number {
   return lessonDurationMin === 90 ? 120 : lessonDurationMin;
 }
@@ -86,6 +86,35 @@ export function zonedToUtc(
 export function toVancouverDayKey(date: Date): string {
   const p = toVancouverParts(date);
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+/** Add calendar months in Vancouver local time, clipping at month end. */
+export function addVancouverCalendarMonths(instant: Date, months: number): Date {
+  if (!Number.isInteger(months)) throw new Error("Calendar-month offsets must be whole numbers.");
+  const fields = new Map<string, number>();
+  for (const part of new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant)) {
+    if (part.type !== "literal") fields.set(part.type, Number(part.value));
+  }
+  const monthStart = new Date(Date.UTC(fields.get("year")!, fields.get("month")! - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0)).getUTCDate();
+  const day = Math.min(fields.get("day")!, lastDay);
+  const result = zonedToUtc(
+    monthStart.getUTCFullYear(),
+    monthStart.getUTCMonth() + 1,
+    day,
+    fields.get("hour")! * 60 + fields.get("minute")!,
+  );
+  result.setUTCSeconds(fields.get("second")!, instant.getUTCMilliseconds());
+  return result;
 }
 
 export function addDaysToDayKey(dayKey: string, days: number): string {

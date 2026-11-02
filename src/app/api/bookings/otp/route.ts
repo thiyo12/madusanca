@@ -4,7 +4,7 @@ import { otpSchema } from "@/lib/validation/booking";
 import { generateOtpCode, hashOtp, otpExpiry, OTP_TTL_MIN } from "@/lib/booking/otp";
 import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { sendBookingOtpEmail } from "@/lib/email/booking-emails";
-import type { BookingRecord } from "@/lib/booking/types";
+import type { BookingRecord, PackagePurchaseRecord } from "@/lib/booking/types";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
@@ -65,7 +65,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   const genericSend = {
     ok: true,
-    message: `If an active booking exists for that email, a 6-digit code has been requested; it expires in ${OTP_TTL_MIN} minutes. Use it to view your booking and payment options. Online date changes close 48 hours before the lesson.`,
+    message: `If a booking or package purchase exists for that email, a 6-digit code has been requested; it expires in ${OTP_TTL_MIN} minutes. Use it to view bookings, purchases, and payment options.`,
     retryAfterSeconds: 120,
   };
 
@@ -74,19 +74,21 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     if (action === "send") {
       const found = await store.findBookingsByEmail(email);
+      const purchases = await store.findPackagePurchasesByEmail(email);
       const eligible = found.filter(
         (booking) =>
           booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
       );
       const target = eligible[0];
-      if (target) {
+      const purchaseTarget = purchases[0];
+      if (target || purchaseTarget) {
         const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
         if (!quota.allowed) return NextResponse.json(genericSend);
         const otp = generateOtpCode();
         await store.putOtp(email, hashOtp(email, otp), otpExpiry());
         const sent = await sendBookingOtpEmail({
-          studentName: target.studentName,
-          studentEmail: target.email,
+          studentName: target?.studentName ?? purchaseTarget!.studentName,
+          studentEmail: target?.email ?? purchaseTarget!.email,
           code: otp,
         });
         if (!sent) {
@@ -109,11 +111,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const found = await store.findBookingsByEmail(email);
+    const purchases = await store.findPackagePurchasesByEmail(email);
 
     if (action === "verify") {
       return NextResponse.json({
         ok: true,
-        bookings: found.slice(0, 10).map((booking) => safeListItem(booking)),
+        bookings: found.map((booking) => safeListItem(booking)),
+        purchases: purchases.map(safePurchaseListItem),
+        studentName: found[0]?.studentName ?? purchases[0]?.studentName ?? null,
       });
     }
 
@@ -122,13 +127,18 @@ export async function POST(request: Request): Promise<NextResponse> {
     const target = wanted
       ? found.find((b) => b.reference === wanted)
       : found.find((b) => b.status === "pending_payment" || b.status === "confirmed" || b.status === "rescheduled") ?? found[0];
-    if (!target) {
+    const purchaseTarget = wanted
+      ? purchases.find((purchase) => purchase.reference === wanted)
+      : purchases.find((purchase) => purchase.paymentStatus === "paid" && purchase.creditsAvailable > 0) ?? purchases[0];
+    if (!target && !purchaseTarget) {
       return NextResponse.json(
         { ok: false, error: "That booking could not be found for this email." },
         { status: 404 },
       );
     }
-    const token = await store.issueManageToken(target.id);
+    const token = target
+      ? await store.issueManageToken(target.id)
+      : await store.issuePackagePurchaseManageToken(purchaseTarget!.id);
     if (!token) {
       return NextResponse.json(
         { ok: false, error: "Could not open that booking. Please try again." },
@@ -148,6 +158,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 function safeListItem(booking: BookingRecord): {
+  studentName: string;
   reference: string;
   lessonName: string;
   durationMin: number;
@@ -157,6 +168,7 @@ function safeListItem(booking: BookingRecord): {
   canOpen: boolean;
 } {
   return {
+    studentName: booking.studentName,
     reference: booking.reference,
     lessonName: booking.lessonName,
     durationMin: booking.durationMin,
@@ -164,5 +176,19 @@ function safeListItem(booking: BookingRecord): {
     startsAt: booking.startsAt,
     status: booking.status,
     canOpen: booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
+  };
+}
+
+function safePurchaseListItem(purchase: PackagePurchaseRecord) {
+  return {
+    studentName: purchase.studentName,
+    reference: purchase.reference,
+    lessonName: purchase.lessonName,
+    creditsPurchased: purchase.creditsPurchased,
+    creditsAvailable: purchase.creditsAvailable,
+    paymentStatus: purchase.paymentStatus,
+    purchasedAt: purchase.purchasedAt,
+    validUntil: purchase.validUntil,
+    canOpen: purchase.paymentStatus === "paid" || purchase.paymentStatus === "pending",
   };
 }

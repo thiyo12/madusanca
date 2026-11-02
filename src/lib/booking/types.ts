@@ -20,6 +20,7 @@ export interface BlackoutDate {
 }
 
 export interface BusyInterval {
+  /** Interval during which the instructor is occupied, including any buffer. */
   startsAt: string;
   endsAt: string;
 }
@@ -67,6 +68,79 @@ export interface BookingRecord {
   sessionCount?: number;
   packagePriceCad?: number;
   packageWindowStart?: string;
+  purchaseId?: string;
+}
+
+export type PackagePurchasePaymentStatus = "pending" | "paid" | "refunded" | "waived" | "failed";
+
+export interface PackagePurchaseRecord {
+  id: string;
+  reference: string;
+  studentName: string;
+  email: string;
+  phone: string;
+  notes: string;
+  lessonId: string;
+  lessonName: string;
+  durationMin: number;
+  creditsPurchased: number;
+  amountCad: number;
+  currency: "cad";
+  paymentStatus: PackagePurchasePaymentStatus;
+  purchasedAt?: string;
+  validUntil?: string;
+  stripeCheckoutSessionId?: string;
+  stripeCheckoutExpiresAt?: string;
+  stripePaymentIntentId?: string;
+  stripeInvoiceId?: string;
+  stripeInvoiceUrl?: string;
+  stripeSubtotalCad?: number;
+  stripeTaxCad?: number;
+  stripeTotalCad?: number;
+  source: "new" | "legacy_backfill";
+  createdAt: string;
+  updatedAt: string;
+  creditsAvailable: number;
+}
+
+export interface PackageCreditEventRecord {
+  id: string;
+  purchaseId: string;
+  bookingId?: string;
+  eventType: "grant" | "redeem" | "refund" | "expire" | "admin_adjustment";
+  quantityDelta: number;
+  sourceKey: string;
+  actorId?: string;
+  note?: string;
+  createdAt: string;
+}
+
+export interface CreatePackagePurchaseInput {
+  reference: string;
+  studentName: string;
+  email: string;
+  phone: string;
+  notes: string;
+  lessonId: string;
+  lessonName: string;
+  durationMin: number;
+  creditsPurchased: number;
+  amountCad: number;
+}
+
+export interface StripePackagePurchaseEvent {
+  eventId: string;
+  eventType: "paid" | "expired";
+  purchaseId: string;
+  sessionId: string;
+  paymentIntentId?: string;
+  invoiceId?: string;
+  invoiceUrl?: string;
+  subtotalCents?: number;
+  taxCents?: number;
+  totalCents?: number;
+  currency?: string;
+  paidAt?: string;
 }
 
 /** Booking payload safe to return to the client (no full email). */
@@ -213,8 +287,6 @@ export interface BookingStore {
     endsAt: string,
     newToken: { hash: string; expiresAt: string },
   ): Promise<StoreResult<BookingRecord>>;
-  cancelBookingByToken(tokenHash: string): Promise<StoreResult<BookingRecord>>;
-
   /** Admin: list bookings (all statuses, newest first by start time). */
   listBookings(filter?: BookingFilter): Promise<BookingRecord[]>;
   /** Admin: single booking by id. */
@@ -268,7 +340,9 @@ export interface BookingStore {
     sessionId: string,
     expiresAt: string,
     expectedStartsAt: string,
+    addOnLessonIds?: string[],
   ): Promise<void>;
+  getBookingCheckoutAddons(bookingId: string, sessionId: string): Promise<PackagePurchaseRecord[]>;
   setStripeUpgradeCheckoutSession(
     bookingId: string,
     sessionId: string,
@@ -282,4 +356,21 @@ export interface BookingStore {
   getBookingByUpgradeCheckoutSession(sessionId: string): Promise<BookingRecord | null>;
   handleStripeCheckoutEvent(event: StripeCheckoutEvent): Promise<void>;
   handleStripeUpgradeCheckoutEvent(event: StripeUpgradeCheckoutEvent): Promise<void>;
+  createPackagePurchase(input: CreatePackagePurchaseInput): Promise<PackagePurchaseRecord>;
+  setStripePackagePurchaseCheckout(purchaseId: string, sessionId: string, expiresAt: string): Promise<void>;
+  getPackagePurchaseByCheckoutSession(sessionId: string): Promise<PackagePurchaseRecord | null>;
+  findPackagePurchasesByEmail(email: string): Promise<PackagePurchaseRecord[]>;
+  /** Admin: recent purchase snapshots with ledger-derived credit balances. */
+  listPackagePurchases(limit?: number): Promise<PackagePurchaseRecord[]>;
+  listPackageCreditEvents(purchaseIds: string[]): Promise<PackageCreditEventRecord[]>;
+  getPackagePurchaseByToken(tokenHash: string): Promise<PackagePurchaseRecord | null>;
+  getPackagePurchaseById(purchaseId: string): Promise<PackagePurchaseRecord | null>;
+  findBookingsByPurchaseId(purchaseId: string): Promise<BookingRecord[]>;
+  issuePackagePurchaseManageToken(purchaseId: string): Promise<string | null>;
+  handleStripePackagePurchaseEvent(event: StripePackagePurchaseEvent): Promise<void>;
+  schedulePackageCredit(
+    purchaseId: string,
+    startsAt: string,
+    token: { currentHash: string; hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord>>;
 }

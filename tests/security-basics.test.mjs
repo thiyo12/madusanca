@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { generateToken, hashToken, isValidTokenFormat, tokensMatch } from "../src/lib/booking/tokens.ts";
 import { generateOtpCode, hashOtp } from "../src/lib/booking/otp.ts";
 import { readBoundedBody } from "../src/lib/server/read-bounded-body.ts";
@@ -8,6 +9,7 @@ import {
   hasConsistentCadTotal,
   matchesInitialBookingPayment,
   matchesUpgradeBookingPayment,
+  matchesPackagePurchasePayment,
   isStripePaymentsEnabled,
   isTestModeStripeSecretKey,
 } from "../src/lib/stripe/payment-validation.ts";
@@ -25,6 +27,7 @@ import { createStudentBookingPdf } from "../src/lib/admin/student-booking-pdf.ts
 import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts";
 import { addMonthsToKey } from "../src/lib/booking/format.ts";
 import { generateSlots, occupiedDurationMin, zonedToUtc } from "../src/lib/booking/slots.ts";
+import { manageUrl } from "../src/lib/booking/urls.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -36,30 +39,20 @@ test("manage tokens are random URL-safe values and only the hash should be persi
   assert.equal(tokensMatch(token, `${token}x`), false);
 });
 
-test("90-minute lessons reserve 120 minutes and show the next slot after occupied time", () => {
-  assert.equal(occupiedDurationMin(90), 120);
-  assert.equal(occupiedDurationMin(45), 45);
-  assert.equal(occupiedDurationMin(120), 120);
-
-  const firstStart = zonedToUtc(2026, 11, 3, 9 * 60 + 30);
-  const secondStart = zonedToUtc(2026, 11, 3, 11 * 60);
-  const nextAvailable = zonedToUtc(2026, 11, 3, 13 * 60);
-  const slots = generateSlots({
-    lessonDurationMin: 90,
-    fromDayKey: "2026-11-03",
-    toDayKey: "2026-11-03",
-    busy: [
-      { startsAt: firstStart.toISOString(), endsAt: new Date(firstStart.getTime() + 120 * 60_000).toISOString() },
-      { startsAt: secondStart.toISOString(), endsAt: new Date(secondStart.getTime() + 120 * 60_000).toISOString() },
-    ],
-    blackouts: [],
-    rules: [{ weekday: 2, startMin: 9 * 60, endMin: 18 * 60 }],
-    now: new Date("2026-11-01T20:00:00.000Z"),
-  });
-
-  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60).toISOString()), false);
-  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 12 * 60 + 30).toISOString()), false);
-  assert.equal(slots.includes(nextAvailable.toISOString()), true);
+test("booking email links omit management tokens and legacy links cannot set an access cookie", () => {
+  const previousSite = process.env.NEXT_PUBLIC_SITE_URL;
+  try {
+    process.env.NEXT_PUBLIC_SITE_URL = "https://wisdomdrivingacademy.com";
+    const emailUrl = manageUrl();
+    assert.equal(emailUrl, "https://wisdomdrivingacademy.com/booking/manage");
+    assert.equal(emailUrl.includes("sensitive-manage-token-value"), false);
+    const legacyRoute = readFileSync(new URL("../src/app/api/bookings/manage-link/route.ts", import.meta.url), "utf8");
+    assert.match(legacyRoute, /return redirectToManage\(\)/);
+    assert.doesNotMatch(legacyRoute, /cookies\.set|set\(MANAGE_COOKIE_NAME/);
+  } finally {
+    if (previousSite === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+    else process.env.NEXT_PUBLIC_SITE_URL = previousSite;
+  }
 });
 
 test("OTP generation is six digits and hashes bind case-insensitively to email", () => {
@@ -67,6 +60,31 @@ test("OTP generation is six digits and hashes bind case-insensitively to email",
   assert.match(code, /^\d{6}$/);
   assert.equal(hashOtp(" STUDENT@example.com ", code), hashOtp("student@example.com", code));
   assert.notEqual(hashOtp("other@example.com", code), hashOtp("student@example.com", code));
+});
+
+test("90-minute lessons reserve a 120-minute instructor block without changing lesson duration", () => {
+  assert.equal(occupiedDurationMin(90), 120);
+  assert.equal(occupiedDurationMin(45), 45);
+  assert.equal(occupiedDurationMin(120), 120);
+
+  const bookedStart = zonedToUtc(2026, 11, 3, 8 * 60);
+  const bookedOccupiedEnd = new Date(bookedStart.getTime() + occupiedDurationMin(90) * 60_000);
+  const slots = generateSlots({
+    lessonDurationMin: 90,
+    fromDayKey: "2026-11-03",
+    toDayKey: "2026-11-03",
+    busy: [{ startsAt: bookedStart.toISOString(), endsAt: bookedOccupiedEnd.toISOString() }],
+    blackouts: [],
+    rules: [{ weekday: 2, startMin: 8 * 60, endMin: 18 * 60 }],
+    now: new Date("2026-11-01T20:00:00.000Z"),
+  });
+
+  assert.equal(slots.includes(bookedStart.toISOString()), false);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 9 * 60).toISOString()), false);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 9 * 60 + 30).toISOString()), false);
+  assert.equal(slots.includes(bookedOccupiedEnd.toISOString()), true);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60).toISOString()), true);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60 + 30).toISOString()), false);
 });
 
 test("OTP hashes use the configured server-side HMAC secret", () => {
@@ -220,6 +238,8 @@ test("paid initial Checkout must match the stored booking, session, CAD price, a
     total_details: { amount_tax: 1200 },
   };
   assert.equal(matchesInitialBookingPayment(session, booking), true);
+  assert.equal(matchesInitialBookingPayment(session, booking, 20), false);
+  assert.equal(matchesInitialBookingPayment({ ...session, amount_subtotal: 14000, amount_total: 15400, total_details: { amount_tax: 1400 } }, booking, 20), true);
   assert.equal(matchesInitialBookingPayment({ ...session, id: "cs_other" }, booking), false);
   assert.equal(matchesInitialBookingPayment({ ...session, amount_subtotal: 1 }, booking), false);
   assert.equal(matchesInitialBookingPayment({ ...session, currency: "usd" }, booking), false);
@@ -275,6 +295,26 @@ test("paid package upgrade must match stored session and complete upgrade metada
     metadata: { ...session.metadata, checkout_kind: "initial" },
   }, booking), false);
   assert.equal(matchesUpgradeBookingPayment({ ...session, amount_total: 65999 }, booking), false);
+});
+
+test("paid independent package purchases must match the saved order and CAD totals", () => {
+  const purchase = { id: "purchase-123", reference: "WDA-P-123456", amountCad: 720, stripeCheckoutSessionId: "cs_purchase_123" };
+  const session = {
+    id: "cs_purchase_123",
+    mode: "payment",
+    currency: "cad",
+    client_reference_id: purchase.reference,
+    metadata: { checkout_kind: "package_purchase", purchase_id: purchase.id, purchase_reference: purchase.reference },
+    amount_subtotal: 72000,
+    amount_total: 79200,
+    total_details: { amount_tax: 7200 },
+  };
+  assert.equal(matchesPackagePurchasePayment(session, purchase), true);
+  assert.equal(matchesPackagePurchasePayment({ ...session, id: "cs_other" }, purchase), false);
+  assert.equal(matchesPackagePurchasePayment({ ...session, currency: "usd" }, purchase), false);
+  assert.equal(matchesPackagePurchasePayment({ ...session, amount_subtotal: 45000 }, purchase), false);
+  assert.equal(matchesPackagePurchasePayment({ ...session, amount_total: 79199 }, purchase), false);
+  assert.equal(matchesPackagePurchasePayment({ ...session, metadata: { ...session.metadata, purchase_id: "other" } }, purchase), false);
 });
 
 test("safe error logging never emits provider error messages", () => {
