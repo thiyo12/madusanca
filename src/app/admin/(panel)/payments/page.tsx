@@ -275,6 +275,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                       <div className="flex justify-end gap-2">
                         {(booking.paymentStatus === "due" || booking.paymentStatus === "waived") && <form
                           action={async () => {
+                            "use server";
                             await setBookingPaymentAction(
                               booking.id,
                               booking.paymentStatus === "waived" ? "due" : "waived",
