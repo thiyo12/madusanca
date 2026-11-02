@@ -25,6 +25,7 @@ import type {
   OtpSendPermit,
   PackagePurchaseRecord,
   PackageCreditEventRecord,
+  PackageQuantitySelection,
   PaymentStatus,
   StripePackagePurchaseEvent,
   StripeCheckoutEvent,
@@ -763,7 +764,7 @@ export const fileStore: BookingStore = {
     sessionId: string,
     expiresAt: string,
     expectedStartsAt: string,
-    addOnLessonIds: string[] = [],
+    addOnPackages: PackageQuantitySelection[] = [],
   ): Promise<void> {
     return withLock((): Promise<void> => {
       const data = load();
@@ -772,18 +773,27 @@ export const fileStore: BookingStore = {
       if (booking.status === "cancelled" || booking.status === "completed" || booking.paymentStatus !== "due" || booking.startsAt !== expectedStartsAt) {
         throw new Error("Booking is no longer eligible for Checkout.");
       }
-      if (new Set(addOnLessonIds).size !== addOnLessonIds.length || addOnLessonIds.length > 10) {
+      if (new Set(addOnPackages.map((item) => item.lessonId)).size !== addOnPackages.length) {
         throw new Error("Checkout add-on selection is invalid.");
       }
       const alreadySaved = data.bookingCheckoutAddons.filter((item) => item.sessionId === sessionId);
       if (alreadySaved.length) {
-        const savedIds = alreadySaved.map((item) => item.lessonId).sort();
-        if (JSON.stringify(savedIds) !== JSON.stringify([...addOnLessonIds].sort())) {
+        const savedAmounts = new Map<string, number>();
+        for (const link of alreadySaved) {
+          const purchase = data.packagePurchases.find((item) => item.id === link.purchaseId);
+          if (purchase) savedAmounts.set(link.lessonId, (savedAmounts.get(link.lessonId) ?? 0) + Math.round(purchase.amountCad * 100));
+        }
+        const expectedAmounts = addOnPackages.map((selection) => {
+          const lesson = data.lessons.find((item) => item.id === selection.lessonId && item.category === "package");
+          return lesson ? `${lesson.id}:${Math.round(lesson.priceCad * selection.quantity * 100)}` : `${selection.lessonId}:invalid`;
+        }).sort();
+        const actualAmounts = [...savedAmounts].map(([id, cents]) => `${id}:${cents}`).sort();
+        if (JSON.stringify(actualAmounts) !== JSON.stringify(expectedAmounts)) {
           throw new Error("Checkout add-ons do not match the saved payment session.");
         }
       } else {
-        for (const lessonId of addOnLessonIds) {
-          const lesson = data.lessons.find((item) => item.id === lessonId && item.category === "package");
+        for (const selection of addOnPackages) {
+          const lesson = data.lessons.find((item) => item.id === selection.lessonId && item.category === "package");
           if (!lesson) throw new Error("A selected add-on is no longer available.");
           const purchaseId = randomUUID();
           const now = new Date().toISOString();
@@ -798,8 +808,8 @@ export const fileStore: BookingStore = {
             lessonId: lesson.id,
             lessonName: lesson.name,
             durationMin: lesson.durationMin,
-            creditsPurchased: lesson.sessionCount,
-            amountCad: lesson.priceCad,
+            creditsPurchased: lesson.sessionCount * selection.quantity,
+            amountCad: lesson.priceCad * selection.quantity,
             currency: "cad",
             paymentStatus: "pending",
             source: "new",
@@ -807,7 +817,7 @@ export const fileStore: BookingStore = {
             updatedAt: now,
             creditsAvailable: 0,
           });
-          data.bookingCheckoutAddons.push({ bookingId, sessionId, purchaseId, lessonId });
+          data.bookingCheckoutAddons.push({ bookingId, sessionId, purchaseId, lessonId: lesson.id });
         }
       }
       booking.stripeCheckoutSessionId = sessionId;

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { PackageQuantitySelection } from "@/lib/booking/types";
 
 interface CheckoutResponse {
   ok?: boolean;
@@ -10,7 +11,7 @@ interface CheckoutResponse {
   error?: string;
 }
 
-export function StripeCheckoutButton({ manageToken, addOnLessonIds = [] }: { manageToken?: string; addOnLessonIds?: string[] } = {}) {
+export function StripeCheckoutButton({ manageToken, addOnPackages = [] }: { manageToken?: string; addOnPackages?: PackageQuantitySelection[] } = {}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +23,7 @@ export function StripeCheckoutButton({ manageToken, addOnLessonIds = [] }: { man
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...(manageToken ? { manageToken } : {}), ...(addOnLessonIds.length ? { addOnLessonIds } : {}) }),
+        body: JSON.stringify({ ...(manageToken ? { manageToken } : {}), ...(addOnPackages.length ? { addOnPackages } : {}) }),
       });
       const result = (await response.json()) as CheckoutResponse;
       if (result.paid) {

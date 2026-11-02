@@ -14,6 +14,7 @@ import { BookingActions } from "../bookings/booking-actions";
 import { adminStudentHref } from "@/lib/admin/urls";
 import { CHIP_TONES, MonthGrid, href, type CalendarFilters } from "./month-grid";
 import { ScheduleGrid } from "./schedule-grid";
+import { occupiedDurationMin } from "@/lib/booking/slots";
 
 export const metadata: Metadata = {
   title: "Calendar — Wisdom Driving Academy Admin",
@@ -336,7 +337,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
                           <StatusChip status={booking.status} />
                         </div>
                         <p className="mt-1 text-[12.5px] text-soft">
-                          {booking.lessonName} · {booking.durationMin} min · $
+                          {booking.lessonName} · {booking.durationMin} min lesson / {occupiedDurationMin(booking.durationMin)} min reserved · $
                           {booking.priceCad} CAD · {booking.reference}
                         </p>
                         <p className="text-[12.5px] text-soft">
@@ -373,7 +374,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
           </span>
         </div>
         <p className="text-[12px] text-soft">
-          Use <strong className="text-ink">+ Book</strong> on an open 30-minute slot, or drag an active booking to move it. The server checks hours, conflicts and lead time.
+          90-minute lessons reserve a full 120-minute tutor block. Use <strong className="text-ink">+ Book</strong> on an open time, or drag an active booking to move it. The server checks hours, conflicts and lead time.
         </p>
       </div>
     </div>

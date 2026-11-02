@@ -8,6 +8,8 @@ declare
   v_start timestamptz := (date_trunc('week', now() at time zone 'America/Vancouver') + interval '7 days 10 hours') at time zone 'America/Vancouver';
   v_result boolean;
   v_balance integer;
+  v_credits integer;
+  v_addon_amount numeric;
   v_purchase_status text;
   v_booking_status text;
   v_expiry_booking_id uuid;
@@ -28,14 +30,14 @@ begin
 
   v_result := public.set_booking_checkout_session_with_addons(
     v_booking_id, v_session_id, now() + interval '31 minutes', v_start,
-    array['five-lesson-pack']::text[]
+    '[{"lessonId":"five-lesson-pack","quantity":2}]'::jsonb
   );
   if not v_result then raise exception 'Expected the add-on Checkout Session to be saved'; end if;
 
   -- Retrying the same storage operation must not create another entitlement.
   v_result := public.set_booking_checkout_session_with_addons(
     v_booking_id, v_session_id, now() + interval '31 minutes', v_start,
-    array['five-lesson-pack']::text[]
+    '[{"lessonId":"five-lesson-pack","quantity":2}]'::jsonb
   );
   if not v_result then raise exception 'Expected idempotent Checkout Session persistence'; end if;
 
@@ -44,6 +46,14 @@ begin
   join public.booking_checkout_addon_items i on i.attempt_id = a.id
   where a.stripe_checkout_session_id = v_session_id;
   if v_purchase_id is null then raise exception 'Expected the add-on purchase snapshot'; end if;
+  select credits_purchased, amount_cad into v_credits, v_addon_amount
+  from public.package_purchases where id = v_purchase_id;
+  if v_credits <> 10 or v_addon_amount <> 900 or
+     (select count(*) from public.booking_checkout_addon_items where attempt_id = (
+       select id from public.booking_checkout_addon_attempts where stripe_checkout_session_id = v_session_id
+     )) <> 1 then
+    raise exception 'Quantity must be grouped into one correctly priced package purchase';
+  end if;
 
   v_result := public.record_stripe_checkout_event(
     'evt_addon_bad_total', 'paid', v_booking_id, v_session_id,
@@ -53,18 +63,18 @@ begin
 
   v_result := public.record_stripe_checkout_event(
     'evt_addon_paid', 'paid', v_booking_id, v_session_id,
-    'pi_addon_test', null, null, 54000, 2700, 56700, 'cad'
+    'pi_addon_test', null, null, 99000, 4950, 103950, 'cad'
   );
   if not v_result then raise exception 'Expected verified Checkout payment fulfillment'; end if;
 
   v_result := public.record_stripe_checkout_event(
     'evt_addon_paid_duplicate', 'paid', v_booking_id, v_session_id,
-    'pi_addon_test', null, null, 54000, 2700, 56700, 'cad'
+    'pi_addon_test', null, null, 99000, 4950, 103950, 'cad'
   );
   select payment_status into v_purchase_status from public.package_purchases where id = v_purchase_id;
   select coalesce(sum(quantity_delta), 0) into v_balance from public.package_credit_events where purchase_id = v_purchase_id;
   select status into v_booking_status from public.bookings where id = v_booking_id;
-  if v_purchase_status <> 'paid' or v_balance <> 5 or v_booking_status <> 'confirmed' then
+  if v_purchase_status <> 'paid' or v_balance <> 10 or v_booking_status <> 'confirmed' then
     raise exception 'Unexpected fulfilled booking/add-on state: purchase %, balance %, booking %', v_purchase_status, v_balance, v_booking_status;
   end if;
   if (select count(*) from public.package_credit_events where purchase_id = v_purchase_id and event_type = 'grant') <> 1 then
@@ -82,7 +92,7 @@ begin
   ) returning id into v_expiry_booking_id;
   v_result := public.set_booking_checkout_session_with_addons(
     v_expiry_booking_id, v_expiry_session, now() + interval '31 minutes', v_expiry_start,
-    array['five-lesson-pack']::text[]
+    '[{"lessonId":"five-lesson-pack","quantity":1}]'::jsonb
   );
   if not v_result then raise exception 'Expected expired test Checkout Session to be saved'; end if;
   select i.purchase_id into v_expiry_purchase_id
@@ -98,7 +108,7 @@ begin
   end if;
   v_result := public.set_booking_checkout_session_with_addons(
     v_expiry_booking_id, v_retry_session, now() + interval '31 minutes', v_expiry_start,
-    array['five-lesson-pack']::text[]
+    '[{"lessonId":"five-lesson-pack","quantity":1}]'::jsonb
   );
   if not v_result then raise exception 'Expected retry Checkout Session after expiry'; end if;
   if (select count(*) from public.booking_checkout_addon_attempts where booking_id = v_expiry_booking_id) <> 2 then

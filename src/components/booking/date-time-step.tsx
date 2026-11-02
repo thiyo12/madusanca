@@ -10,6 +10,7 @@ import {
   todayKey,
   weekdayLabel,
 } from "@/lib/booking/format";
+import { occupiedDurationMin } from "@/lib/booking/slots";
 
 export interface DateTimeStepProps {
   lessonId: string;
@@ -18,16 +19,19 @@ export interface DateTimeStepProps {
   maxDate?: string;
   minDate?: string;
   horizonDays?: number;
+  blockedStartsAt?: string[];
 }
 
 interface AvailabilityResponse {
   ok: boolean;
   error?: string;
   slots?: string[];
+  durationMin?: number;
 }
 
-export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90 }: DateTimeStepProps) {
+export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90, blockedStartsAt = [] }: DateTimeStepProps) {
   const [slots, setSlots] = useState<string[]>([]);
+  const [durationMin, setDurationMin] = useState(90);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<string>(() => todayKey());
@@ -50,6 +54,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
           (!maxDate || dayKeyOf(slot) <= maxDate) && (!minDate || dayKeyOf(slot) >= minDate),
         );
         setSlots(visibleSlots);
+        setDurationMin(data.durationMin ?? 90);
         setStatus("ready");
         const firstDay = visibleSlots[0] ? dayKeyOf(visibleSlots[0]) : null;
         setActiveDay((current) => {
@@ -69,9 +74,19 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
     };
   }, [lessonId, maxDate, minDate, horizonDays]);
 
+  const availableSlots = useMemo(
+    () => slots.filter((slot) => !blockedStartsAt.some((blocked) => {
+      const slotStart = Date.parse(slot);
+      const blockedStart = Date.parse(blocked);
+      const duration = occupiedDurationMin(durationMin) * 60_000;
+      return slotStart < blockedStart + duration && blockedStart < slotStart + duration;
+    })),
+    [slots, blockedStartsAt, durationMin],
+  );
+
   const days = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const slot of slots) {
+    for (const slot of availableSlots) {
       const key = dayKeyOf(slot);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -82,12 +97,9 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
       if ((!maxDate || key <= maxDate) && (!minDate || key >= minDate)) list.push({ key, count: counts.get(key) ?? 0 });
     }
     return list;
-  }, [slots, maxDate, minDate, horizonDays]);
+  }, [availableSlots, maxDate, minDate, horizonDays]);
 
-  const daySlots = useMemo(
-    () => slots.filter((slot) => dayKeyOf(slot) === activeDay),
-    [slots, activeDay],
-  );
+  const daySlots = useMemo(() => availableSlots.filter((slot) => dayKeyOf(slot) === activeDay), [availableSlots, activeDay]);
 
   if (status === "loading") {
     return (
@@ -114,7 +126,9 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   return (
     <div>
       <p className="mb-3 text-[12.5px] font-semibold text-soft">
-        Times shown in Pacific Time (America/Vancouver)
+        Times shown in Pacific Time (America/Vancouver). {durationMin === 90
+          ? "Each 90-minute lesson is 90 minutes long and holds the tutor for 120 minutes. Overlapping starts will be unavailable after a time is booked."
+          : `${durationMin}-minute lesson.`}
       </p>
 
       <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Choose a date">

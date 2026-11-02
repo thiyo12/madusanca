@@ -83,8 +83,40 @@ test("90-minute lessons reserve a 120-minute instructor block without changing l
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 9 * 60).toISOString()), false);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 9 * 60 + 30).toISOString()), false);
   assert.equal(slots.includes(bookedOccupiedEnd.toISOString()), true);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60).toISOString()), true);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString()), true);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60).toISOString()), true);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60 + 30).toISOString()), false);
+});
+
+test("a booked 90-minute lesson makes the next available start no earlier than two hours later", () => {
+  const slots = generateSlots({
+    lessonDurationMin: 90,
+    fromDayKey: "2026-11-03",
+    toDayKey: "2026-11-03",
+    busy: [{
+      startsAt: zonedToUtc(2026, 11, 3, 8 * 60 + 30).toISOString(),
+      endsAt: zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString(),
+    }],
+    blackouts: [],
+    rules: [{ weekday: 2, startMin: 8 * 60, endMin: 18 * 60 }],
+    now: new Date("2026-11-01T20:00:00.000Z"),
+  });
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60).toISOString()), false);
+  assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString()), true);
+});
+
+test("booking validation accepts quantity-based package selection", () => {
+  const parsed = createBookingSchema.safeParse({
+    lessonId: "90-minute-lesson",
+    startsAt: "2026-11-03T16:00:00.000Z",
+    addOnPackages: [{ lessonId: "eight-lesson-pack", quantity: 15 }],
+    studentName: "Example Student",
+    email: "student@example.com",
+    phone: "6045550100",
+    consent: true,
+  });
+  assert.equal(parsed.success, true);
 });
 
 test("OTP hashes use the configured server-side HMAC secret", () => {
