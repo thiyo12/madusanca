@@ -10,6 +10,7 @@ import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button"
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
+import { consumeManageSessionStripeReturn, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
   paymentReturn?: string;
@@ -98,8 +99,12 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const [creditStart, setCreditStart] = useState<string | null>(null);
 
   useEffect(() => {
-    const clearSession = () => {
-      void fetch("/api/bookings/session", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => undefined);
+    // Checkout is the sole navigation that temporarily retains a verified
+    // session. Consume its marker as soon as Stripe returns to this page.
+    consumeManageSessionStripeReturn();
+    const clearSession = async () => {
+      if (hasPendingManageSessionStripeReturn()) return;
+      await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => undefined);
     };
     const reloadRestoredPage = (event: PageTransitionEvent) => {
       if (event.persisted) window.location.reload();
@@ -108,16 +113,27 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       if (!(event.target instanceof Element)) return;
       const link = event.target.closest("a[href]");
       if (!link) return;
+      const target = (link as HTMLAnchorElement).target;
+      if (event.defaultPrevented || (target && target !== "_self")) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if ((link as HTMLAnchorElement).hasAttribute("download")) return;
       const destination = new URL((link as HTMLAnchorElement).href, window.location.href);
-      if (destination.origin !== window.location.origin || destination.pathname !== "/booking/manage") clearSession();
+      if (destination.origin === window.location.origin && destination.pathname === "/booking/manage") return;
+      // Complete cookie deletion before navigating. Fire-and-forget alone can
+      // lose the Set-Cookie response during an App Router transition.
+      event.preventDefault();
+      void clearSession().finally(() => window.location.assign(destination.href));
     };
-    const clearOnHistoryNavigation = () => clearSession();
-    window.addEventListener("pagehide", clearSession);
+    const clearOnHistoryNavigation = () => {
+      void clearSession().finally(() => window.location.reload());
+    };
+    const clearOnPageHide = () => { void clearSession(); };
+    window.addEventListener("pagehide", clearOnPageHide);
     window.addEventListener("pageshow", reloadRestoredPage);
     document.addEventListener("click", clearOnLeavingLink, true);
     window.addEventListener("popstate", clearOnHistoryNavigation);
     return () => {
-      window.removeEventListener("pagehide", clearSession);
+      window.removeEventListener("pagehide", clearOnPageHide);
       window.removeEventListener("pageshow", reloadRestoredPage);
       document.removeEventListener("click", clearOnLeavingLink, true);
       window.removeEventListener("popstate", clearOnHistoryNavigation);

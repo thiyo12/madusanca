@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { preserveManageSessionForStripeReturn } from "@/lib/booking/manage-session-client";
 
 export function StripeUpgradeButton({ targetLessonId, amountCad, sessions, disabled = false }: { targetLessonId: string; amountCad: number; sessions: string[]; disabled?: boolean }) {
   const router = useRouter();
@@ -14,6 +15,7 @@ export function StripeUpgradeButton({ targetLessonId, amountCad, sessions, disab
       const result = await response.json() as { ok?: boolean; url?: string; paid?: boolean; error?: string };
       if (result.paid) { router.refresh(); return; }
       if (!response.ok || !result.ok || !result.url) { setError(result.error ?? "Could not open secure checkout."); return; }
+      preserveManageSessionForStripeReturn();
       window.location.assign(result.url);
     } catch { setError("Network error. Your booking is unchanged; please try again."); }
     finally { setPending(false); }

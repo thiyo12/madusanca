@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { preserveManageSessionForStripeReturn } from "@/lib/booking/manage-session-client";
 
 export function StripePackagePurchaseButton({ lessonId, quantity, disabled = false }: {
   lessonId: string;
@@ -24,6 +25,7 @@ export function StripePackagePurchaseButton({ lessonId, quantity, disabled = fal
         setError(result.error ?? "Could not open secure checkout. Please try again.");
         return;
       }
+      preserveManageSessionForStripeReturn();
       window.location.assign(result.url);
     } catch {
       setError("Network error. Your current booking is unchanged; please try again.");

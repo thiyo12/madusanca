@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { preserveManageSessionForStripeReturn } from "@/lib/booking/manage-session-client";
 import type { PackageQuantitySelection } from "@/lib/booking/types";
 
 interface CheckoutResponse {
@@ -34,6 +35,7 @@ export function StripeCheckoutButton({ manageToken, addOnPackages = [] }: { mana
         setError(result.error ?? "Could not open secure checkout. Please try again.");
         return;
       }
+      preserveManageSessionForStripeReturn();
       window.location.assign(result.url);
     } catch {
       setError("Network error. Your booking is still saved. Please try again.");
