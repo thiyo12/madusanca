@@ -5,17 +5,12 @@ import type { BookingRecord, BookingStatus } from "@/lib/booking/types";
 import {
   addDaysToKey,
   dayKeyOf,
-  formatSlotDay,
-  formatSlotTime,
   monthLabel,
   weekdayLabel,
 } from "@/lib/booking/format";
-import { StatusChip } from "@/components/admin/status-chip";
-import { BookingActions } from "../bookings/booking-actions";
-import { adminStudentHref } from "@/lib/admin/urls";
 import { CHIP_TONES, MonthGrid, href, type CalendarFilters } from "./month-grid";
 import { ScheduleGrid } from "./schedule-grid";
-import { occupiedDurationMin } from "@/lib/booking/slots";
+import { DayBookingsAccordion, type DayBookingAccordionEntry } from "./day-bookings-accordion";
 
 export const metadata: Metadata = {
   title: "Calendar — Wisdom Driving Academy Admin",
@@ -159,6 +154,100 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
 
   const dayBookings = byDay.get(anchor) ?? [];
   const weekKeys = Array.from({ length: 7 }, (_, index) => addDaysToKey(bounds.from, index));
+  const dayBookingEntries: DayBookingAccordionEntry[] = [];
+  if (view === "day" && dayBookings.length > 0) {
+    const historyByEmail = new Map<string, Promise<{ bookings: BookingRecord[]; purchases: Awaited<ReturnType<typeof store.findPackagePurchasesByEmail>> }>>();
+    for (const booking of dayBookings) {
+      const email = booking.email.trim().toLowerCase();
+      if (!historyByEmail.has(email)) {
+        historyByEmail.set(email, Promise.all([
+          store.listBookings({ search: email }),
+          store.findPackagePurchasesByEmail(email),
+        ]).then(([studentBookings, purchases]) => ({
+          bookings: studentBookings.filter((item) => item.email.trim().toLowerCase() === email),
+          purchases,
+        })));
+      }
+    }
+    const loadedHistory = new Map(await Promise.all([...historyByEmail].map(async ([email, result]) => [email, await result] as const)));
+    const purchaseBookings = new Map<string, Promise<BookingRecord[]>>();
+    const loadPurchaseBookings = (purchaseId: string) => {
+      let result = purchaseBookings.get(purchaseId);
+      if (!result) {
+        result = store.findBookingsByPurchaseId(purchaseId);
+        purchaseBookings.set(purchaseId, result);
+      }
+      return result;
+    };
+    for (const booking of dayBookings) {
+      const email = booking.email.trim().toLowerCase();
+      const studentData = loadedHistory.get(email)!;
+      const bookingHistory = studentData.bookings.map((item) => ({
+        id: item.id,
+        lessonName: item.lessonName,
+        startsAt: item.startsAt,
+        status: item.status,
+        sessionIndex: item.sessionIndex,
+        reference: item.reference,
+      })).sort((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
+      const packageId = booking.packageId ?? booking.id;
+      const packageSessions = studentData.bookings
+        .filter((item) => (item.packageId ?? item.id) === packageId && item.lessonId === booking.lessonId)
+        .sort((a, b) => (a.sessionIndex ?? 1) - (b.sessionIndex ?? 1));
+      const packageAnchor = packageSessions[0] ?? booking;
+      const paymentStatus = packageAnchor.paymentStatus ?? "due";
+      const appointmentHistoryFor = (items: BookingRecord[]) => items.map((item) => ({
+        id: item.id,
+        lessonName: item.lessonName,
+        startsAt: item.startsAt,
+        status: item.status,
+        sessionIndex: item.sessionIndex,
+        reference: item.reference,
+      })).sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+      const additionalPackages = await Promise.all(studentData.purchases.map(async (purchase) => ({
+        id: purchase.id,
+        reference: purchase.reference,
+        lessonName: purchase.lessonName,
+        creditsPurchased: purchase.creditsPurchased,
+        creditsAvailable: purchase.creditsAvailable,
+        paymentStatus: purchase.paymentStatus,
+        amountCad: purchase.amountCad,
+        purchasedAt: purchase.purchasedAt,
+        sessions: appointmentHistoryFor(await loadPurchaseBookings(purchase.id)),
+      })));
+
+      dayBookingEntries.push({
+        booking: {
+          id: booking.id,
+          reference: booking.reference,
+          lessonId: booking.lessonId,
+          lessonName: booking.lessonName,
+          durationMin: booking.durationMin,
+          priceCad: booking.priceCad,
+          startsAt: booking.startsAt,
+          studentName: booking.studentName,
+          email: booking.email,
+          phone: booking.phone,
+          notes: booking.notes,
+          status: booking.status,
+          paymentStatus: booking.paymentStatus ?? "due",
+          sessionIndex: booking.sessionIndex ?? 1,
+          sessionCount: booking.sessionCount ?? packageSessions.length,
+          packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
+        },
+        packagePlan: {
+          lessonName: packageAnchor.lessonName,
+          reference: packageAnchor.reference,
+          totalClasses: Math.max(packageAnchor.sessionCount ?? 1, packageSessions.length),
+          remainingClasses: packageSessions.filter((item) => !["completed", "cancelled"].includes(item.status)).length,
+          paymentStatus,
+          sessions: appointmentHistoryFor(packageSessions),
+        },
+        additionalPackages,
+        bookingHistory,
+      });
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -245,6 +334,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
             <option value="rescheduled">Rescheduled</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
+            <option value="no_show">No-show</option>
           </select>
         </label>
         <button type="submit" className="btn-gold inline-flex h-9 items-center rounded-[8px] px-4 text-[12px] font-extrabold">
@@ -327,52 +417,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
               </span>
             </div>
 
-            {dayBookings.length === 0 ? (
-              <p className="px-5 py-10 text-center text-sm text-soft">
-                Nothing booked on this day.
-              </p>
-            ) : (
-              <ul className="divide-y divide-line">
-                {dayBookings.map((booking) => (
-                <li key={booking.id} className="px-5 py-4">
-                    <div id={`booking-${booking.id}`} className={`scroll-mt-6 rounded-xl p-3 sm:p-4 ${selectedBookingId === booking.id ? "bg-[#fff9e9] ring-2 ring-gold/50" : ""}`}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <span className="text-[14px] font-extrabold text-ink">
-                            {formatSlotTime(booking.startsAt)}
-                          </span>
-                          <span className="text-[14px] font-bold text-ink">
-                            {booking.studentName}
-                          </span>
-                          <StatusChip status={booking.status} />
-                        </div>
-                        <dl className="mt-3 grid gap-x-5 gap-y-2 text-[12.5px] sm:grid-cols-2">
-                          <div><dt className="text-soft">Lesson</dt><dd className="font-bold text-ink">{booking.lessonName}</dd></div>
-                          <div><dt className="text-soft">Date and time</dt><dd className="font-bold text-ink">{formatSlotDay(booking.startsAt)} · {formatSlotTime(booking.startsAt)} Pacific</dd></div>
-                          <div><dt className="text-soft">Duration / instructor time</dt><dd className="font-bold text-ink">{booking.durationMin} min / {occupiedDurationMin(booking.durationMin)} min reserved</dd></div>
-                          <div><dt className="text-soft">Payment</dt><dd className="font-bold text-ink">{booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : "Due"} · ${booking.priceCad.toFixed(2)} CAD</dd></div>
-                          <div><dt className="text-soft">Email</dt><dd className="break-all font-bold text-ink"><a href={`mailto:${booking.email}`} className="underline underline-offset-2">{booking.email}</a></dd></div>
-                          <div><dt className="text-soft">Phone</dt><dd className="font-bold text-ink">{booking.phone ? <a href={`tel:${booking.phone}`} className="underline underline-offset-2">{booking.phone}</a> : "Not recorded"}</dd></div>
-                          <div><dt className="text-soft">Booking reference</dt><dd className="font-bold text-ink">{booking.reference}</dd></div>
-                        </dl>
-                        {booking.notes && <details className="mt-3 text-[12px] text-soft"><summary className="cursor-pointer font-bold text-ink">Student notes / pickup details</summary><pre className="mt-2 whitespace-pre-wrap break-words font-sans leading-relaxed">{booking.notes}</pre></details>}
-                        <Link href={adminStudentHref(booking.id)} className="mt-3 inline-flex text-[12px] font-extrabold text-gold-deep underline underline-offset-2">Open full student record</Link>
-                      </div>
-                      <BookingActions
-                        bookingId={booking.id}
-                        lessonId={booking.lessonId}
-                        status={booking.status}
-                        startsAt={booking.startsAt}
-                        paymentStatus={booking.paymentStatus ?? "due"}
-                        nowMs={nowMs}
-                      />
-                    </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <DayBookingsAccordion entries={dayBookingEntries} nowMs={nowMs} initialOpenId={selectedBookingId} />
           </div>
         </>
       )}
