@@ -12,8 +12,7 @@ export const HORIZON_DAYS = 370;
 
 /** Instructor occupancy is distinct from the lesson duration shown to students. */
 export function occupiedDurationMin(lessonDurationMin: number): number {
-  if (lessonDurationMin === 90) return 120;
-  if (lessonDurationMin === 45) return 90;
+  if (lessonDurationMin === 45 || lessonDurationMin === 90) return 120;
   return lessonDurationMin;
 }
 

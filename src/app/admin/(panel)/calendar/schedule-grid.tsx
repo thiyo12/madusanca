@@ -127,7 +127,12 @@ export function ScheduleGrid({
   ): Lesson[] {
     if (!rule || blackout) return [];
     return lessons.filter((lesson) => {
-      const endMin = startMin + occupiedDurationMin(lesson.durationMin);
+      const occupiedMin = occupiedDurationMin(lesson.durationMin);
+      const cadenceMin = lesson.durationMin === 45 || lesson.durationMin === 90 || occupiedMin >= 120
+        ? occupiedMin
+        : SLOT_STEP_MIN;
+      if ((startMin - rule.startMin) % cadenceMin !== 0) return false;
+      const endMin = startMin + occupiedMin;
       if (endMin > rule.endMin) return false;
       return !bookings.some(
         (booking) =>
