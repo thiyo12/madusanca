@@ -2,9 +2,12 @@ import type { Metadata } from "next";
 import { getStore } from "@/lib/booking/store";
 import {
   addBlackoutAction,
+  removeDateOverrideAction,
   removeBlackoutAction,
+  saveDateOverrideAction,
   saveRulesAction,
 } from "./actions";
+import { toVancouverDayKey } from "@/lib/booking/slots";
 
 export const metadata: Metadata = {
   title: "Settings — Wisdom Driving Academy Admin",
@@ -36,17 +39,15 @@ export default async function AdminSettingsPage({ searchParams }: SettingsPagePr
   const successMessage = typeof params.success === "string" ? params.success : null;
 
   const store = getStore();
-  const [rules, blackouts] = await Promise.all([store.getRules(), store.getBlackouts()]);
+  const todayKey = toVancouverDayKey(new Date());
+  const [rules, blackouts, dateOverrides] = await Promise.all([
+    store.getRules(),
+    store.getBlackouts(),
+    store.getDateOverrides(todayKey),
+  ]);
 
   const byWeekday = new Map(rules.map((rule) => [rule.weekday, rule]));
   const order = [1, 2, 3, 4, 5, 6, 0];
-  const todayKey = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Vancouver",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-
   return (
     <div className="mx-auto max-w-4xl">
       <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-gold-deep">
@@ -128,10 +129,47 @@ export default async function AdminSettingsPage({ searchParams }: SettingsPagePr
       </section>
 
       <section className="mt-6 rounded-[18px] border border-line bg-white p-5 sm:p-6">
-        <h2 className="text-[15px] font-extrabold text-ink">Blackout dates</h2>
+        <h2 className="text-[15px] font-extrabold text-ink">Special hours for one date</h2>
         <p className="mt-1.5 text-[13px] leading-relaxed text-soft">
-          Statutory holidays, vacation, vehicle service — any day you want fully
-          blocked. Today is {todayKey}.
+          Change hours for one date without changing the weekly schedule. Special hours must fit within that weekday’s weekly hours; 90-minute lessons keep their two-hour start cadence. Use the section below to close a date completely.
+        </p>
+        <form action={saveDateOverrideAction} className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
+            Date
+            <input type="date" name="date" required min={todayKey} className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink" />
+          </label>
+          <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
+            Opens
+            <input type="time" name="open" required defaultValue="09:00" className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink" />
+          </label>
+          <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
+            Closes
+            <input type="time" name="close" required defaultValue="15:00" className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink" />
+          </label>
+          <button type="submit" className="btn-gold inline-flex h-10 items-center rounded-[10px] px-4 text-[13px] font-extrabold">Save special hours</button>
+        </form>
+        <div className="mt-5">
+          {dateOverrides.length === 0 ? (
+            <p className="text-[13px] text-soft">No special hours set.</p>
+          ) : (
+            <ul className="grid gap-2">
+              {dateOverrides.map((override) => (
+                <li key={override.date} className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-line px-3.5 py-2.5">
+                  <span className="text-[13px] font-bold text-ink">{override.date} · {toTimeInput(override.startMin)}–{toTimeInput(override.endMin)} Pacific</span>
+                  <form action={removeDateOverrideAction.bind(null, override.date)}>
+                    <button type="submit" className="rounded-[8px] border border-line px-3 py-1.5 text-[11.5px] font-extrabold text-ink hover:border-gold">Remove</button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-[18px] border border-line bg-white p-5 sm:p-6">
+        <h2 className="text-[15px] font-extrabold text-ink">Close a full date</h2>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-soft">
+          Close a particular date for a holiday, appointment, vacation, or service. Today is {todayKey}.
         </p>
 
         <form action={addBlackoutAction} className="mt-4 flex flex-wrap items-end gap-3">

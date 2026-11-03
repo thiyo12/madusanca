@@ -11,6 +11,7 @@ import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 import { lessons as defaultLessons, type Lesson } from "@/lib/data/lessons";
 import type {
   AdminRescheduleResult,
+  AvailabilityDateOverride,
   AvailabilityRule,
   BlackoutDate,
   BookingFilter,
@@ -38,6 +39,7 @@ import type {
 
 interface FileData {
   rules: AvailabilityRule[];
+  dateOverrides: AvailabilityDateOverride[];
   blackouts: BlackoutDate[];
   bookings: BookingRecord[];
   packagePurchases: PackagePurchaseRecord[];
@@ -79,6 +81,7 @@ function load(): FileData {
   if (!existsSync(DATA_FILE)) {
     return {
       rules: DEFAULT_RULES,
+      dateOverrides: [],
       blackouts: [],
       bookings: [],
       packagePurchases: [],
@@ -115,6 +118,7 @@ function load(): FileData {
   if (!Array.isArray(data.bookingCheckoutAddonSchedules)) data.bookingCheckoutAddonSchedules = [];
   if (!Array.isArray(data.bookingStudentDetails)) data.bookingStudentDetails = [];
   if (!Array.isArray(data.bookingSlotHolds)) data.bookingSlotHolds = [];
+  if (!Array.isArray(data.dateOverrides)) data.dateOverrides = [];
   return data;
 }
 
@@ -173,6 +177,12 @@ export const fileStore: BookingStore = {
     return data.rules.length > 0 ? data.rules : DEFAULT_RULES;
   },
 
+  async getDateOverrides(fromDate?: string, toDate?: string): Promise<AvailabilityDateOverride[]> {
+    return load().dateOverrides.filter((item) =>
+      (!fromDate || item.date >= fromDate) && (!toDate || item.date <= toDate),
+    );
+  },
+
   async getBlackouts(): Promise<BlackoutDate[]> {
     return load().blackouts;
   },
@@ -218,6 +228,7 @@ export const fileStore: BookingStore = {
           lessonDurationMin: slot.durationMin,
           busy: [...otherBusy, ...chosen],
           rules: data.rules,
+          dateOverrides: data.dateOverrides,
           blackouts: data.blackouts,
           now: new Date(),
         });
@@ -405,6 +416,7 @@ export const fileStore: BookingStore = {
           }))],
           blackouts: data.blackouts,
           rules: data.rules,
+          dateOverrides: data.dateOverrides,
           now: new Date(),
         });
         if (!validation.valid) return Promise.resolve({ ok: false, error: validation.reason === "occupied" ? "conflict" as const : "not_found" as const });
@@ -777,6 +789,25 @@ export const fileStore: BookingStore = {
       data.rules = rules;
       save(data);
       return Promise.resolve(data.rules);
+    });
+  },
+
+  setDateOverride(override: AvailabilityDateOverride): Promise<void> {
+    return withLock(async () => {
+      const data = load();
+      data.dateOverrides = [
+        ...data.dateOverrides.filter((item) => item.date !== override.date),
+        override,
+      ].sort((a, b) => a.date.localeCompare(b.date));
+      save(data);
+    });
+  },
+
+  removeDateOverride(date: string): Promise<void> {
+    return withLock(async () => {
+      const data = load();
+      data.dateOverrides = data.dateOverrides.filter((item) => item.date !== date);
+      save(data);
     });
   },
 
@@ -1471,6 +1502,7 @@ export const fileStore: BookingStore = {
         busy,
         blackouts: data.blackouts,
         rules: data.rules.length ? data.rules : DEFAULT_RULES,
+        dateOverrides: data.dateOverrides,
         now: new Date(),
       });
       if (!validation.valid) return { ok: false, error: validation.reason === "occupied" ? "conflict" as const : "not_found" as const };

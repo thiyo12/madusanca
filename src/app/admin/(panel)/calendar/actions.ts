@@ -56,19 +56,21 @@ export async function createCalendarBookingAction(
     const startsAt = zonedToUtc(year, month, day, parsed.data.startMin).toISOString();
     const startMs = Date.parse(startsAt);
     const endsAt = new Date(startMs + lesson.durationMin * 60_000).toISOString();
-    const [rules, blackouts, busy] = await Promise.all([
+    const [rules, blackouts, busy, dateOverrides] = await Promise.all([
       store.getRules(),
       store.getBlackouts(),
       store.getBusy(
         new Date(startMs - 24 * 60 * 60 * 1000).toISOString(),
         new Date(startMs + 48 * 60 * 60 * 1000).toISOString(),
       ),
+      store.getDateOverrides(parsed.data.dayKey, parsed.data.dayKey),
     ]);
     const validation = validateSlot(startsAt, {
       lessonDurationMin: lesson.durationMin,
       busy,
       blackouts,
       rules,
+      dateOverrides,
       now: new Date(),
     });
     if (!validation.valid) {

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { getStore } from "@/lib/booking/store";
+import { dayKeyOf } from "@/lib/booking/format";
 import type { BookingRecord } from "@/lib/booking/types";
 import { validateSlot } from "@/lib/booking/slots";
 import { manageUrl, siteBase } from "@/lib/booking/urls";
@@ -290,13 +291,15 @@ export async function rescheduleBookingAction(
   const endsAt = new Date(startMs + booking.durationMin * 60000).toISOString();
   const previousStartsAt = booking.startsAt;
 
-  const [rules, blackouts, busy] = await Promise.all([
+  const dayKey = dayKeyOf(startsAt);
+  const [rules, blackouts, busy, dateOverrides] = await Promise.all([
     store.getRules(),
     store.getBlackouts(),
     store.getBusy(
       new Date(startMs - 24 * 60 * 60 * 1000).toISOString(),
       new Date(startMs + 48 * 60 * 60 * 1000).toISOString(),
     ),
+    store.getDateOverrides(dayKey, dayKey),
   ]);
   const otherBusy = busy.filter(
     (interval) => interval.startsAt !== booking.startsAt,
@@ -306,6 +309,7 @@ export async function rescheduleBookingAction(
     busy: otherBusy,
     blackouts,
     rules,
+    dateOverrides,
     now: new Date(),
   });
   if (!validation.valid) {

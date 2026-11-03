@@ -126,7 +126,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: "Choose different session times within six months of the first session." }, { status: 400 });
     }
 
-    const [rules, blackouts] = await Promise.all([store.getRules(), store.getBlackouts()]);
+    const [rules, blackouts, dateOverrides] = await Promise.all([
+      store.getRules(),
+      store.getBlackouts(),
+      store.getDateOverrides(anchorDay, limitDay),
+    ]);
     const selectedBusy: Array<{ startsAt: string; endsAt: string }> = [];
     const lessonByStart = new Map<string, Lesson>();
     for (const selection of packageSchedules) {
@@ -146,6 +150,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         busy: [...busy, ...selectedBusy],
         blackouts,
         rules,
+        dateOverrides,
         now: new Date(),
       });
       if (!validation.valid) {

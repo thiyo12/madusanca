@@ -274,8 +274,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     const endsAt = new Date(startMs + durationMin * 60000).toISOString();
 
     const now = new Date();
-    const [rules, blackouts, busy] = await Promise.all([
+    const dayKey = dayKeyOf(new Date(startMs).toISOString());
+    const [rules, dateOverrides, blackouts, busy] = await Promise.all([
       store.getRules(),
+      store.getDateOverrides(dayKey, dayKey),
       store.getBlackouts(),
       store.getBusy(
         new Date(startMs - 24 * 60 * 60 * 1000).toISOString(),
@@ -292,6 +294,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       busy: ownBusy,
       blackouts,
       rules,
+      dateOverrides,
       now,
     });
     if (!validation.valid) {

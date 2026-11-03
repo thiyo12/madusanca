@@ -71,10 +71,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     const oldProposedSchedule = new Set((booking.stripeUpgradeTargetSessions ?? []).map((item) => item.startsAt));
     const from = new Date(Date.now()).toISOString();
     const to = proposed.at(-1)!.endsAt;
-    const [busy, blackouts, rules] = await Promise.all([store.getBusy(from, to), store.getBlackouts(), store.getRules()]);
+    const [busy, blackouts, rules, dateOverrides] = await Promise.all([
+      store.getBusy(from, to),
+      store.getBlackouts(),
+      store.getRules(),
+      store.getDateOverrides(firstDay, dayKeyOf(proposed.at(-1)!.startsAt)),
+    ]);
     const availableBusy = busy.filter((item) => !oldSchedule.has(item.startsAt) && !oldProposedSchedule.has(item.startsAt));
     for (const item of proposed) {
-      const validation = validateSlot(item.startsAt, { lessonDurationMin: target.durationMin, busy: availableBusy, blackouts, rules, now: new Date() });
+      const validation = validateSlot(item.startsAt, { lessonDurationMin: target.durationMin, busy: availableBusy, blackouts, rules, dateOverrides, now: new Date() });
       if (!validation.valid) return NextResponse.json({ ok: false, error: "One of those times is no longer available. Please choose new session times." }, { status: 409 });
       availableBusy.push({
         startsAt: item.startsAt,

@@ -59,7 +59,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: "All package lessons must be within six months of the first lesson." }, { status: 400 });
     }
 
-    const [rules, blackouts] = await Promise.all([store.getRules(), store.getBlackouts()]);
+    const [rules, blackouts, dateOverrides] = await Promise.all([
+      store.getRules(),
+      store.getBlackouts(),
+      store.getDateOverrides(dayKeyOf(ordered[0].startsAt), dayKeyOf(ordered.at(-1)!.startsAt)),
+    ]);
     const busyFrom = new Date(ordered[0].start - 24 * 60 * 60_000).toISOString();
     const busyTo = new Date(ordered.at(-1)!.start + 48 * 60 * 60_000).toISOString();
     const busy = await store.getBusy(busyFrom, busyTo);
@@ -69,6 +73,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         lessonDurationMin: item.lesson.durationMin,
         busy: [...busy, ...chosen],
         rules,
+        dateOverrides,
         blackouts,
         now,
       });

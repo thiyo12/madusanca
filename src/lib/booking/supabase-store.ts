@@ -7,6 +7,7 @@ import { lessons as defaultLessons, type Lesson } from "@/lib/data/lessons";
 import { customerCanAccessBooking } from "@/lib/booking/customer-access";
 import type {
   AdminRescheduleResult,
+  AvailabilityDateOverride,
   AvailabilityRule,
   BlackoutDate,
   BookingFilter,
@@ -228,6 +229,19 @@ export const supabaseStore: BookingStore = {
       endMin: row.end_min,
     }));
     return rules.length > 0 ? rules : DEFAULT_RULES;
+  },
+
+  async getDateOverrides(fromDate?: string, toDate?: string): Promise<AvailabilityDateOverride[]> {
+    let query = adminClient().from("availability_date_overrides").select("date, start_min, end_min").order("date");
+    if (fromDate) query = query.gte("date", fromDate);
+    if (toDate) query = query.lte("date", toDate);
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to load date-specific availability: ${error.message}`);
+    return (data ?? []).map((row) => ({
+      date: typeof row.date === "string" ? row.date : String(row.date).slice(0, 10),
+      startMin: row.start_min,
+      endMin: row.end_min,
+    }));
   },
 
   async getBlackouts(): Promise<BlackoutDate[]> {
@@ -604,6 +618,20 @@ export const supabaseStore: BookingStore = {
       );
     if (upserted.error) throw new Error(`Failed to save rules: ${upserted.error.message}`);
     return rules;
+  },
+
+  async setDateOverride(override: AvailabilityDateOverride): Promise<void> {
+    const { error } = await adminClient().rpc("set_availability_date_override", {
+      p_date: override.date,
+      p_start_min: override.startMin,
+      p_end_min: override.endMin,
+    });
+    if (error) throw new Error(`Failed to save date-specific availability: ${error.message}`);
+  },
+
+  async removeDateOverride(date: string): Promise<void> {
+    const { error } = await adminClient().rpc("remove_availability_date_override", { p_date: date });
+    if (error) throw new Error(`Failed to remove date-specific availability: ${error.message}`);
   },
 
   async addBlackout(date: string, reason?: string): Promise<BlackoutDate[]> {

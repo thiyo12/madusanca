@@ -29,6 +29,7 @@ interface AvailabilityResponse {
   slots?: string[];
   durationMin?: number;
   workingHours?: Array<{ weekday: number; startMin: number; endMin: number }>;
+  dateOverrides?: Array<{ date: string; startMin: number; endMin: number }>;
 }
 
 function formatMinutesAsTime(minutes: number): string {
@@ -43,6 +44,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   const [slots, setSlots] = useState<string[]>([]);
   const [durationMin, setDurationMin] = useState(90);
   const [workingHours, setWorkingHours] = useState<AvailabilityResponse["workingHours"]>([]);
+  const [dateOverrides, setDateOverrides] = useState<AvailabilityResponse["dateOverrides"]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<string>(() => todayKey());
@@ -77,6 +79,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
         setSlots(visibleSlots);
         setDurationMin(data.durationMin ?? 90);
         setWorkingHours(data.workingHours ?? []);
+        setDateOverrides(data.dateOverrides ?? []);
         setStatus("ready");
         loaded = true;
         if (isInitialLoad) {
@@ -152,7 +155,8 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   const monthDays = days.filter((day) => day.key.startsWith(`${displayedMonth}-`));
   const daySlots = useMemo(() => availableSlots.filter((slot) => dayKeyOf(slot) === activeDay), [availableSlots, activeDay]);
   const activeWeekday = new Date(`${activeDay}T12:00:00.000Z`).getUTCDay();
-  const activeWorkingHours = workingHours?.find((rule) => rule.weekday === activeWeekday);
+  const activeWorkingHours = dateOverrides?.find((rule) => rule.date === activeDay) ??
+    workingHours?.find((rule) => rule.weekday === activeWeekday);
 
   function changeMonth(offset: number) {
     const nextMonth = monthKeys[visibleMonthIndex + offset];

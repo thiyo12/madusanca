@@ -49,8 +49,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
     const busyTo = new Date(now.getTime() + (HORIZON_DAYS + 1) * 24 * 60 * 60 * 1000).toISOString();
 
-    const [rules, blackouts, busy] = await Promise.all([
+    const [rules, dateOverrides, blackouts, busy] = await Promise.all([
       store.getRules(),
+      store.getDateOverrides(fromKey, toKey),
       store.getBlackouts(),
       store.getBusy(busyFrom, busyTo),
     ]);
@@ -62,6 +63,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       busy,
       blackouts,
       rules,
+      dateOverrides,
       now,
     });
 
@@ -73,6 +75,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       priceCad: lesson.priceCad,
       timezone: "America/Vancouver",
       workingHours: rules.map(({ weekday, startMin, endMin }) => ({ weekday, startMin, endMin })),
+      dateOverrides,
       slots,
     });
   } catch (error) {

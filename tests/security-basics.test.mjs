@@ -112,6 +112,20 @@ test("90-minute lesson starts follow a two-hour cadence anchored to daily availa
   assert.deepEqual(afternoon, [13, 15, 17].map((hour) => zonedToUtc(2026, 11, 3, hour * 60).toISOString()));
 });
 
+test("date-specific availability overrides replace that date's weekly window", () => {
+  const slots = generateSlots({
+    lessonDurationMin: 90,
+    fromDayKey: "2026-11-03",
+    toDayKey: "2026-11-03",
+    busy: [],
+    blackouts: [],
+    rules: [{ weekday: 2, startMin: 7 * 60, endMin: 19 * 60 }],
+    dateOverrides: [{ date: "2026-11-03", startMin: 7 * 60, endMin: 15 * 60 }],
+    now: new Date("2026-11-01T20:00:00.000Z"),
+  });
+  assert.deepEqual(slots, [7, 9, 11, 13].map((hour) => zonedToUtc(2026, 11, 3, hour * 60).toISOString()));
+});
+
 test("Pacific booking times remain UTC-7 after British Columbia's final clock change", () => {
   const nineAm = zonedToUtc(2027, 1, 2, 9 * 60);
   assert.equal(nineAm.toISOString(), "2027-01-02T16:00:00.000Z");

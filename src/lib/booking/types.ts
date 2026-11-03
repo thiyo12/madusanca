@@ -14,6 +14,13 @@ export interface AvailabilityRule {
   endMin: number;
 }
 
+/** One-off shorter/open hours for a specific Pacific calendar date. */
+export interface AvailabilityDateOverride {
+  date: string;
+  startMin: number;
+  endMin: number;
+}
+
 export interface BlackoutDate {
   /** YYYY-MM-DD in America/Vancouver */
   date: string;
@@ -297,6 +304,9 @@ export interface AdminRescheduleResult {
 
 export interface BookingStore {
   getRules(): Promise<AvailabilityRule[]>;
+  getDateOverrides(fromDate?: string, toDate?: string): Promise<AvailabilityDateOverride[]>;
+  setDateOverride(override: AvailabilityDateOverride): Promise<void>;
+  removeDateOverride(date: string): Promise<void>;
   getBlackouts(): Promise<BlackoutDate[]>;
   getBusy(fromIso: string, toIso: string, excludeHoldTokenHash?: string): Promise<BusyInterval[]>;
   createBookingHold(

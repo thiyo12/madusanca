@@ -1,4 +1,4 @@
-import type { AvailabilityRule, BlackoutDate, BusyInterval } from "@/lib/booking/types";
+import type { AvailabilityDateOverride, AvailabilityRule, BlackoutDate, BusyInterval } from "@/lib/booking/types";
 
 export const TZ = "America/Vancouver";
 export const SLOT_STEP_MIN = 30;
@@ -167,6 +167,7 @@ export interface SlotQuery {
   busy: BusyInterval[];
   blackouts: BlackoutDate[];
   rules: AvailabilityRule[];
+  dateOverrides?: AvailabilityDateOverride[];
   now?: Date;
 }
 
@@ -192,6 +193,7 @@ export function generateSlots(query: SlotQuery): string[] {
   const blackoutSet = new Set(query.blackouts.map((b) => b.date));
   const rulesByWeekday = new Map<number, AvailabilityRule>();
   for (const rule of query.rules) rulesByWeekday.set(rule.weekday, rule);
+  const rulesByDate = new Map((query.dateOverrides ?? []).map((rule) => [rule.date, rule]));
 
   const slots: string[] = [];
   let cursorKey = fromKey;
@@ -202,7 +204,11 @@ export function generateSlots(query: SlotQuery): string[] {
     const [year, month, day] = cursorKey.split("-").map(Number);
     const probe = zonedToUtc(year, month, day, 12 * 60);
     const weekday = toVancouverParts(probe).weekday;
-    const rule = rulesByWeekday.get(weekday);
+    const weeklyRule = rulesByWeekday.get(weekday);
+    const dateOverride = rulesByDate.get(cursorKey);
+    const rule = dateOverride
+      ? { weekday, startMin: dateOverride.startMin, endMin: dateOverride.endMin }
+      : weeklyRule;
 
     if (rule && !blackoutSet.has(cursorKey)) {
       const windowStart = zonedToUtc(year, month, day, rule.startMin);
