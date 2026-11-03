@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
@@ -10,7 +10,7 @@ import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button"
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
-import { consumeManageSessionStripeReturn, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
+import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
   paymentReturn?: string;
@@ -97,11 +97,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const [upgradeSessions, setUpgradeSessions] = useState<string[]>([]);
   const [upgradeSessionIndex, setUpgradeSessionIndex] = useState(0);
   const [creditStart, setCreditStart] = useState<string | null>(null);
+  const sessionAuthorizedRef = useRef(false);
 
   useEffect(() => {
-    // Checkout is the sole navigation that temporarily retains a verified
-    // session. Consume its marker as soon as Stripe returns to this page.
-    consumeManageSessionStripeReturn();
     const clearSession = async () => {
       if (hasPendingManageSessionStripeReturn()) return;
       await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => undefined);
@@ -159,6 +157,18 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
 
   useEffect(() => {
     let cancelled = false;
+    const isVerifiedNavigation = sessionAuthorizedRef.current || consumeManageSessionVerified();
+    // Stripe checkout is the only exception to the one-use OTP navigation.
+    const isStripeReturn = consumeManageSessionStripeReturn();
+    if (!isVerifiedNavigation && !isStripeReturn) {
+      setStatus("error");
+      setError("For your security, please enter your email and request a new verification code.");
+      void fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
+    }
+    sessionAuthorizedRef.current = true;
     callManage({ action: "get" })
       .then((result) => {
         if (cancelled) return;

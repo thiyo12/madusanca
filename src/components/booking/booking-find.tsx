@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatSlotFull } from "@/lib/booking/format";
+import { markManageSessionVerified } from "@/lib/booking/manage-session-client";
 
 type Step = "email" | "code" | "list";
 
@@ -135,6 +136,7 @@ export function BookingFind() {
     try {
       const result = await callOtp({ action: "token", code, reference });
       if (result.ok) {
+        markManageSessionVerified();
         router.push("/booking/manage");
         return;
       }
