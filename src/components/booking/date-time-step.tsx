@@ -28,11 +28,21 @@ interface AvailabilityResponse {
   error?: string;
   slots?: string[];
   durationMin?: number;
+  workingHours?: Array<{ weekday: number; startMin: number; endMin: number }>;
+}
+
+function formatMinutesAsTime(minutes: number): string {
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const period = hour < 12 ? "AM" : "PM";
+  const hour12 = hour % 12 || 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
 export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90, blockedStartsAt = [], onUnavailableSelection }: DateTimeStepProps) {
   const [slots, setSlots] = useState<string[]>([]);
   const [durationMin, setDurationMin] = useState(90);
+  const [workingHours, setWorkingHours] = useState<AvailabilityResponse["workingHours"]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<string>(() => todayKey());
@@ -66,6 +76,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
         );
         setSlots(visibleSlots);
         setDurationMin(data.durationMin ?? 90);
+        setWorkingHours(data.workingHours ?? []);
         setStatus("ready");
         loaded = true;
         if (isInitialLoad) {
@@ -140,6 +151,8 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   const visibleMonthIndex = monthKeys.indexOf(displayedMonth);
   const monthDays = days.filter((day) => day.key.startsWith(`${displayedMonth}-`));
   const daySlots = useMemo(() => availableSlots.filter((slot) => dayKeyOf(slot) === activeDay), [availableSlots, activeDay]);
+  const activeWeekday = new Date(`${activeDay}T12:00:00.000Z`).getUTCDay();
+  const activeWorkingHours = workingHours?.find((rule) => rule.weekday === activeWeekday);
 
   function changeMonth(offset: number) {
     const nextMonth = monthKeys[visibleMonthIndex + offset];
@@ -175,6 +188,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
     <div>
       <p className="mb-3 text-[12.5px] font-semibold text-soft">
         Times shown in Pacific Time (America/Vancouver). {durationMin}-minute lesson.
+        {activeWorkingHours && <> Working hours on {weekdayLabel(activeDay)}: {formatMinutesAsTime(activeWorkingHours.startMin)}–{formatMinutesAsTime(activeWorkingHours.endMin)}.</>}
       </p>
 
       <div className="mb-3 flex items-center justify-between gap-3">

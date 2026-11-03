@@ -72,6 +72,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       durationMin: lesson.durationMin,
       priceCad: lesson.priceCad,
       timezone: "America/Vancouver",
+      workingHours: rules.map(({ weekday, startMin, endMin }) => ({ weekday, startMin, endMin })),
       slots,
     });
   } catch (error) {
