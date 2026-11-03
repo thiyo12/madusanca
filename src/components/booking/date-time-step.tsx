@@ -40,16 +40,25 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
 
   useEffect(() => {
     let cancelled = false;
+    let loaded = false;
+    let requestInFlight = false;
     const from = todayKey();
     const to = addDaysToKey(from, horizonDays);
+    const url = `/api/availability?lessonId=${encodeURIComponent(lessonId)}&from=${from}&to=${to}`;
 
-    fetch(`/api/availability?lessonId=${encodeURIComponent(lessonId)}&from=${from}&to=${to}`)
-      .then(async (response) => {
+    async function refreshAvailability() {
+      if (cancelled || requestInFlight) return;
+      requestInFlight = true;
+      const isInitialLoad = !loaded;
+      try {
+        const response = await fetch(url, { cache: "no-store" });
         const data = (await response.json()) as AvailabilityResponse;
         if (cancelled) return;
         if (!response.ok || !data.ok || !data.slots) {
-          setStatus("error");
-          setErrorMessage(data.error ?? "Could not load available times.");
+          if (isInitialLoad) {
+            setStatus("error");
+            setErrorMessage(data.error ?? "Could not load available times.");
+          }
           return;
         }
         const visibleSlots = data.slots.filter((slot) =>
@@ -58,20 +67,39 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
         setSlots(visibleSlots);
         setDurationMin(data.durationMin ?? 90);
         setStatus("ready");
-        const firstDay = visibleSlots[0] ? dayKeyOf(visibleSlots[0]) : null;
-        if (firstDay) {
-          setVisibleMonth(firstDay.slice(0, 7));
-          setActiveDay(firstDay);
+        loaded = true;
+        if (isInitialLoad) {
+          const firstDay = visibleSlots[0] ? dayKeyOf(visibleSlots[0]) : null;
+          if (firstDay) {
+            setVisibleMonth(firstDay.slice(0, 7));
+            setActiveDay(firstDay);
+          }
         }
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return;
-        setStatus("error");
-        setErrorMessage("Could not load available times. Please try again.");
-      });
+        if (isInitialLoad) {
+          setStatus("error");
+          setErrorMessage("Could not load available times. Please try again.");
+        }
+      } finally {
+        requestInFlight = false;
+      }
+    }
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshAvailability();
+    };
+
+    void refreshAvailability();
+    const refreshInterval = window.setInterval(refreshWhenVisible, 30_000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
       cancelled = true;
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [lessonId, maxDate, minDate, horizonDays]);
 
