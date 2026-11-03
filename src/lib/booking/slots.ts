@@ -3,6 +3,9 @@ import type { AvailabilityRule, BlackoutDate, BusyInterval } from "@/lib/booking
 export const TZ = "America/Vancouver";
 export const SLOT_STEP_MIN = 30;
 export const LEAD_TIME_MIN = 120;
+const PCT_EFFECTIVE_UTC = Date.UTC(2026, 10, 1, 9);
+const PCT_WALL_START = Date.UTC(2026, 10, 1, 2);
+const PCT_OFFSET_MINUTES = -7 * 60;
 // A package may start up to six months from today and use its six-month
 // scheduling window from that first session (nearly twelve months total).
 export const HORIZON_DAYS = 370;
@@ -52,6 +55,16 @@ const WEEKDAYS: Record<string, number> = {
 };
 
 export function toVancouverParts(date: Date): VancParts {
+  if (date.getTime() >= PCT_EFFECTIVE_UTC) {
+    const local = new Date(date.getTime() + PCT_OFFSET_MINUTES * 60_000);
+    return {
+      year: local.getUTCFullYear(),
+      month: local.getUTCMonth() + 1,
+      day: local.getUTCDate(),
+      weekday: local.getUTCDay(),
+      minutesOfDay: local.getUTCHours() * 60 + local.getUTCMinutes(),
+    };
+  }
   const bag = new Map<string, string>();
   for (const part of partsFormatter.formatToParts(date)) {
     if (part.type !== "literal") bag.set(part.type, part.value);
@@ -80,6 +93,7 @@ export function zonedToUtc(
   minutesOfDay: number,
 ): Date {
   const wallUtc = Date.UTC(year, month - 1, day, 0, minutesOfDay, 0);
+  if (wallUtc >= PCT_WALL_START) return new Date(wallUtc - PCT_OFFSET_MINUTES * 60_000);
   let ts = wallUtc - tzOffsetMinutes(new Date(wallUtc)) * 60000;
   ts = wallUtc - tzOffsetMinutes(new Date(ts)) * 60000;
   return new Date(ts);
@@ -94,17 +108,27 @@ export function toVancouverDayKey(date: Date): string {
 export function addVancouverCalendarMonths(instant: Date, months: number): Date {
   if (!Number.isInteger(months)) throw new Error("Calendar-month offsets must be whole numbers.");
   const fields = new Map<string, number>();
-  for (const part of new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(instant)) {
-    if (part.type !== "literal") fields.set(part.type, Number(part.value));
+  if (instant.getTime() >= PCT_EFFECTIVE_UTC) {
+    const local = new Date(instant.getTime() + PCT_OFFSET_MINUTES * 60_000);
+    fields.set("year", local.getUTCFullYear());
+    fields.set("month", local.getUTCMonth() + 1);
+    fields.set("day", local.getUTCDate());
+    fields.set("hour", local.getUTCHours());
+    fields.set("minute", local.getUTCMinutes());
+    fields.set("second", local.getUTCSeconds());
+  } else {
+    for (const part of new Intl.DateTimeFormat("en-CA", {
+      timeZone: TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(instant)) {
+      if (part.type !== "literal") fields.set(part.type, Number(part.value));
+    }
   }
   const monthStart = new Date(Date.UTC(fields.get("year")!, fields.get("month")! - 1 + months, 1));
   const lastDay = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0)).getUTCDate();

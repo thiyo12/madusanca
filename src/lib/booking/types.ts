@@ -144,6 +144,11 @@ export interface ScheduledPackageSelection extends PackageQuantitySelection {
   startsAt: string[];
 }
 
+export interface BookingSlotHold {
+  startsAt: string;
+  durationMin: number;
+}
+
 export interface CreateBookingBundleInput {
   packages: ScheduledPackageSelection[];
   studentName: string;
@@ -293,7 +298,13 @@ export interface AdminRescheduleResult {
 export interface BookingStore {
   getRules(): Promise<AvailabilityRule[]>;
   getBlackouts(): Promise<BlackoutDate[]>;
-  getBusy(fromIso: string, toIso: string): Promise<BusyInterval[]>;
+  getBusy(fromIso: string, toIso: string, excludeHoldTokenHash?: string): Promise<BusyInterval[]>;
+  createBookingHold(
+    slots: BookingSlotHold[],
+    holdTokenHash: string,
+    expiresAt: string,
+  ): Promise<StoreResult<{ expiresAt: string }>>;
+  releaseBookingHold(holdTokenHash: string): Promise<void>;
   createBooking(
     input: CreateBookingInput,
     token: { hash: string; expiresAt: string },
@@ -305,6 +316,7 @@ export interface BookingStore {
   createBookingBundle(
     input: CreateBookingBundleInput,
     token: { hash: string; expiresAt: string },
+    holdTokenHash: string,
   ): Promise<StoreResult<BookingRecord[]>>;
   /** Admin-only identity details; never attach these to public booking views. */
   getBookingStudentDetails(bookingId: string): Promise<BookingStudentDetails | null>;

@@ -16,6 +16,7 @@ import type {
   BookingFilter,
   BookingRecord,
   BookingStatus,
+  BookingSlotHold,
   ChequeStatus,
   BookingStore,
   BusyInterval,
@@ -68,6 +69,7 @@ interface FileData {
     sends: number;
   }>;
   stripeWebhookEvents: string[];
+  bookingSlotHolds: Array<{ holdTokenHash: string; startsAt: string; durationMin: number; expiresAt: string }>;
 }
 
 const DATA_DIR = join(process.cwd(), ".data");
@@ -90,6 +92,7 @@ function load(): FileData {
       otps: [],
       otpSendLimits: [],
       stripeWebhookEvents: [],
+      bookingSlotHolds: [],
     };
   }
   const raw = readFileSync(DATA_FILE, "utf8");
@@ -111,6 +114,7 @@ function load(): FileData {
   if (!Array.isArray(data.bookingCheckoutAddons)) data.bookingCheckoutAddons = [];
   if (!Array.isArray(data.bookingCheckoutAddonSchedules)) data.bookingCheckoutAddonSchedules = [];
   if (!Array.isArray(data.bookingStudentDetails)) data.bookingStudentDetails = [];
+  if (!Array.isArray(data.bookingSlotHolds)) data.bookingSlotHolds = [];
   return data;
 }
 
@@ -173,7 +177,7 @@ export const fileStore: BookingStore = {
     return load().blackouts;
   },
 
-  async getBusy(fromIso: string, toIso: string): Promise<BusyInterval[]> {
+  async getBusy(fromIso: string, toIso: string, excludeHoldTokenHash?: string): Promise<BusyInterval[]> {
     const from = Date.parse(fromIso);
     const to = Date.parse(toIso);
     const data = load();
@@ -187,7 +191,55 @@ export const fileStore: BookingStore = {
         }))
       : [])
       .filter((item) => overlaps(Date.parse(item.startsAt), Date.parse(item.endsAt), from, to));
-    return [...booked, ...reserved];
+    const held = data.bookingSlotHolds.filter((hold) => Date.parse(hold.expiresAt) > Date.now() && hold.holdTokenHash !== excludeHoldTokenHash)
+      .map((hold) => ({ startsAt: hold.startsAt, endsAt: new Date(occupiedEnd(hold.startsAt, hold.durationMin)).toISOString() }))
+      .filter((item) => overlaps(Date.parse(item.startsAt), Date.parse(item.endsAt), from, to));
+    return [...booked, ...reserved, ...held];
+  },
+
+  createBookingHold(slots: BookingSlotHold[], holdTokenHash: string, expiresAt: string) {
+    return withLock((): Promise<StoreResult<{ expiresAt: string }>> => {
+      const data = load();
+      const now = Date.now();
+      data.bookingSlotHolds = data.bookingSlotHolds.filter((hold) => Date.parse(hold.expiresAt) > now);
+      if (!/^[a-f0-9]{64}$/.test(holdTokenHash) || !Number.isFinite(Date.parse(expiresAt)) ||
+          Date.parse(expiresAt) <= now || Date.parse(expiresAt) > now + 8 * 60_000 + 30_000 ||
+          slots.length < 1 || slots.length > 200 || new Set(slots.map((slot) => slot.startsAt)).size !== slots.length) {
+        save(data);
+        return Promise.resolve({ ok: false, error: "not_found" as const });
+      }
+      const otherBusy = [
+        ...activeBookings(data).map((booking) => ({ startsAt: booking.startsAt, endsAt: new Date(occupiedEnd(booking.startsAt, booking.durationMin)).toISOString() })),
+        ...data.bookingSlotHolds.filter((hold) => hold.holdTokenHash !== holdTokenHash).map((hold) => ({ startsAt: hold.startsAt, endsAt: new Date(occupiedEnd(hold.startsAt, hold.durationMin)).toISOString() })),
+      ];
+      const chosen: BusyInterval[] = [];
+      for (const slot of slots) {
+        const validation = validateSlot(slot.startsAt, {
+          lessonDurationMin: slot.durationMin,
+          busy: [...otherBusy, ...chosen],
+          rules: data.rules,
+          blackouts: data.blackouts,
+          now: new Date(),
+        });
+        if (!validation.valid) {
+          save(data);
+          return Promise.resolve({ ok: false, error: validation.reason === "occupied" ? "conflict" as const : "not_found" as const });
+        }
+        chosen.push({ startsAt: slot.startsAt, endsAt: new Date(occupiedEnd(slot.startsAt, slot.durationMin)).toISOString() });
+      }
+      data.bookingSlotHolds = data.bookingSlotHolds.filter((hold) => hold.holdTokenHash !== holdTokenHash);
+      data.bookingSlotHolds.push(...slots.map((slot) => ({ ...slot, holdTokenHash, expiresAt })));
+      save(data);
+      return Promise.resolve({ ok: true as const, value: { expiresAt } });
+    });
+  },
+
+  releaseBookingHold(holdTokenHash: string) {
+    return withLock(async () => {
+      const data = load();
+      data.bookingSlotHolds = data.bookingSlotHolds.filter((hold) => hold.holdTokenHash !== holdTokenHash);
+      save(data);
+    });
   },
 
   createBooking(
@@ -301,6 +353,7 @@ export const fileStore: BookingStore = {
   createBookingBundle(
     input: CreateBookingBundleInput,
     token: { hash: string; expiresAt: string },
+    holdTokenHash: string,
   ): Promise<StoreResult<BookingRecord[]>> {
     return withLock((): Promise<StoreResult<BookingRecord[]>> => {
       const data = load();
@@ -333,6 +386,10 @@ export const fileStore: BookingStore = {
       const maxDay = addMonthsToKey(anchorDay, 6);
       const expanded = validSelections.flatMap(({ lesson, selection }) => selection.startsAt.map((startsAt) => ({ lesson, startsAt })));
       const ordered = expanded.map((item) => ({ ...item, start: Date.parse(item.startsAt) })).sort((a, b) => a.start - b.start);
+      const activeHolds = data.bookingSlotHolds.filter((hold) => hold.holdTokenHash === holdTokenHash && Date.parse(hold.expiresAt) > Date.now());
+      if (activeHolds.length !== ordered.length || ordered.some((item) => !activeHolds.some((hold) =>
+        Date.parse(hold.startsAt) === item.start && hold.durationMin === item.lesson.durationMin,
+      ))) return Promise.resolve({ ok: false, error: "conflict" as const });
       if (ordered.some((item, index) => !Number.isFinite(item.start) || dayKeyOf(item.startsAt) < anchorDay ||
           dayKeyOf(item.startsAt) > maxDay || (index > 0 && item.start === ordered[index - 1].start))) {
         return Promise.resolve({ ok: false, error: "not_found" as const });
@@ -398,6 +455,7 @@ export const fileStore: BookingStore = {
         gender: input.gender,
         licenseNumber: input.licenseNumber,
       });
+      data.bookingSlotHolds = data.bookingSlotHolds.filter((hold) => hold.holdTokenHash !== holdTokenHash);
       data.tokens = data.tokens.filter((entry) => entry.tokenHash !== token.hash);
       data.tokens.push({ tokenHash: token.hash, bookingId: records[0].id, expiresAt: token.expiresAt });
       let offset = input.packages[0].startsAt.length;

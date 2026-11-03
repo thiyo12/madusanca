@@ -15,6 +15,7 @@ import type {
   ChequeStatus,
   BookingStore,
   BookingStatus,
+  BookingSlotHold,
   BusyInterval,
   CreateBookingInput,
   CreateBookingBundleInput,
@@ -241,14 +242,14 @@ export const supabaseStore: BookingStore = {
     }));
   },
 
-  async getBusy(fromIso: string, toIso: string): Promise<BusyInterval[]> {
-    const [bookings, upgrades] = await Promise.all([adminClient()
+  async getBusy(fromIso: string, toIso: string, excludeHoldTokenHash?: string): Promise<BusyInterval[]> {
+    const [bookings, upgrades, holds] = await Promise.all([adminClient()
       .from("bookings")
       .select("starts_at, duration_min")
       .or(`status.in.(confirmed,rescheduled),and(status.eq.pending_payment,or(stripe_checkout_expires_at.is.null,stripe_checkout_expires_at.gt.${new Date().toISOString()}))`)
       .lt("starts_at", toIso)
-      .gt("starts_at", new Date(Date.parse(fromIso) - 600 * 60_000).toISOString()), adminClient().from("bookings").select("stripe_upgrade_target_sessions, stripe_upgrade_target_duration_min").not("stripe_upgrade_checkout_session_id", "is", null)]);
-    if (bookings.error || upgrades.error) throw new Error(`Failed to load booking availability: ${bookings.error?.message ?? upgrades.error?.message}`);
+      .gt("starts_at", new Date(Date.parse(fromIso) - 600 * 60_000).toISOString()), adminClient().from("bookings").select("stripe_upgrade_target_sessions, stripe_upgrade_target_duration_min").not("stripe_upgrade_checkout_session_id", "is", null), adminClient().from("booking_slot_holds").select("hold_token_hash, starts_at, duration_min").lt("starts_at", toIso).gt("starts_at", new Date(Date.parse(fromIso) - 600 * 60_000).toISOString()).gt("expires_at", new Date().toISOString())]);
+    if (bookings.error || upgrades.error || holds.error) throw new Error(`Failed to load booking availability: ${bookings.error?.message ?? upgrades.error?.message ?? holds.error?.message}`);
     const intervals = (bookings.data ?? []).flatMap((row) => {
       const startsAt = new Date(row.starts_at).toISOString();
       const endsAt = new Date(Date.parse(startsAt) + occupiedDurationMin(row.duration_min) * 60_000).toISOString();
@@ -256,9 +257,29 @@ export const supabaseStore: BookingStore = {
     }).concat((upgrades.data ?? []).flatMap((row) => ((row.stripe_upgrade_target_sessions ?? []) as Array<{ startsAt: string; endsAt: string }>).map((item) => ({
       startsAt: item.startsAt,
       endsAt: new Date(Date.parse(item.startsAt) + occupiedDurationMin(row.stripe_upgrade_target_duration_min ?? 600) * 60_000).toISOString(),
+    }))).concat((holds.data ?? []).filter((row) => row.hold_token_hash !== excludeHoldTokenHash).map((row) => ({
+      startsAt: new Date(row.starts_at).toISOString(),
+      endsAt: new Date(Date.parse(row.starts_at) + occupiedDurationMin(row.duration_min) * 60_000).toISOString(),
     })))
       .filter((item) => new Date(item.startsAt) < new Date(toIso) && new Date(item.endsAt) > new Date(fromIso)));
     return intervals;
+  },
+
+  async createBookingHold(slots: BookingSlotHold[], holdTokenHash: string, expiresAt: string) {
+    const { data, error } = await adminClient().rpc("hold_booking_slots", {
+      p_token_hash: holdTokenHash,
+      p_slots: slots,
+      p_expires_at: expiresAt,
+    });
+    if (error) throw new Error(`Failed to hold booking slots: ${error.message}`);
+    const result = data as { ok: boolean; error?: string; expiresAt?: string };
+    if (!result.ok || !result.expiresAt) return { ok: false as const, error: result.error === "conflict" ? "conflict" as const : "not_found" as const };
+    return { ok: true as const, value: { expiresAt: result.expiresAt } };
+  },
+
+  async releaseBookingHold(holdTokenHash: string) {
+    const { error } = await adminClient().rpc("release_booking_slots", { p_token_hash: holdTokenHash });
+    if (error) throw new Error(`Failed to release booking hold: ${error.message}`);
   },
 
   async createBooking(
@@ -320,6 +341,7 @@ export const supabaseStore: BookingStore = {
   async createBookingBundle(
     input: CreateBookingBundleInput,
     token: { hash: string; expiresAt: string },
+    holdTokenHash: string,
   ): Promise<StoreResult<BookingRecord[]>> {
     const { data, error } = await adminClient().rpc("create_booking_bundle_with_student_details", {
       p_token_hash: token.hash,
@@ -332,6 +354,7 @@ export const supabaseStore: BookingStore = {
       p_date_of_birth: input.dateOfBirth,
       p_gender: input.gender,
       p_license_number: input.licenseNumber,
+      p_hold_token_hash: holdTokenHash,
     });
     if (error) throw new Error(`Failed to create booking bundle: ${error.message}`);
     const envelope = data as { ok: true; records?: BookingRow[] } | { ok: false; error: string };

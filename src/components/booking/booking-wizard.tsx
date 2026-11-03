@@ -8,7 +8,7 @@ import { DetailsStep, emptyDetails, type DetailsValue } from "@/components/booki
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { formatLessonPrice, type Lesson } from "@/lib/data/lessons";
-import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
+import { addMonthsToKey, dayKeyOf, formatSlotFull, formatSlotTime } from "@/lib/booking/format";
 import type { PackageQuantitySelection, ScheduledPackageSelection } from "@/lib/booking/types";
 
 export interface BookingWizardProps {
@@ -39,6 +39,8 @@ interface StoredBookingDraft {
   showAddOns: boolean;
   appointmentIndex: number;
   details: DetailsValue;
+  holdToken?: string | null;
+  holdExpiresAt?: string | null;
 }
 
 interface SuccessData {
@@ -74,6 +76,9 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [availabilityRevision, setAvailabilityRevision] = useState(0);
+  const [holdToken, setHoldToken] = useState<string | null>(null);
+  const [holdExpiresAt, setHoldExpiresAt] = useState<string | null>(null);
+  const [reservingTimes, setReservingTimes] = useState(false);
   const [success, setSuccess] = useState<SuccessData | null>(null);
   const [draftReady, setDraftReady] = useState(false);
 
@@ -143,6 +148,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           setLesson(restoredLesson);
           setPackageQuantities(quantities);
           setScheduledStarts(starts);
+          setHoldToken(typeof saved.holdToken === "string" ? saved.holdToken : null);
+          setHoldExpiresAt(typeof saved.holdExpiresAt === "string" ? saved.holdExpiresAt : null);
           setShowAddOns(saved.showAddOns === true);
           setAppointmentIndex(Number.isSafeInteger(saved.appointmentIndex) && (saved.appointmentIndex ?? -1) >= 0 ? saved.appointmentIndex! : 0);
           setDetails(restoredDetails);
@@ -180,6 +187,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
       showAddOns,
       appointmentIndex,
       details,
+      holdToken,
+      holdExpiresAt,
     };
     try {
       window.sessionStorage.setItem(BOOKING_DRAFT_KEY, JSON.stringify(draft));
@@ -202,7 +211,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
       setDetails(emptyDetails);
     }, BOOKING_DRAFT_TTL_MS);
     return () => window.clearTimeout(expiry);
-  }, [draftReady, success, stepIndex, lesson, packageQuantities, scheduledStarts, showAddOns, appointmentIndex, details]);
+  }, [draftReady, success, stepIndex, lesson, packageQuantities, scheduledStarts, showAddOns, appointmentIndex, details, holdToken, holdExpiresAt]);
 
   const packageSchedules = useMemo<ScheduledPackageSelection[]>(() => {
     if (!lesson) return [];
@@ -231,13 +240,55 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
     return first ? addMonthsToKey(dayKeyOf(first), 6) : undefined;
   }, [scheduledStarts]);
 
-  function goNext() {
+  async function releaseCurrentHold() {
+    if (holdToken) {
+      try {
+        await fetch("/api/bookings/hold/release", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ holdToken }),
+        });
+      } catch {
+        // The server-side expiry still releases the hold if this request fails.
+      }
+    }
+    setHoldToken(null);
+    setHoldExpiresAt(null);
+  }
+
+  async function goNext() {
     if (!canAdvance) return;
+    if (step === "when") {
+      setReservingTimes(true);
+      setSubmitError(null);
+      try {
+        const response = await fetch("/api/bookings/hold", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packageSchedules }),
+        });
+        const result = await response.json() as { ok?: boolean; error?: string; holdToken?: string; expiresAt?: string };
+        if (!response.ok || !result.ok || !result.holdToken || !result.expiresAt) {
+          setSubmitError(result.error ?? "Could not reserve those times. Please choose again.");
+          if (response.status === 409) setAvailabilityRevision((revision) => revision + 1);
+          return;
+        }
+        setHoldToken(result.holdToken);
+        setHoldExpiresAt(result.expiresAt);
+        setStepIndex((index) => Math.min(index + 1, STEPS.length - 1));
+      } catch {
+        setSubmitError("Could not reserve those times. Check your connection and try again.");
+      } finally {
+        setReservingTimes(false);
+      }
+      return;
+    }
     setStepIndex((index) => Math.min(index + 1, STEPS.length - 1));
   }
 
-  function goBack() {
+  async function goBack() {
     setSubmitError(null);
+    if (step === "preview") await releaseCurrentHold();
     setStepIndex((index) => Math.max(index - 1, 0));
   }
 
@@ -294,6 +345,16 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
 
   async function confirmBooking() {
     if (!lesson || !appointments.every((item) => Boolean(scheduledStarts[item.key]))) return;
+    if (!holdToken || !holdExpiresAt || Date.parse(holdExpiresAt) <= Date.now()) {
+      setSubmitError("Your 8-minute time hold has expired. Please select the lesson times again.");
+      setHoldToken(null);
+      setHoldExpiresAt(null);
+      setScheduledStarts({});
+      setAppointmentIndex(0);
+      setStepIndex(STEPS.findIndex((item) => item.key === "when"));
+      setAvailabilityRevision((revision) => revision + 1);
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -304,6 +365,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           lessonId: lesson.id,
           packageSchedules,
           addOnPackages,
+          holdToken,
           studentName: details.studentName.trim(),
           email: details.email.trim(),
           phone: details.phone.trim(),
@@ -344,7 +406,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
       if (!response.ok || !result.ok || !result.booking || !result.manageToken) {
         const message = result.error ?? "Could not complete your booking. Please try again.";
         if (response.status === 409 || message === "We couldn’t reserve this booking. Please review your selected times and try again.") {
-          setSubmitError("Your saved lesson times could not be reserved. Please select the currently available times again.");
+          setSubmitError("Your time hold expired or a selected time changed. Please select the currently available times again.");
+          void releaseCurrentHold();
           setStepIndex(STEPS.findIndex((item) => item.key === "when"));
           setAppointmentIndex(0);
           setScheduledStarts({});
@@ -360,6 +423,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
       } catch {
         // Successful booking should not depend on browser storage access.
       }
+      setHoldToken(null);
+      setHoldExpiresAt(null);
       setSuccess({
         reference: result.booking.reference,
         manageToken: result.manageToken,
@@ -415,7 +480,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         <section className="mt-4 rounded-[17px] border border-line bg-white p-4 sm:p-5">
           <h3 className="text-sm font-extrabold text-ink">Scheduled lessons</h3>
           <ol className="mt-2 grid gap-2 text-[13px]">
-            {success.sessions.map((session, index) => <li key={`${session.startsAt}-${index}`} className="flex flex-wrap justify-between gap-3 border-b border-line pb-2 last:border-0"><span className="text-soft">{session.lessonName}</span><strong className="text-ink">{new Date(session.startsAt).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })} Pacific</strong></li>)}
+            {success.sessions.map((session, index) => <li key={`${session.startsAt}-${index}`} className="flex flex-wrap justify-between gap-3 border-b border-line pb-2 last:border-0"><span className="text-soft">{session.lessonName}</span><strong className="text-ink">{formatSlotFull(session.startsAt)} Pacific</strong></li>)}
           </ol>
         </section>
         {success.addOns.length > 0 && (
@@ -476,6 +541,12 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           );
         })}
       </ol>
+
+      {holdExpiresAt && stepIndex >= STEPS.findIndex((item) => item.key === "preview") && (
+        <p role="status" className="mt-4 rounded-lg bg-[#eaf5df] px-3 py-2 text-xs font-bold text-[#31543a]">
+          Your selected lesson times are held until {formatSlotTime(holdExpiresAt)} Pacific (8 minutes).
+        </p>
+      )}
 
       {step === "lesson" && (
         <div className="grid gap-5">
@@ -608,7 +679,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
                             <span aria-hidden="true" className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[10px] font-extrabold ${startsAt ? "bg-[#31543a] text-white" : "bg-mist text-soft"}`}>{startsAt ? "✓" : index + 1}</span>
                             <span className="min-w-0 flex-1">
                               <span className="block text-[11px] font-bold text-ink">{item.label}</span>
-                              <span className="block truncate text-[10px] text-soft">{startsAt ? `${new Date(startsAt).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })} Pacific` : "Choose a time"}</span>
+                              <span className="block truncate text-[10px] text-soft">{startsAt ? `${formatSlotFull(startsAt)} Pacific` : "Choose a time"}</span>
                             </span>
                             {active && <span className="shrink-0 text-[10px] font-extrabold text-[#31543a]">Selected</span>}
                           </button>
@@ -638,7 +709,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
                 {appointments.map((item, index) => (
                   <li key={item.key} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#fbfcf9] px-3 py-2.5 text-[12px]">
                     <span className="font-semibold text-ink">{index + 1}. {item.groupLabel} · {item.label}</span>
-                    <strong className="text-[#31543a]">{new Date(scheduledStarts[item.key]).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })} Pacific</strong>
+                    <strong className="text-[#31543a]">{formatSlotFull(scheduledStarts[item.key])} Pacific</strong>
                   </li>
                 ))}
               </ol>
@@ -660,8 +731,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3 border-t border-line pt-5">
-            <Button variant="outline" onClick={() => setStepIndex(STEPS.findIndex((item) => item.key === "when"))}>Change date / time</Button>
-            <Button variant="outline" onClick={() => setStepIndex(STEPS.findIndex((item) => item.key === "lesson"))}>Change package</Button>
+            <Button variant="outline" onClick={async () => { await releaseCurrentHold(); setSubmitError(null); setStepIndex(STEPS.findIndex((item) => item.key === "when")); }}>Change date / time</Button>
+            <Button variant="outline" onClick={async () => { await releaseCurrentHold(); setStepIndex(STEPS.findIndex((item) => item.key === "lesson")); }}>Change package</Button>
             <Button onClick={() => setStepIndex(STEPS.findIndex((item) => item.key === "details"))} className="ml-auto">Continue to your details <span aria-hidden="true">→</span></Button>
           </div>
         </section>
@@ -718,14 +789,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           </section>
           <div className="mt-4 space-y-2 text-[13px] leading-relaxed text-soft">
             <p>
-              Confirming reserves all selected lesson times. Your confirmation email links to My Booking,
+              Your selected lesson times are temporarily held for 8 minutes. Confirm now to complete the booking. Your confirmation email links to My Booking,
               where you must verify your email before viewing or changing bookings.
             </p>
             {appointments.length > 1 ? (
               <div>
                 <p>All {appointments.length} lesson times are included and must be within six months of the first lesson:</p>
                 <ol className="mt-2 list-inside list-decimal">
-                  {appointments.map((item) => <li key={item.key}>{item.lessonName} — {new Date(scheduledStarts[item.key]).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })} Pacific</li>)}
+                  {appointments.map((item) => <li key={item.key}>{item.lessonName} — {formatSlotFull(scheduledStarts[item.key])} Pacific</li>)}
                 </ol>
               </div>
             ) : lesson.id === "road-test-package" ? (
@@ -747,10 +818,10 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
             <Button variant="outline" onClick={goBack} disabled={submitting}>
               Change details
             </Button>
-            <Button variant="outline" onClick={() => { setSubmitError(null); setStepIndex(0); }} disabled={submitting}>
+            <Button variant="outline" onClick={async () => { await releaseCurrentHold(); setSubmitError(null); setStepIndex(0); }} disabled={submitting}>
               Change lesson / extras
             </Button>
-            <Button variant="outline" onClick={() => { setSubmitError(null); setStepIndex(1); setAppointmentIndex(0); }} disabled={submitting}>
+            <Button variant="outline" onClick={async () => { await releaseCurrentHold(); setSubmitError(null); setStepIndex(1); setAppointmentIndex(0); }} disabled={submitting}>
               Change date / time
             </Button>
           </div>
@@ -762,8 +833,8 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           <Button variant="ghost" onClick={() => step === "when" && appointmentIndex > 0 ? setAppointmentIndex((index) => index - 1) : goBack()} disabled={stepIndex === 0}>
             <span aria-hidden="true">←</span> Back
           </Button>
-          <Button onClick={goNext} disabled={!canAdvance}>
-            Continue <span aria-hidden="true">→</span>
+          <Button onClick={goNext} disabled={!canAdvance || reservingTimes}>
+            {reservingTimes ? "Holding times…" : step === "when" ? "Continue and hold times" : "Continue"} <span aria-hidden="true">→</span>
           </Button>
         </div>
       )}

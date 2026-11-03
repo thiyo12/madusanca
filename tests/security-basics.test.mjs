@@ -25,8 +25,8 @@ import { contactSchema } from "../src/lib/validation/contact.ts";
 import { hasTrustedRequestOrigin } from "../src/lib/server/request-origin.ts";
 import { createStudentBookingPdf } from "../src/lib/admin/student-booking-pdf.ts";
 import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts";
-import { addMonthsToKey } from "../src/lib/booking/format.ts";
-import { generateSlots, HORIZON_DAYS, occupiedDurationMin, zonedToUtc } from "../src/lib/booking/slots.ts";
+import { addMonthsToKey, dayKeyOf, formatSlotTime } from "../src/lib/booking/format.ts";
+import { generateSlots, HORIZON_DAYS, occupiedDurationMin, toVancouverDayKey, toVancouverParts, zonedToUtc } from "../src/lib/booking/slots.ts";
 import { manageUrl } from "../src/lib/booking/urls.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
@@ -112,6 +112,16 @@ test("90-minute lesson starts follow a two-hour cadence anchored to daily availa
   assert.deepEqual(afternoon, [13, 15, 17].map((hour) => zonedToUtc(2026, 11, 3, hour * 60).toISOString()));
 });
 
+test("Pacific booking times remain UTC-7 after British Columbia's final clock change", () => {
+  const nineAm = zonedToUtc(2027, 1, 2, 9 * 60);
+  assert.equal(nineAm.toISOString(), "2027-01-02T16:00:00.000Z");
+  assert.equal(toVancouverParts(nineAm).minutesOfDay, 9 * 60);
+  assert.equal(toVancouverDayKey(new Date("2027-01-02T06:59:00.000Z")), "2027-01-01");
+  assert.equal(toVancouverDayKey(new Date("2027-01-02T07:00:00.000Z")), "2027-01-02");
+  assert.equal(dayKeyOf("2027-01-02T16:00:00.000Z"), "2027-01-02");
+  assert.match(formatSlotTime("2027-01-02T16:00:00.000Z"), /9/);
+});
+
 test("booking validation accepts quantity-based package selection", () => {
   const parsed = createBookingSchema.safeParse({
     lessonId: "90-minute-lesson",
@@ -126,6 +136,7 @@ test("booking validation accepts quantity-based package selection", () => {
     dateOfBirth: "1990-01-01",
     gender: "prefer_not_to_say",
     licenseNumber: "BC123456",
+    holdToken: "h".repeat(43),
     consent: true,
   });
   assert.equal(parsed.success, true);
@@ -139,6 +150,7 @@ test("booking validation accepts quantity-based package selection", () => {
     dateOfBirth: "1990-01-01",
     gender: "woman",
     licenseNumber: "BC123456",
+    holdToken: "h".repeat(43),
     consent: true,
   }).success, false);
   assert.equal(createBookingSchema.safeParse({
@@ -150,6 +162,7 @@ test("booking validation accepts quantity-based package selection", () => {
     dateOfBirth: "2999-01-01",
     gender: "woman",
     licenseNumber: "BC123456",
+    holdToken: "h".repeat(43),
     consent: true,
   }).success, false);
 });
@@ -465,6 +478,7 @@ test("package scheduling uses calendar-month windows and package fields are vali
     dateOfBirth: "1990-01-01",
     gender: "woman",
     licenseNumber: "BC123456",
+    holdToken: "h".repeat(43),
     consent: true,
   };
   assert.equal(createBookingSchema.safeParse({ ...details, sessions: Array.from({ length: 8 }, (_, i) => `2026-11-${String(i + 2).padStart(2, "0")}T18:00:00.000Z`) }).success, true);

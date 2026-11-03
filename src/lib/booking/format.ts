@@ -9,51 +9,45 @@ export function maskEmail(email: string): string {
   return `${head}${"•".repeat(Math.max(3, local.length - 1))}@${domain}`;
 }
 
-const SLOT_TIME_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Vancouver",
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+const PCT_EFFECTIVE_UTC = Date.UTC(2026, 10, 1, 9);
+const PCT_OFFSET_MS = -7 * 60 * 60_000;
 
-const SLOT_DAY_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Vancouver",
-  weekday: "short",
-  month: "short",
-  day: "numeric",
-});
-
-const SLOT_FULL_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Vancouver",
-  weekday: "long",
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+function formatPacific(instant: Date, options: Intl.DateTimeFormatOptions): string {
+  const permanentPacific = instant.getTime() >= PCT_EFFECTIVE_UTC;
+  const adjusted = permanentPacific ? new Date(instant.getTime() + PCT_OFFSET_MS) : instant;
+  return new Intl.DateTimeFormat("en-CA", {
+    ...options,
+    timeZone: permanentPacific ? "UTC" : "America/Vancouver",
+  }).format(adjusted);
+}
 
 export function formatSlotTime(iso: string): string {
-  return SLOT_TIME_FORMAT.format(new Date(iso)).replace(/\s/g, " ");
+  return formatPacific(new Date(iso), { hour: "numeric", minute: "2-digit", hour12: true }).replace(/\s/g, " ");
 }
 
 export function formatSlotDay(iso: string): string {
-  return SLOT_DAY_FORMAT.format(new Date(iso));
+  return formatPacific(new Date(iso), { weekday: "short", month: "short", day: "numeric" });
 }
 
 export function formatSlotFull(iso: string): string {
-  return SLOT_FULL_FORMAT.format(new Date(iso));
+  return formatPacific(new Date(iso), {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).replace(/\s/g, " ");
 }
 
 /** YYYY-MM-DD in Vancouver — used as the grouping key for the day picker. */
 export function dayKeyOf(iso: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Vancouver",
+  return formatPacific(new Date(iso), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date(iso));
+  });
 }
 
 export function addDaysToKey(dayKey: string, days: number): string {

@@ -10,6 +10,14 @@ export function isValidDateOnly(value: string): boolean {
 
 export const dateOnlySchema = z.string().refine(isValidDateOnly, "Please choose a valid date.");
 
+export const bookingHoldSchema = z.object({
+  packageSchedules: z.array(z.object({
+    lessonId: z.string().trim().min(1).max(64),
+    quantity: z.number().int().safe().min(1).max(100_000),
+    startsAt: z.array(isoDateTimeSchema).min(1).max(200),
+  }).strict()).min(1).max(20),
+}).strict();
+
 export const availabilityQuerySchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
   /** YYYY-MM-DD (Vancouver); defaults server-side to today. */
@@ -46,6 +54,7 @@ export const createBookingSchema = z.object({
   dateOfBirth: dateOnlySchema.refine((value) => value <= new Date().toISOString().slice(0, 10), "Date of birth cannot be in the future."),
   gender: z.enum(["woman", "man", "non_binary", "another_identity", "prefer_not_to_say"]),
   licenseNumber: z.string().trim().min(4, "Enter your driver’s licence number.").max(32),
+  holdToken: z.string().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
   /** Honeypot — bots fill it and the route silently pretends to succeed. */
   website: z.string().trim().max(120).optional().or(z.literal("")),

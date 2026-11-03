@@ -138,14 +138,5 @@ export async function sendBookingCancelledEmail(args: BookingArgs): Promise<bool
 }
 
 function bookingDetailsWhen(iso: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Vancouver",
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(new Date(iso));
+  return formatSlotFull(iso);
 }

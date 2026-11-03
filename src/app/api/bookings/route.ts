@@ -139,6 +139,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       const busy = await store.getBusy(
         new Date(startMs - 24 * 60 * 60 * 1000).toISOString(),
         new Date(startMs + 48 * 60 * 60 * 1000).toISOString(),
+        hashToken(parsed.data.holdToken),
       );
       const validation = validateSlot(selectedStart, {
         lessonDurationMin: scheduledLesson.durationMin,
@@ -174,7 +175,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         gender: parsed.data.gender,
         licenseNumber: parsed.data.licenseNumber,
         notes: notes ?? "",
-      }, { hash: hashToken(token), expiresAt: tokenExpiry() });
+      }, { hash: hashToken(token), expiresAt: tokenExpiry() }, hashToken(parsed.data.holdToken));
 
     if (!result.ok) {
       return NextResponse.json(
