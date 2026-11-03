@@ -12,7 +12,7 @@ export const HORIZON_DAYS = 370;
 
 /** Instructor occupancy is distinct from the lesson duration shown to students. */
 export function occupiedDurationMin(lessonDurationMin: number): number {
-  return lessonDurationMin === 90 ? 120 : lessonDurationMin;
+  return lessonDurationMin === 45 || lessonDurationMin === 90 ? 120 : lessonDurationMin;
 }
 
 /** Default school hours: Mon–Sat 09:00–18:00, Sunday closed. */
@@ -188,7 +188,7 @@ export function generateSlots(query: SlotQuery): string[] {
 
   const occupiedMinutes = occupiedDurationMin(query.lessonDurationMin);
   const occupiedMs = occupiedMinutes * 60000;
-  const slotStepMs = (query.lessonDurationMin === 90 ? occupiedMinutes : SLOT_STEP_MIN) * 60000;
+  const slotStepMs = (occupiedMinutes >= 120 ? occupiedMinutes : SLOT_STEP_MIN) * 60000;
   const busyRanges = toBusyRanges(query.busy);
   const blackoutSet = new Set(query.blackouts.map((b) => b.date));
   const rulesByWeekday = new Map<number, AvailabilityRule>();

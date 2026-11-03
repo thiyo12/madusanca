@@ -148,7 +148,7 @@ function activeBookings(data: FileData): BookingRecord[] {
   return data.bookings.filter((b) =>
     b.status === "confirmed" || b.status === "rescheduled" ||
     (b.status === "pending_payment" &&
-      Date.parse(b.stripeCheckoutExpiresAt ?? new Date(Date.parse(b.createdAt) + 30 * 60 * 1000).toISOString()) > now),
+      Date.parse(b.stripeCheckoutExpiresAt ?? new Date(Date.parse(b.createdAt) + 10 * 60 * 1000).toISOString()) > now),
   );
 }
 
@@ -279,7 +279,7 @@ export const fileStore: BookingStore = {
         status: "pending_payment",
         paymentStatus: "due",
         stripeCheckoutAttempt: 0,
-        stripeCheckoutExpiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        stripeCheckoutExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         createdAt: now,
         updatedAt: now,
       };
@@ -349,7 +349,7 @@ export const fileStore: BookingStore = {
         status: "pending_payment",
         paymentStatus: "due",
         stripeCheckoutAttempt: 0,
-        stripeCheckoutExpiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        stripeCheckoutExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         createdAt: now,
         updatedAt: now,
       }));
@@ -454,7 +454,7 @@ export const fileStore: BookingStore = {
             status: "pending_payment",
             paymentStatus: "due",
             stripeCheckoutAttempt: 0,
-            stripeCheckoutExpiresAt: new Date(Date.now() + 31 * 60_000).toISOString(),
+            stripeCheckoutExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
             createdAt: now,
             updatedAt: now,
           });
@@ -670,9 +670,22 @@ export const fileStore: BookingStore = {
       const booking = data.bookings.find((b) => b.id === id);
       if (!booking) return Promise.resolve({ ok: false, error: "not_found" as const });
       const packageId = booking.packageId ?? booking.id;
+      if (paymentStatus === "paid" && booking.status === "pending_payment" &&
+          Date.parse(booking.stripeCheckoutExpiresAt ?? new Date(Date.parse(booking.createdAt) + 10 * 60_000).toISOString()) <= Date.now()) {
+        const packageSessions = data.bookings.filter((item) => (item.packageId ?? item.id) === packageId);
+        const otherBookings = activeBookings(data).filter((item) => (item.packageId ?? item.id) !== packageId);
+        const expiredTimeTaken = packageSessions.some((session) => otherBookings.some((other) =>
+          overlaps(
+            Date.parse(session.startsAt), occupiedEnd(session.startsAt, session.durationMin),
+            Date.parse(other.startsAt), occupiedEnd(other.startsAt, other.durationMin),
+          ),
+        ));
+        if (expiredTimeTaken) return Promise.resolve({ ok: false, error: "conflict" as const });
+      }
       const now = new Date().toISOString();
       data.bookings.filter((item) => (item.packageId ?? item.id) === packageId).forEach((session) => {
         session.paymentStatus = paymentStatus;
+        if (paymentStatus === "paid" && session.status === "pending_payment") session.status = "confirmed";
         session.updatedAt = now;
       });
       save(data);

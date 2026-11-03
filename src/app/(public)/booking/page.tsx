@@ -38,6 +38,7 @@ export default async function BookingPage({ searchParams }: BookingPageProps) {
           <BookingWizard
             lessons={lessons}
             initialLessonId={initialLesson?.id}
+            paymentCancelled={params.payment === "cancelled"}
           />
         </div>
       </section>

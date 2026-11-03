@@ -183,11 +183,9 @@ export default async function AdminBookingsPage({ searchParams }: BookingsPagePr
                           ? "border-[#cce6b1] bg-[#f1f9e9] text-[#385a22]"
                           : booking.paymentStatus === "refunded"
                           ? "border-[#eadcb1] bg-[#fff9e9] text-[#735c1e]"
-                          : booking.paymentStatus === "waived"
-                          ? "border-[#fdecea] bg-[#fff5f2] text-[#bc4633]"
                           : "border border-line bg-white text-soft"
                       }`}>
-                        {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : booking.paymentStatus === "waived" ? "Waived" : "Due"}
+                        {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : "Due"}
                       </span>
                       {booking.stripeInvoiceUrl && (
                         <a href={booking.stripeInvoiceUrl} target="_blank" rel="noreferrer" className="mt-block block text-[10px] font-extrabold text-[#426a2c] underline underline-offset-2 hover:text-[#1f7a45]">

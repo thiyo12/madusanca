@@ -228,7 +228,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         lesson_name: found.booking.lessonName,
       },
       success_url: `${siteBase()}/booking/manage?payment=success`,
-      cancel_url: `${siteBase()}/booking/manage?payment=cancelled`,
+      cancel_url: `${siteBase()}/booking?payment=cancelled`,
       integration_identifier: `wisdom_web_${randomLetters(8)}`,
     }, {
       idempotencyKey: `wisdom-booking-${found.booking.id}-${found.booking.stripeCheckoutAttempt ?? 0}`,

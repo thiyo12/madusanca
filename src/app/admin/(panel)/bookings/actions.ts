@@ -19,7 +19,7 @@ import { isoDateTimeSchema } from "@/lib/validation/booking";
 
 const idSchema = z.string().min(1).max(64);
 const statusSchema = z.enum(["confirmed", "completed", "cancelled"]);
-const paymentStatusSchema = z.enum(["due", "paid", "refunded", "waived"]);
+const paymentStatusSchema = z.literal("paid");
 const chequeStatusSchema = z.enum(["none", "received", "cleared", "returned"]);
 
 function revalidateAdmin(): void {
@@ -99,18 +99,14 @@ export async function setBookingPaymentAction(
   const booking = await store.getBookingById(bookingId);
   if (!booking) fail("Booking not found.");
 
-  // Paid/refunded are financial facts and must come from Stripe. Manual
-  // adjustments are limited to marking a balance due or waiving collection.
-  if (paymentStatus === "paid" || paymentStatus === "refunded") {
-    fail("Payments and refunds must be completed in Stripe. This page only lets you waive or restore a due balance.");
-  }
+  if (booking.paymentStatus !== "due") fail("Only bookings with payment due can be marked paid by cash.");
 
-  if ((paymentStatus === "due" || paymentStatus === "waived") && booking.stripePaymentIntentId) {
+  if (booking.stripePaymentIntentId) {
     try {
       const stripe = getStripe();
       const intent = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
       if (intent.status === "succeeded" || intent.status === "processing") {
-        fail("Stripe shows a successful or processing payment. Do not change this balance; reconcile it in Stripe first.");
+        fail("Stripe shows a successful or processing card payment. This booking cannot be marked paid by cash.");
       }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
@@ -119,22 +115,18 @@ export async function setBookingPaymentAction(
     }
   }
 
-  if (paymentStatus === "waived") {
-    const sameEmailBookings = await store.listBookings({ search: booking.email });
-    const packageId = booking.packageId ?? booking.id;
-    const checkoutOwner = sameEmailBookings.find((item) =>
-      (item.packageId ?? item.id) === packageId && item.stripeCheckoutSessionId,
-    ) ?? booking;
-    await expireOpenCheckout(checkoutOwner);
-  }
+  const sameEmailBookings = await store.listBookings({ search: booking.email });
+  const packageId = booking.packageId ?? booking.id;
+  const checkoutOwner = sameEmailBookings.find((item) =>
+    (item.packageId ?? item.id) === packageId && item.stripeCheckoutSessionId,
+  ) ?? booking;
+  await expireOpenCheckout(checkoutOwner);
 
   const result = await store.updatePaymentStatus(bookingId, paymentStatus);
   if (!result.ok) {
-    fail(result.error === "not_found" ? "Booking not found." : "Could not update payment status.");
-  }
-
-  if (paymentStatus === "waived" && booking.status === "pending_payment") {
-    await store.updateBookingStatus(bookingId, "confirmed");
+    fail(result.error === "not_found"
+      ? "Booking not found."
+      : "The expired time is no longer available. Contact the customer to arrange another time before marking it paid.");
   }
 
   revalidateAdmin();

@@ -20,7 +20,6 @@ const PAYMENT_STATUSES: Array<{ value: string; label: string }> = [
   { value: "due", label: "Due" },
   { value: "paid", label: "Paid" },
   { value: "refunded", label: "Refunded" },
-  { value: "waived", label: "Waived" },
 ];
 
 export default async function AdminPaymentsPage({ searchParams }: PaymentsPageProps) {
@@ -245,11 +244,9 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                           ? "border-[#cce6b1] bg-[#f1f9e9] text-[#385a22]"
                           : booking.paymentStatus === "refunded"
                           ? "border-[#eadcb1] bg-[#fff9e9] text-[#735c1e]"
-                          : booking.paymentStatus === "waived"
-                          ? "border-[#fdecea] bg-[#fff5f2] text-[#bc4633]"
                           : "border border-line bg-white text-soft"
                       }`}>
-                        {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : booking.paymentStatus === "waived" ? "Waived" : "Due"}
+                        {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : "Due"}
                       </span>
                       {booking.stripeInvoiceUrl && (
                         <a
@@ -273,20 +270,17 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex justify-end gap-2">
-                        {(booking.paymentStatus === "due" || booking.paymentStatus === "waived") && <form
+                        {booking.paymentStatus === "due" && <form
                           action={async () => {
                             "use server";
-                            await setBookingPaymentAction(
-                              booking.id,
-                              booking.paymentStatus === "waived" ? "due" : "waived",
-                            );
+                            await setBookingPaymentAction(booking.id, "paid");
                           }}
                         >
                           <button
                             type="submit"
                             className="inline-flex h-8 items-center rounded-[8px] px-3 text-[11.5px] font-extrabold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-50 border border-[#cce6b1] bg-[#f1f9e9] text-[#385a22] hover:bg-[#cce6b1]"
                           >
-                            {booking.paymentStatus === "waived" ? "Restore Due" : "Waive Balance"}
+                            Mark Paid by Cash
                           </button>
                         </form>}
                         <form action={updateBookingChequeAction} className="mt-2 grid gap-1.5">

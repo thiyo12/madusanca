@@ -92,20 +92,20 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, paymentS
 
       <div className="flex flex-wrap items-center gap-2 border-l border-line pl-2">
         <p className="text-[10px] font-extrabold uppercase tracking-wider text-soft">
-          Payment: {paymentStatus === "paid" ? "Paid" : paymentStatus === "refunded" ? "Refunded" : paymentStatus === "waived" ? "Waived" : "Due"}
+          Payment: {paymentStatus === "paid" ? "Paid" : paymentStatus === "refunded" ? "Refunded" : "Due"}
         </p>
-        {(paymentStatus === "due" || paymentStatus === "waived") && (
+        {paymentStatus === "due" && (
           <form
             action={async () => {
-              if (!confirm(paymentStatus === "waived" ? "Restore this booking to due?" : "Waive this balance?")) return;
-              await setBookingPaymentAction(bookingId, paymentStatus === "waived" ? "due" : "waived");
+              if (!confirm("Confirm cash was received and mark this booking paid?")) return;
+              await setBookingPaymentAction(bookingId, "paid");
             }}
           >
             <button
               type="submit"
-              className={`${buttonBase} border border-line bg-white text-soft hover:bg-[#fdecea] hover:text-[#bc4633]`}
+              className={`${buttonBase} border border-[#cce6b1] bg-[#f1f9e9] text-[#385a22] hover:bg-[#cce6b1]`}
             >
-              {paymentStatus === "waived" ? "Restore Due" : "Waive Balance"}
+              Mark Paid by Cash
             </button>
           </form>
         )}

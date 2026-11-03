@@ -64,7 +64,7 @@ test("OTP generation is six digits and hashes bind case-insensitively to email",
 
 test("90-minute lessons reserve a 120-minute instructor block without changing lesson duration", () => {
   assert.equal(occupiedDurationMin(90), 120);
-  assert.equal(occupiedDurationMin(45), 45);
+  assert.equal(occupiedDurationMin(45), 120);
   assert.equal(occupiedDurationMin(120), 120);
 
   const bookedStart = zonedToUtc(2026, 11, 3, 8 * 60);
@@ -87,6 +87,19 @@ test("90-minute lessons reserve a 120-minute instructor block without changing l
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 10 * 60 + 30).toISOString()), false);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60).toISOString()), true);
   assert.equal(slots.includes(zonedToUtc(2026, 11, 3, 16 * 60 + 30).toISOString()), false);
+});
+
+test("45-minute road-test appointments reserve two hours and use two-hour start spacing", () => {
+  const slots = generateSlots({
+    lessonDurationMin: 45,
+    fromDayKey: "2026-11-03",
+    toDayKey: "2026-11-03",
+    busy: [],
+    blackouts: [],
+    rules: [{ weekday: 2, startMin: 7 * 60, endMin: 19 * 60 }],
+    now: new Date("2026-11-01T20:00:00.000Z"),
+  });
+  assert.deepEqual(slots, [7, 9, 11, 13, 15, 17].map((hour) => zonedToUtc(2026, 11, 3, hour * 60).toISOString()));
 });
 
 test("90-minute lesson starts follow a two-hour cadence anchored to daily availability", () => {

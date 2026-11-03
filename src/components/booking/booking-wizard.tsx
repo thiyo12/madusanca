@@ -14,6 +14,7 @@ import type { PackageQuantitySelection, ScheduledPackageSelection } from "@/lib/
 export interface BookingWizardProps {
   lessons: Lesson[];
   initialLessonId?: string;
+  paymentCancelled?: boolean;
 }
 
 type StepKey = "lesson" | "when" | "preview" | "details" | "review";
@@ -27,7 +28,9 @@ const STEPS: Array<{ key: StepKey; label: string }> = [
 ];
 
 const BOOKING_DRAFT_KEY = "wda-booking-draft-v1";
+const BOOKING_REVIEW_KEY = "wda-booking-review-v1";
 const BOOKING_DRAFT_TTL_MS = 30 * 60 * 1000;
+const BOOKING_REVIEW_TTL_MS = 60 * 60 * 1000;
 
 interface StoredBookingDraft {
   version: 1;
@@ -58,7 +61,25 @@ interface SuccessData {
   sessions: Array<{ lessonName: string; startsAt: string }>;
 }
 
-export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) {
+interface StoredBookingReview {
+  savedAt: number;
+  success: SuccessData;
+}
+
+function isSuccessData(value: unknown): value is SuccessData {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<SuccessData>;
+  return typeof item.reference === "string" && typeof item.manageToken === "string" &&
+    typeof item.lessonName === "string" && typeof item.durationMin === "number" &&
+    typeof item.startsAt === "string" && typeof item.studentName === "string" &&
+    typeof item.email === "string" && typeof item.priceCad === "number" &&
+    typeof item.emailSent === "boolean" && Array.isArray(item.addOnPackages) &&
+    item.addOnPackages.every((entry) => entry && typeof entry.lessonId === "string" && typeof entry.quantity === "number") &&
+    Array.isArray(item.addOns) && item.addOns.every((entry) => entry && typeof entry.id === "string" && typeof entry.name === "string" && typeof entry.priceCad === "number" && typeof entry.sessionCount === "number" && typeof entry.quantity === "number") &&
+    Array.isArray(item.sessions) && item.sessions.every((entry) => entry && typeof entry.lessonName === "string" && typeof entry.startsAt === "string");
+}
+
+export function BookingWizard({ lessons, initialLessonId, paymentCancelled = false }: BookingWizardProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [lesson, setLesson] = useState<Lesson | null>(() => {
     if (!initialLessonId) return null;
@@ -125,6 +146,18 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
   useEffect(() => {
     const restore = window.setTimeout(() => {
       try {
+        const savedReview = window.sessionStorage.getItem(BOOKING_REVIEW_KEY);
+        if (savedReview) {
+          const review = JSON.parse(savedReview) as Partial<StoredBookingReview>;
+          const age = Date.now() - (typeof review.savedAt === "number" ? review.savedAt : 0);
+          if (isSuccessData(review.success) && age >= 0 && age < BOOKING_REVIEW_TTL_MS) {
+            setSuccess(review.success);
+            setDetails({ ...emptyDetails, email: review.success.email });
+            setDraftReady(true);
+            return;
+          }
+          window.sessionStorage.removeItem(BOOKING_REVIEW_KEY);
+        }
         const raw = window.sessionStorage.getItem(BOOKING_DRAFT_KEY);
         if (raw) {
         const saved = JSON.parse(raw) as Partial<StoredBookingDraft>;
@@ -418,14 +451,7 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         return;
       }
 
-      try {
-        window.sessionStorage.removeItem(BOOKING_DRAFT_KEY);
-      } catch {
-        // Successful booking should not depend on browser storage access.
-      }
-      setHoldToken(null);
-      setHoldExpiresAt(null);
-      setSuccess({
+      const successData: SuccessData = {
         reference: result.booking.reference,
         manageToken: result.manageToken,
         lessonName: result.booking.lessonName,
@@ -438,7 +464,16 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
         addOnPackages: (result.addOns ?? []).map((item) => ({ lessonId: item.id, quantity: item.quantity })),
         addOns: result.addOns ?? [],
         sessions: appointments.map((item) => ({ lessonName: item.lessonName, startsAt: scheduledStarts[item.key] })).filter((item): item is { lessonName: string; startsAt: string } => Boolean(item.startsAt)),
-      });
+      };
+      try {
+        window.sessionStorage.removeItem(BOOKING_DRAFT_KEY);
+        window.sessionStorage.setItem(BOOKING_REVIEW_KEY, JSON.stringify({ savedAt: Date.now(), success: successData } satisfies StoredBookingReview));
+      } catch {
+        // Successful booking should not depend on browser storage access.
+      }
+      setHoldToken(null);
+      setHoldExpiresAt(null);
+      setSuccess(successData);
     } catch {
       setSubmitError("Network error. Please try again.");
     } finally {
@@ -453,15 +488,20 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           ✓
         </span>
         <h2 className="mt-4 font-display text-2xl font-extrabold text-ink">
-          Your booking is reserved
+          Booking request saved
         </h2>
+        {paymentCancelled && (
+          <p role="status" className="mt-2 rounded-[12px] bg-white px-3.5 py-2.5 text-[13px] font-semibold leading-relaxed text-[#31543a]">
+            Payment wasn&rsquo;t completed. Your saved booking details are still here; you can return to secure checkout when ready.
+          </p>
+        )}
         {success.emailSent ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
-            A confirmation is on its way to <strong>{details.email.trim()}</strong>. To manage this booking, verify your email on My Booking.
+            Booking and payment details were sent to <strong>{details.email.trim()}</strong>. Payment is required to confirm the booking. Your selected time is held for 10 minutes.
           </p>
         ) : (
           <p role="alert" className="mt-2 rounded-[12px] bg-[#eaf5df] px-3.5 py-2.5 text-[13px] leading-relaxed text-[#31543a]">
-            Your booking is reserved, but we couldn&rsquo;t deliver the confirmation to{" "}
+            Your booking request is saved, but we couldn&rsquo;t deliver the booking details to{" "}
             <strong>{details.email.trim()}</strong>. Save your reference below and use My Booking with your email and verification code, or call Shan at +1 236-234-3229 for help.
           </p>
         )}
@@ -499,12 +539,14 @@ export function BookingWizard({ lessons, initialLessonId }: BookingWizardProps) 
           <Button href="/booking/manage" variant="outline">
             My Booking (email code)
           </Button>
-          <Button href="/lessons" variant="outline">
+          <Button href="/lessons" variant="outline" onClick={() => {
+            try { window.sessionStorage.removeItem(BOOKING_REVIEW_KEY); } catch { /* Ignore disabled storage. */ }
+          }}>
             Back to lessons
           </Button>
         </div>
           <p className="mt-4 text-[12.5px] leading-relaxed text-[#616872]">
-          Your time is reserved while payment is due. Pay securely above or later from My Booking. To make changes, verify your email in My Booking. Please bring your valid driver&rsquo;s licence.
+          Your selected time is held for 10 minutes. Start secure card checkout above before the hold expires; the time stays reserved while checkout is open. If you plan to pay cash, contact the tutor to confirm availability. To manage a paid booking, verify your email in My Booking. Please bring your valid driver&rsquo;s licence.
         </p>
       </div>
     );

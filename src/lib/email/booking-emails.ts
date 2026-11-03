@@ -30,7 +30,7 @@ export async function sendBookingPaymentPendingEmail(args: BookingArgs): Promise
     : "";
   const html = bookingShell(
     "Complete payment to confirm your lesson",
-    `<p>Hi ${escapeHtml(args.studentName)}, we’ve saved your requested lesson time. It is not confirmed until payment is completed.</p>
+     `<p>Hi ${escapeHtml(args.studentName)}, we’ve saved your requested lesson time for 10 minutes. It is not confirmed until payment is completed. Start secure card checkout within those 10 minutes to keep the time held while checkout is open. If you do not start checkout in time, the hold expires and someone else may book that time; your booking request will remain saved, but you may need to choose another time.</p>
      ${bookingDetailsTable(args)}${schedule}
      ${manageButton(args.manageUrl)}
      <p style="font-size:13px;color:#4b525e;margin:16px 0 0">Use the secure payment button on your booking page to pay by card. Your paid invoice will be available there after checkout.</p>`,

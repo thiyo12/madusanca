@@ -77,7 +77,7 @@ export default async function AdminStudentDetailPage({
                   <p className="mt-1 text-[12.5px] text-soft">Duration: {booking.durationMin} minutes · Reference: {booking.reference}</p>
                   <p className="mt-1 text-[12.5px] text-soft">Location: {location ?? "Not recorded"}</p>
                   <p className="mt-1 text-[12.5px] text-soft">
-                    {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : booking.paymentStatus === "waived" ? "Waived" : "Payment due"}
+                    {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : "Payment due"}
                     {" · Package total: "}{formatLessonPrice(booking.packagePriceCad ?? booking.priceCad)}
                   </p>
                   {booking.notes && (

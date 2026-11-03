@@ -260,7 +260,7 @@ export const supabaseStore: BookingStore = {
     const [bookings, upgrades, holds] = await Promise.all([adminClient()
       .from("bookings")
       .select("starts_at, duration_min")
-      .or(`status.in.(confirmed,rescheduled),and(status.eq.pending_payment,or(stripe_checkout_expires_at.is.null,stripe_checkout_expires_at.gt.${new Date().toISOString()}))`)
+      .or(`status.in.(confirmed,rescheduled),and(status.eq.pending_payment,stripe_checkout_expires_at.gt.${new Date().toISOString()})`)
       .lt("starts_at", toIso)
       .gt("starts_at", new Date(Date.parse(fromIso) - 600 * 60_000).toISOString()), adminClient().from("bookings").select("stripe_upgrade_target_sessions, stripe_upgrade_target_duration_min").not("stripe_upgrade_checkout_session_id", "is", null), adminClient().from("booking_slot_holds").select("hold_token_hash, starts_at, duration_min").lt("starts_at", toIso).gt("starts_at", new Date(Date.parse(fromIso) - 600 * 60_000).toISOString()).gt("expires_at", new Date().toISOString())]);
     if (bookings.error || upgrades.error || holds.error) throw new Error(`Failed to load booking availability: ${bookings.error?.message ?? upgrades.error?.message ?? holds.error?.message}`);
@@ -524,6 +524,14 @@ export const supabaseStore: BookingStore = {
     id: string,
     paymentStatus: PaymentStatus,
   ): Promise<StoreResult<BookingRecord>> {
+    if (paymentStatus === "paid") {
+      const { data, error } = await adminClient().rpc("mark_booking_paid_by_cash", { p_booking_id: id });
+      if (error) throw new Error(`Failed to mark booking paid by cash: ${error.message}`);
+      if (data !== true) return { ok: false, error: "conflict" };
+      const { data: updated, error: loadError } = await adminClient().from("bookings").select("*").eq("id", id).maybeSingle();
+      if (loadError) throw new Error(`Failed to reload cash-paid booking: ${loadError.message}`);
+      return updated ? { ok: true, value: toRecord(updated as BookingRow) } : { ok: false, error: "not_found" };
+    }
     const existing = await adminClient().from("bookings").select("id, package_id").eq("id", id).maybeSingle();
     if (existing.error) throw new Error(`Failed to load booking: ${existing.error.message}`);
     if (!existing.data) return { ok: false, error: "not_found" };
