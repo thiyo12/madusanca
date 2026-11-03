@@ -85,10 +85,20 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
             Payments
           </h1>
           <p className="mt-1 text-[12.5px] text-soft">
-            Stripe confirms Checkout payments. Use Stripe Dashboard for refunds; this page can waive or restore an unpaid balance.
+            Check what has been paid, what is still due, and how many lesson credits each student has left.
           </p>
         </div>
       </div>
+
+      <section aria-labelledby="payments-howto" className="mt-4 rounded-[14px] border border-[#eadcb1] bg-[#fff9e9] p-4 sm:p-5">
+        <h2 id="payments-howto" className="text-[13px] font-extrabold text-ink">How to use this page</h2>
+        <ul className="mt-2 grid gap-2 text-[12px] leading-relaxed text-soft sm:grid-cols-2">
+          <li><strong className="text-ink">Card payment:</strong> Stripe records it automatically. You do not need to press a payment button.</li>
+          <li><strong className="text-ink">Cash payment:</strong> press <strong className="text-ink">Mark Paid by Cash</strong> only after you receive the cash.</li>
+          <li><strong className="text-ink">Cheque:</strong> choose its status and press <strong className="text-ink">Save cheque</strong> to keep a record. This tracks the cheque; it does not mark the booking paid.</li>
+          <li><strong className="text-ink">Refund:</strong> issue refunds in Stripe. This page is for viewing records and does not process refunds.</li>
+        </ul>
+      </section>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-[16px] border border-line bg-white p-5">
@@ -136,7 +146,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
           <div>
             <h2 id="payment-reports-title" className="font-display text-lg font-extrabold text-ink">Download payment reports</h2>
             <p className="mt-1 max-w-2xl text-[12.5px] leading-relaxed text-soft">
-              Download successful Stripe Checkout payments for the current Pacific Time week or month. Reports show customer-paid gross totals and GST, before Stripe processing fees; they are not payout or refund reports.
+              Download a list of successful card payments for this week or month. The total includes tax and is before Stripe fees; it is not your bank payout or refund total.
             </p>
           </div>
           <span className={`rounded-full px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide ${mode === "live" ? "bg-[#e6f6ec] text-[#1f7a45]" : "bg-[#fff9e9] text-[#735c1e]"}`}>
@@ -305,7 +315,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 id="package-purchases-title" className="font-display text-xl font-extrabold text-ink">Package purchases &amp; credit balances</h2>
-            <p className="mt-1 text-[12.5px] text-soft">Recent purchase snapshots with credit totals derived from the append-only ledger. This view is read-only; refunds and credit corrections require review.</p>
+            <p className="mt-1 text-[12.5px] text-soft">See each package a student bought and how many lesson credits remain. Open Ledger to see when credits were added or used. This section is for checking records, not changing credits or issuing refunds.</p>
           </div>
           <p className="text-[12px] font-bold text-soft">Showing up to 200 recent purchases</p>
         </div>

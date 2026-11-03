@@ -264,16 +264,17 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
 
   if (status === "error" || (!booking && !purchase)) {
     return (
-      <div role="alert" className="rounded-[25px] border border-[#f3d1c9] bg-[#fff5f2] p-6 sm:p-8">
-        <h2 className="font-display text-xl font-extrabold text-ink">Booking link not found</h2>
-        <p className="mt-2 text-sm leading-relaxed text-[#4b525e]">{error}</p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Button href="/booking" variant="dark">Book a lesson</Button>
-          <Button href="/contact" variant="outline">Contact us</Button>
-        </div>
-        <div className="mt-6 rounded-[18px] border border-line bg-white p-5">
+      <div className="rounded-[25px] border border-line bg-white p-5 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-gold-deep">My Booking · Email verification</p>
+        <h2 className="mt-2 font-display text-xl font-extrabold text-ink">Find your booking</h2>
+        <p className="mt-2 text-sm leading-relaxed text-[#4b525e]">
+          Your secure session may have expired. You don’t need a booking link—enter the email address used for your booking below and verify it with the one-time code.
+        </p>
+        {error && <p role="status" className="mt-3 text-[12px] text-soft">{error}</p>}
+        <div className="mt-5 rounded-[18px] border border-line bg-[#fbfbf8] p-4 sm:p-5">
           <BookingFind />
         </div>
+        <p className="mt-5 text-[12.5px] text-soft">Can’t access that email? <a href="/contact" className="font-bold text-gold-deep underline underline-offset-2">Contact the school</a>.</p>
       </div>
     );
   }
