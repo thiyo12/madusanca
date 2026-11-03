@@ -90,18 +90,16 @@ export default async function AdminSettingsPage({ searchParams }: SettingsPagePr
                     type="time"
                     name={`open_${weekday}`}
                     defaultValue={rule ? toTimeInput(rule.startMin) : "09:00"}
-                    disabled={closed}
                     aria-label={`${DAY_NAMES[weekday]} opening time`}
-                    className="h-9 rounded-[8px] border border-[#dce0e4] bg-white px-2 text-[13px] text-ink outline-none focus:border-gold disabled:bg-mist disabled:text-soft"
+                    className="h-9 rounded-[8px] border border-[#dce0e4] bg-white px-2 text-[13px] text-ink outline-none focus:border-gold"
                   />
                   <span className="text-[12px] text-soft">to</span>
                   <input
                     type="time"
                     name={`close_${weekday}`}
                     defaultValue={rule ? toTimeInput(rule.endMin) : "18:00"}
-                    disabled={closed}
                     aria-label={`${DAY_NAMES[weekday]} closing time`}
-                    className="h-9 rounded-[8px] border border-[#dce0e4] bg-white px-2 text-[13px] text-ink outline-none focus:border-gold disabled:bg-mist disabled:text-soft"
+                    className="h-9 rounded-[8px] border border-[#dce0e4] bg-white px-2 text-[13px] text-ink outline-none focus:border-gold"
                   />
                 </div>
 
