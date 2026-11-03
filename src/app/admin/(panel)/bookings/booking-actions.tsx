@@ -18,18 +18,19 @@ export interface BookingActionsProps {
   status: BookingStatus;
   startsAt: string;
   paymentStatus: string;
+  nowMs: number;
 }
 
 const buttonBase =
   "inline-flex h-8 items-center rounded-[8px] px-3 text-[11.5px] font-extrabold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-50";
 
-export function BookingActions({ bookingId, lessonId, status, startsAt, paymentStatus }: BookingActionsProps) {
+export function BookingActions({ bookingId, lessonId, status, startsAt, paymentStatus, nowMs }: BookingActionsProps) {
   const [open, setOpen] = useState(false);
   const [pendingStart, setPendingStart] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
   const closed = status === "cancelled" || status === "completed";
+  const canMarkNoShow = status !== "no_show" && Date.parse(startsAt) <= nowMs;
 
   async function submitReschedule() {
     if (!pendingStart) return;
@@ -64,7 +65,7 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, paymentS
       >
         Reschedule
       </button>
-      <form
+      {status !== "no_show" && <form
         action={async () => {
           await setBookingStatusAction(bookingId, "completed");
         }}
@@ -75,8 +76,18 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, paymentS
         >
           Complete
         </button>
-      </form>
-      <form
+      </form>}
+      {canMarkNoShow && (
+        <form action={async () => {
+          if (!confirm("Mark this student as a no-show? You can still reschedule the class afterward.")) return;
+          await setBookingStatusAction(bookingId, "no_show");
+        }}>
+          <button type="submit" className={`${buttonBase} border border-[#e6d2e8] bg-[#fbf4fc] text-[#7d3c85] hover:bg-[#f3e8f5]`}>
+            No-show
+          </button>
+        </form>
+      )}
+      {status !== "no_show" && <form
         action={async () => {
           if (!confirm("Cancel this booking? The student will be emailed.")) return;
           await setBookingStatusAction(bookingId, "cancelled");
@@ -88,9 +99,9 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, paymentS
         >
           Cancel
         </button>
-      </form>
+      </form>}
 
-      <div className="flex flex-wrap items-center gap-2 border-l border-line pl-2">
+      {status !== "no_show" && <div className="flex flex-wrap items-center gap-2 border-l border-line pl-2">
         <p className="text-[10px] font-extrabold uppercase tracking-wider text-soft">
           Payment: {paymentStatus === "paid" ? "Paid" : paymentStatus === "refunded" ? "Refunded" : "Due"}
         </p>
@@ -109,7 +120,7 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, paymentS
             </button>
           </form>
         )}
-      </div>
+      </div>}
 
       {open && (
         <div

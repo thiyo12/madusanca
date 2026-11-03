@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { BookingRecord } from "@/lib/booking/types";
 import { dayNumber, formatSlotTime } from "@/lib/booking/format";
-import { adminStudentHref } from "@/lib/admin/urls";
 
 export interface CalendarFilters {
   q?: string;
@@ -22,7 +21,15 @@ export const CHIP_TONES: Record<string, string> = {
   rescheduled: "border-l-[#e3a721]",
   cancelled: "border-l-[#d46a5b]",
   completed: "border-l-[#4a76c5]",
+  no_show: "border-l-[#8d4b91]",
 };
+
+export function bookingAgendaHref(dayKey: string, bookingId: string, filters?: CalendarFilters): string {
+  const search = new URLSearchParams({ view: "day", date: dayKey, booking: bookingId });
+  if (filters?.q) search.set("q", filters.q);
+  if (filters?.status) search.set("status", filters.status);
+  return `/admin/calendar?${search.toString()}#booking-${encodeURIComponent(bookingId)}`;
+}
 
 export function MonthGrid({
   from,
@@ -85,7 +92,7 @@ export function MonthGrid({
               {list.slice(0, 2).map((booking) => (
                 <Link
                   key={booking.id}
-                  href={adminStudentHref(booking.id)}
+                  href={bookingAgendaHref(cell, booking.id, filters)}
                   className={`hidden rounded-[6px] border-l-[3px] bg-mist px-1.5 py-1 text-[10px] leading-tight hover:bg-gold-soft sm:block ${CHIP_TONES[booking.status]}`}
                 >
                   <span className="block font-extrabold text-ink">

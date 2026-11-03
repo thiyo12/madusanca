@@ -643,6 +643,12 @@ export const fileStore: BookingStore = {
         }
       } else if (status === "cancelled") {
         if (!cancelPackage(data, booking)) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
+      } else if (status === "no_show") {
+        if (["cancelled", "completed", "no_show"].includes(booking.status)) {
+          return Promise.resolve({ ok: false, error: "not_modifiable" as const });
+        }
+        booking.status = "no_show";
+        booking.updatedAt = new Date().toISOString();
       } else {
         if (booking.status === "cancelled" || booking.status === "completed") {
           return Promise.resolve({ ok: false, error: "not_modifiable" as const });

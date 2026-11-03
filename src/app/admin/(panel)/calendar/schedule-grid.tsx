@@ -7,10 +7,9 @@ import type { AvailabilityRule, BlackoutDate, BookingRecord } from "@/lib/bookin
 import { dayNumber, formatSlotTime, weekdayLabel } from "@/lib/booking/format";
 import { LEAD_TIME_MIN, occupiedDurationMin, zonedToUtc } from "@/lib/booking/slots";
 import type { Lesson } from "@/lib/data/lessons";
-import { adminStudentHref } from "@/lib/admin/urls";
 import { rescheduleBookingAction } from "../bookings/actions";
 import { QuickBookDialog } from "./quick-book-dialog";
-import { CHIP_TONES, href, type CalendarFilters } from "./month-grid";
+import { bookingAgendaHref, CHIP_TONES, href, type CalendarFilters } from "./month-grid";
 
 /** Thirty-minute schedule rows keep the grid aligned with bookable slots. */
 const ROW_H = 34;
@@ -293,7 +292,7 @@ export function ScheduleGrid({
                     return (
                       <Link
                         key={booking.id}
-                        href={adminStudentHref(booking.id)}
+                        href={bookingAgendaHref(dayKey, booking.id, filters)}
                         draggable={isActive(booking)}
                         onDragStart={(event) => {
                           event.dataTransfer.setData("text/booking-id", booking.id);
@@ -307,7 +306,7 @@ export function ScheduleGrid({
                         }}
                         title="Drag to another open time, or click to view booking actions"
                         className={`absolute z-20 overflow-hidden rounded-[7px] border-l-[3px] bg-mist px-2 py-1 shadow-sm transition-shadow hover:shadow-md ${CHIP_TONES[booking.status]} ${
-                          dim ? "pointer-events-none opacity-60" : ""
+                          dim ? "opacity-60" : ""
                         }`}
                       >
                         <span className="block truncate text-[10.5px] font-extrabold text-ink">
@@ -406,7 +405,7 @@ export function ScheduleGrid({
                       {bookings.map((booking) => (
                         <Link
                           key={booking.id}
-                          href={adminStudentHref(booking.id)}
+                          href={bookingAgendaHref(dayKey, booking.id, filters)}
                           className={`rounded-[8px] border-l-[3px] bg-mist px-2 py-1.5 text-[11px] leading-tight hover:bg-gold-soft ${CHIP_TONES[booking.status]}`}
                         >
                           <span className="block font-extrabold text-ink">
@@ -425,7 +424,7 @@ export function ScheduleGrid({
                   {bookings.map((booking) => (
                     <Link
                       key={booking.id}
-                      href={adminStudentHref(booking.id)}
+                      href={bookingAgendaHref(dayKey, booking.id, filters)}
                       className={`rounded-[8px] border-l-[3px] bg-mist px-2 py-1.5 text-[11px] leading-tight hover:bg-gold-soft ${CHIP_TONES[booking.status]}`}
                     >
                       <span className="block font-extrabold text-ink">

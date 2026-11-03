@@ -18,7 +18,7 @@ import { logSafeError } from "@/lib/server/safe-log";
 import { isoDateTimeSchema } from "@/lib/validation/booking";
 
 const idSchema = z.string().min(1).max(64);
-const statusSchema = z.enum(["confirmed", "completed", "cancelled"]);
+const statusSchema = z.enum(["confirmed", "completed", "cancelled", "no_show"]);
 const paymentStatusSchema = z.literal("paid");
 const chequeStatusSchema = z.enum(["none", "received", "cleared", "returned"]);
 
@@ -44,6 +44,10 @@ export async function setBookingStatusAction(
   const store = getStore();
   const booking = await store.getBookingById(bookingId);
   if (!booking) fail("Booking not found.");
+
+  if (status === "no_show" && Date.parse(booking.startsAt) > Date.now()) {
+    fail("A lesson can only be marked no-show after its scheduled start time.");
+  }
 
   if (status === "cancelled" || status === "completed") {
     const sameEmailBookings = await store.listBookings({ search: booking.email });

@@ -23,6 +23,7 @@ export default async function BookingManagePage({ searchParams }: ManagePageProp
   if (legacyToken) redirect(`/api/bookings/manage-link?token=${encodeURIComponent(legacyToken)}`);
   const hasManageCookie = Boolean((await cookies()).get(MANAGE_COOKIE_NAME)?.value);
   const paymentReturn = typeof params.payment === "string" ? params.payment : undefined;
+  const packagePurchaseAdded = params.purchase === "added";
 
   return (
     <>
@@ -45,7 +46,7 @@ export default async function BookingManagePage({ searchParams }: ManagePageProp
             }
           >
             {hasManageCookie ? (
-              <BookingManage paymentReturn={paymentReturn} />
+              <BookingManage paymentReturn={paymentReturn} packagePurchaseAdded={packagePurchaseAdded} />
             ) : (
                <div className="rounded-[25px] border border-line bg-white p-6 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
                  <BookingFind />

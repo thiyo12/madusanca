@@ -11,6 +11,7 @@ const TONES: Record<BookingStatus, string> = {
   rescheduled: "bg-gold-soft text-gold-deep",
   cancelled: "bg-[#fdecea] text-[#bc4633]",
   completed: "bg-[#e8eef7] text-[#2f5590]",
+  no_show: "bg-[#f3e8f5] text-[#7d3c85]",
 };
 
 const LABELS: Record<BookingStatus, string> = {
@@ -19,6 +20,7 @@ const LABELS: Record<BookingStatus, string> = {
   rescheduled: "Rescheduled",
   cancelled: "Cancelled",
   completed: "Completed",
+  no_show: "No-show",
 };
 
 export function StatusChip({ status, className = "" }: StatusChipProps) {

@@ -503,6 +503,15 @@ export const supabaseStore: BookingStore = {
       if (!envelope.ok || !envelope.record) return { ok: false, error: "not_found" };
       return { ok: true, value: toRecord(envelope.record) };
     }
+    if (status === "no_show") {
+      const existing = await adminClient().from("bookings").select("status").eq("id", id).maybeSingle();
+      if (existing.error) throw new Error(`Failed to load booking: ${existing.error.message}`);
+      if (!existing.data) return { ok: false, error: "not_found" };
+      if (["cancelled", "completed", "no_show"].includes(existing.data.status)) return { ok: false, error: "not_modifiable" };
+      const { data, error } = await adminClient().from("bookings").update({ status, updated_at: new Date().toISOString() }).eq("id", id).select().maybeSingle();
+      if (error) throw new Error(`Failed to mark booking no-show: ${error.message}`);
+      return data ? { ok: true, value: toRecord(data) } : { ok: false, error: "not_found" };
+    }
     const existing = await adminClient().from("bookings").select("status, package_id").eq("id", id).maybeSingle();
     if (existing.error) throw new Error(`Failed to load booking: ${existing.error.message}`);
     if (!existing.data) return { ok: false, error: "not_found" };

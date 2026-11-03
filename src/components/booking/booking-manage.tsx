@@ -7,11 +7,13 @@ import { BookingSummary } from "@/components/booking/booking-summary";
 import { BookingFind } from "@/components/booking/booking-find";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button";
+import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
 
 export interface BookingManageProps {
   paymentReturn?: string;
+  packagePurchaseAdded?: boolean;
 }
 
 interface BookingView {
@@ -34,6 +36,7 @@ interface BookingView {
   packagePriceCad: number;
   packageWindowStart: string;
   upgradeOptions?: Array<{ id: string; name: string; priceCad: number; sessionCount: number; balanceCad: number }>;
+  addOnOptions?: Array<{ id: string; name: string; priceCad: number; sessionCount: number }>;
 }
 
 interface ManageResponse {
@@ -72,7 +75,7 @@ const STATUS_LABEL: Record<string, string> = {
   completed: "Completed",
 };
 
-export function BookingManage({ paymentReturn }: BookingManageProps) {
+export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: BookingManageProps) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +91,8 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
   const [busy, setBusy] = useState(false);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
   const [upgradeLessonId, setUpgradeLessonId] = useState("");
+  const [addOnLessonId, setAddOnLessonId] = useState("");
+  const [addOnQuantity, setAddOnQuantity] = useState(1);
   const [upgradeSessions, setUpgradeSessions] = useState<string[]>([]);
   const [upgradeSessionIndex, setUpgradeSessionIndex] = useState(0);
   const [creditStart, setCreditStart] = useState<string | null>(null);
@@ -334,6 +339,18 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
   const withinCancellationWindow =
     now !== null && Date.parse(selectedSession.startsAt) - now < 48 * 60 * 60 * 1000;
 
+  if (paymentReturn === "success" && packagePurchaseAdded) {
+    return (
+      <div className="rounded-[25px] border border-[#d3e9c5] bg-[#f5fbed] p-6 sm:p-8">
+        <h2 className="font-display text-2xl font-extrabold text-ink">Package checkout returned</h2>
+        <p role="status" className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
+          Stripe returned you from checkout. Your package is separate from your current booking and will not replace or downgrade it. Verify your email in My Booking to see the package once payment is confirmed and schedule its lessons.
+        </p>
+        <Button href="/booking/manage" variant="dark" className="mt-5">Return to My Booking</Button>
+      </div>
+    );
+  }
+
   if (paymentReturn === "success") {
     return (
       <div className="rounded-[25px] border border-[#d3e9c5] bg-[#f5fbed] p-6 sm:p-8">
@@ -452,6 +469,28 @@ export function BookingManage({ paymentReturn }: BookingManageProps) {
             <div className="mt-4 flex flex-wrap gap-2">{Array.from({ length: option.sessionCount }, (_, index) => <button key={index} type="button" onClick={() => setUpgradeSessionIndex(index)} aria-pressed={upgradeSessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold ${upgradeSessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>Session {index + 1}{upgradeSessions[index] ? " ✓" : ""}</button>)}</div>
             <div className="mt-3"><DateTimeStep lessonId={option.id} selectedStart={upgradeSessions[upgradeSessionIndex] ?? null} maxDate={upgradeSessions[0] ? addMonthsToKey(dayKeyOf(upgradeSessions[0]), 6) : undefined} minDate={upgradeSessionIndex > 0 && upgradeSessions[0] ? dayKeyOf(upgradeSessions[0]) : undefined} horizonDays={370} onSelect={(slot) => { setUpgradeSessions((current) => { const next = [...current]; next[upgradeSessionIndex] = slot; return next; }); setUpgradeSessionIndex((index) => Math.min(index + 1, option.sessionCount - 1)); }} /></div>
             <div className="mt-3"><StripeUpgradeButton targetLessonId={option.id} amountCad={option.balanceCad} sessions={upgradeSessions} disabled={upgradeSessions.length !== option.sessionCount || upgradeSessions.some((slot) => !slot)} /></div>
+          </>}
+        </section>;
+      })()}
+      {booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
+        const option = booking.addOnOptions!.find((item) => item.id === addOnLessonId);
+        return <section className="mt-5 rounded-[14px] border border-line p-4">
+          <h3 className="text-sm font-extrabold text-ink">Add another package</h3>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">This adds a separate package to your account. It will not change, cancel, or downgrade your current booking. After payment, verify your email in My Booking to schedule the extra lessons.</p>
+          <label className="mt-3 grid gap-1.5 text-xs font-bold text-ink">Package to add
+            <select value={addOnLessonId} onChange={(event) => setAddOnLessonId(event.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
+              <option value="">Select a package</option>
+              {booking.addOnOptions!.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.sessionCount} lesson{item.sessionCount === 1 ? "" : "s"} · ${item.priceCad.toFixed(2)} CAD</option>)}
+            </select>
+          </label>
+          {option && <>
+            <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
+              <select value={addOnQuantity} onChange={(event) => setAddOnQuantity(Number(event.target.value))} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm">
+                {[1, 2, 3, 4, 5].map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}
+              </select>
+            </label>
+            <p className="mt-3 text-[12px] font-bold text-soft">Total: ${(option.priceCad * addOnQuantity).toFixed(2)} CAD + applicable taxes</p>
+            <div className="mt-3"><StripePackagePurchaseButton lessonId={option.id} quantity={addOnQuantity} disabled={busy} /></div>
           </>}
         </section>;
       })()}

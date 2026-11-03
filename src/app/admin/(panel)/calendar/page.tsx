@@ -5,6 +5,7 @@ import type { BookingRecord, BookingStatus } from "@/lib/booking/types";
 import {
   addDaysToKey,
   dayKeyOf,
+  formatSlotDay,
   formatSlotTime,
   monthLabel,
   weekdayLabel,
@@ -79,6 +80,7 @@ function isoSpan(fromDay: string, toDay: string): { fromIso: string; toIso: stri
 const LEGEND = [
   { tone: CHIP_TONES.confirmed, label: "Confirmed" },
   { tone: CHIP_TONES.rescheduled, label: "Rescheduled" },
+  { tone: CHIP_TONES.no_show, label: "No-show" },
   { tone: CHIP_TONES.completed, label: "Completed" },
   { tone: CHIP_TONES.cancelled, label: "Cancelled" },
 ];
@@ -93,7 +95,8 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
   const anchor = isValidKey(dateParam) ? dateParam : today;
   const query = typeof params.q === "string" ? params.q.trim() : "";
   const statusParam = typeof params.status === "string" ? params.status : "";
-  const validStatuses: BookingStatus[] = ["pending_payment", "confirmed", "rescheduled", "completed", "cancelled"];
+  const selectedBookingId = typeof params.booking === "string" ? params.booking : "";
+  const validStatuses: BookingStatus[] = ["pending_payment", "confirmed", "rescheduled", "completed", "cancelled", "no_show"];
   const status = validStatuses.includes(statusParam as BookingStatus)
     ? (statusParam as BookingStatus)
     : undefined;
@@ -210,6 +213,13 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
         </div>
       </div>
 
+      <section aria-label="Calendar instructions" className="mt-4 rounded-[12px] border border-[#eadcb1] bg-[#fff9e9] px-4 py-3">
+        <p className="text-[12.5px] font-extrabold text-ink">Quick guide</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-soft">
+          Choose a day to see its lesson list. Click a booked time to jump to that lesson’s details and actions. From there you can reschedule, mark it complete, cancel it, or mark a past lesson no-show and arrange a new time. Use <strong className="text-ink">Open full student record</strong> for the student’s broader record.
+        </p>
+      </section>
+
       <form method="get" action="/admin/calendar" className="mt-4 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
         <input type="hidden" name="view" value={view} />
         <input type="hidden" name="date" value={anchor} />
@@ -324,25 +334,30 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
             ) : (
               <ul className="divide-y divide-line">
                 {dayBookings.map((booking) => (
-                  <li key={booking.id} className="px-5 py-4">
+                <li key={booking.id} className="px-5 py-4">
+                    <div id={`booking-${booking.id}`} className={`scroll-mt-6 rounded-xl p-3 sm:p-4 ${selectedBookingId === booking.id ? "bg-[#fff9e9] ring-2 ring-gold/50" : ""}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2.5">
                           <span className="text-[14px] font-extrabold text-ink">
                             {formatSlotTime(booking.startsAt)}
                           </span>
-                          <Link href={adminStudentHref(booking.id)} className="text-[14px] font-bold text-ink underline decoration-line underline-offset-2 hover:text-gold-deep">
+                          <span className="text-[14px] font-bold text-ink">
                             {booking.studentName}
-                          </Link>
+                          </span>
                           <StatusChip status={booking.status} />
                         </div>
-                        <p className="mt-1 text-[12.5px] text-soft">
-                          {booking.lessonName} · {booking.durationMin} min lesson / {occupiedDurationMin(booking.durationMin)} min reserved · $
-                          {booking.priceCad} CAD · {booking.reference}
-                        </p>
-                        <p className="text-[12.5px] text-soft">
-                          {booking.email} · {booking.phone}
-                        </p>
+                        <dl className="mt-3 grid gap-x-5 gap-y-2 text-[12.5px] sm:grid-cols-2">
+                          <div><dt className="text-soft">Lesson</dt><dd className="font-bold text-ink">{booking.lessonName}</dd></div>
+                          <div><dt className="text-soft">Date and time</dt><dd className="font-bold text-ink">{formatSlotDay(booking.startsAt)} · {formatSlotTime(booking.startsAt)} Pacific</dd></div>
+                          <div><dt className="text-soft">Duration / instructor time</dt><dd className="font-bold text-ink">{booking.durationMin} min / {occupiedDurationMin(booking.durationMin)} min reserved</dd></div>
+                          <div><dt className="text-soft">Payment</dt><dd className="font-bold text-ink">{booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : "Due"} · ${booking.priceCad.toFixed(2)} CAD</dd></div>
+                          <div><dt className="text-soft">Email</dt><dd className="break-all font-bold text-ink"><a href={`mailto:${booking.email}`} className="underline underline-offset-2">{booking.email}</a></dd></div>
+                          <div><dt className="text-soft">Phone</dt><dd className="font-bold text-ink">{booking.phone ? <a href={`tel:${booking.phone}`} className="underline underline-offset-2">{booking.phone}</a> : "Not recorded"}</dd></div>
+                          <div><dt className="text-soft">Booking reference</dt><dd className="font-bold text-ink">{booking.reference}</dd></div>
+                        </dl>
+                        {booking.notes && <details className="mt-3 text-[12px] text-soft"><summary className="cursor-pointer font-bold text-ink">Student notes / pickup details</summary><pre className="mt-2 whitespace-pre-wrap break-words font-sans leading-relaxed">{booking.notes}</pre></details>}
+                        <Link href={adminStudentHref(booking.id)} className="mt-3 inline-flex text-[12px] font-extrabold text-gold-deep underline underline-offset-2">Open full student record</Link>
                       </div>
                       <BookingActions
                         bookingId={booking.id}
@@ -350,7 +365,9 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
                         status={booking.status}
                         startsAt={booking.startsAt}
                         paymentStatus={booking.paymentStatus ?? "due"}
+                        nowMs={nowMs}
                       />
+                    </div>
                     </div>
                   </li>
                 ))}

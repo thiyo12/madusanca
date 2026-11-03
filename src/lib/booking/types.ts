@@ -1,4 +1,4 @@
-export type BookingStatus = "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed";
+export type BookingStatus = "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
 export type PaymentStatus = "due" | "paid" | "refunded" | "waived";
 export type ChequeStatus = "none" | "received" | "cleared" | "returned";
 

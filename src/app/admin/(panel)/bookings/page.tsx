@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   title: "Bookings — Wisdom Driving Academy Admin",
 };
 
-const STATUSES: BookingStatus[] = ["pending_payment", "confirmed", "rescheduled", "completed", "cancelled"];
+const STATUSES: BookingStatus[] = ["pending_payment", "confirmed", "rescheduled", "completed", "cancelled", "no_show"];
 type Range = "upcoming" | "past" | "all";
 
 interface BookingsPageProps {
@@ -201,6 +201,7 @@ export default async function AdminBookingsPage({ searchParams }: BookingsPagePr
                           status={booking.status}
                           startsAt={booking.startsAt}
                           paymentStatus={booking.paymentStatus ?? "due"}
+                          nowMs={Date.parse(nowIso)}
                         />
                       </div>
                     </td>

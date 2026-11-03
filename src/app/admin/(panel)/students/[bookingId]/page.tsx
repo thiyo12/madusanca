@@ -27,6 +27,7 @@ export default async function AdminStudentDetailPage({
   if (!student || !bookings) notFound();
   const anchor = bookings.find((booking) => booking.sessionIndex === 1) ?? student;
   const studentDetails = await getStore().getBookingStudentDetails(anchor.id);
+  const nowMs = new Date().getTime();
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -93,6 +94,7 @@ export default async function AdminStudentDetailPage({
                   status={booking.status}
                   startsAt={booking.startsAt}
                   paymentStatus={booking.paymentStatus ?? "due"}
+                  nowMs={nowMs}
                 />
               </div>
             </section>

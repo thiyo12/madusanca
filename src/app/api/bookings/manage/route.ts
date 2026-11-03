@@ -199,13 +199,21 @@ export async function POST(request: Request): Promise<NextResponse> {
       const purchaseId = found.sessions.find((session) => session.purchaseId)?.purchaseId;
       const purchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
       const currentPackagePrice = found.booking.packagePriceCad ?? found.booking.priceCad;
-      const upgradeOptions = found.sessions.every((session) => ["confirmed", "rescheduled"].includes(session.status)) && found.booking.paymentStatus === "paid"
-        ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package" && lesson.priceCad > currentPackagePrice)
+      const activePaidSessions = found.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid");
+      const allSessionsPaid = activePaidSessions.length === found.sessions.length;
+      const canAddPackage = allSessionsPaid && activePaidSessions.some((session) => Date.parse(session.startsAt) - Date.now() > SELF_SERVICE_CUTOFF_MS);
+      const packages = canAddPackage ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package") : [];
+      const upgradeOptions = allSessionsPaid
+        ? packages.filter((lesson) => lesson.priceCad > currentPackagePrice)
           .map(({ id, name, priceCad, sessionCount }) => ({ id, name, priceCad, sessionCount, balanceCad: Math.round((priceCad - currentPackagePrice) * 100) / 100 }))
         : [];
       return NextResponse.json({
         ok: true,
-        booking: { ...safeView(found.booking), upgradeOptions },
+        booking: {
+          ...safeView(found.booking),
+          upgradeOptions,
+          addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, sessionCount }) => ({ id, name, priceCad, sessionCount })) : [],
+        },
         sessions: found.sessions.map(safeView),
         ...(purchase ? { purchase: safePurchaseView(purchase) } : {}),
       });

@@ -14,7 +14,7 @@ interface FoundBooking {
   durationMin: number;
   priceCad: number;
   startsAt: string;
-  status: "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed";
+  status: "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
   canOpen: boolean;
 }
 
@@ -46,6 +46,7 @@ const STATUS_LABEL: Record<string, string> = {
   rescheduled: "Rescheduled",
   cancelled: "Cancelled",
   completed: "Completed",
+  no_show: "No-show",
 };
 
 export function BookingFind() {
