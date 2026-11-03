@@ -359,9 +359,16 @@ export function BookingFind() {
         </p>
       )}
       {error && (
-        <p role="alert" className="rounded-[10px] bg-[#fff0ed] px-3.5 py-2.5 text-[13px] font-semibold text-[#bc4633]">
-          {error}
-        </p>
+        error === "That code has expired. Send a new one." ? (
+          <div role="alert" className="grid gap-1.5 rounded-[10px] bg-[#fff0ed] px-3.5 py-2.5 text-[13px] leading-relaxed text-[#8f3429]">
+            <p className="font-semibold">Your verification code expired. Select <strong>Resend code</strong> to get a new one.</p>
+            <p>If your lesson is today or within 48 hours, online rescheduling is closed. Please call Shan at <a href="tel:+12362343229" className="font-extrabold underline underline-offset-2">+1 236-234-3229</a> to request a change.</p>
+          </div>
+        ) : (
+          <p role="alert" className="rounded-[10px] bg-[#fff0ed] px-3.5 py-2.5 text-[13px] font-semibold text-[#bc4633]">
+            {error}
+          </p>
+        )
       )}
       <Link href="/" className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
         <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span>
