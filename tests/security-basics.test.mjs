@@ -30,7 +30,7 @@ import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts"
 import { addMonthsToKey, dayKeyOf, formatSlotTime } from "../src/lib/booking/format.ts";
 import { generateSlots, HORIZON_DAYS, occupiedDurationMin, toVancouverDayKey, toVancouverParts, zonedToUtc } from "../src/lib/booking/slots.ts";
 import { manageUrl } from "../src/lib/booking/urls.ts";
-import { isInsideSelfServiceWindow } from "../src/lib/booking/manage-policy.ts";
+import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "../src/lib/booking/manage-policy.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -86,6 +86,19 @@ test("the 48-hour reschedule cutoff applies independently to each package sessio
   assert.deepEqual(sessions.map((startsAt) => isInsideSelfServiceWindow(startsAt, now)), [true, false, false]);
 });
 
+test("each scheduled lesson has exactly one student reschedule", () => {
+  assert.equal(MAX_STUDENT_RESCHEDULES_PER_SESSION, 1);
+  const migration = readFileSync(new URL("../supabase/migrations/0039_mybooking_addon_eligibility_and_reschedule_limit.sql", import.meta.url), "utf8");
+  const manage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
+  assert.match(migration, /v_target\.student_reschedule_count >= 1/);
+  assert.match(migration, /v_booking\.student_reschedule_count >= 1/);
+  assert.doesNotMatch(migration, /student_reschedule_count >= 2/);
+  assert.match(manage, /session\.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION/);
+  assert.match(manage, /1 reschedule available/);
+  assert.match(fileStore, /studentRescheduleCount \?\? 0\) >= MAX_STUDENT_RESCHEDULES_PER_SESSION/);
+});
+
 test("add-on package checkout requires a bounded list of valid selected times", () => {
   const startsAt = ["2026-12-01T17:00:00.000Z", "2026-12-08T17:00:00.000Z"];
   assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1, startsAt }).success, true);
@@ -109,6 +122,13 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(purchaseButton, /startsAt/);
   const purchaseRoute = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
   assert.match(purchaseRoute, /startsAt\.length !== creditsPurchased/);
+  assert.match(purchaseRoute, /session\.paymentStatus === "paid"/);
+  assert.match(purchaseRoute, /getPackagePurchaseByToken\(tokenHash\)/);
+  assert.doesNotMatch(purchaseRoute, /Date\.parse\(session\.startsAt\).*48/);
+  const manageRoute = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
+  assert.match(manageRoute, /const canAddPackage = activePaidSessions\.length > 0/);
+  assert.match(manageRoute, /addOnOptions/);
+  assert.match(manageRoute, /activePaidSessions\[0\]/);
 });
 
 test("90-minute lessons and 45-minute road tests reserve 120-minute instructor blocks", () => {

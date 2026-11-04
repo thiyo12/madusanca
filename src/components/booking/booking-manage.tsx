@@ -9,7 +9,7 @@ import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-butto
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
-import { isInsideSelfServiceWindow } from "@/lib/booking/manage-policy";
+import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
@@ -347,7 +347,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
               {sessions.map((session) => (
                 <li key={session.id} className="flex flex-wrap justify-between gap-2 rounded-[10px] bg-mist px-3 py-2 text-[12.5px]">
                   <span className="font-bold text-ink">Lesson {session.sessionIndex}: {formatSlotFull(session.startsAt)}</span>
-                  <span className="text-soft">{STATUS_LABEL[session.status] ?? session.status}</span>
+                  <span className="text-right text-soft">{STATUS_LABEL[session.status] ?? session.status} · {session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION ? "reschedule used" : "1 reschedule available"}</span>
                 </li>
               ))}
             </ol>
@@ -366,7 +366,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
     (sessions.length === 1 && booking.status === "cancelled");
   const selectedSession = sessions.find((session) => session.id === activeSessionId) ?? booking;
   const selectedSessionOpen = !["cancelled", "completed"].includes(selectedSession.status);
-  const rescheduleLimitReached = selectedSession.studentRescheduleCount >= 2;
+  const rescheduleLimitReached = selectedSession.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION;
   const withinCancellationWindow = now !== null && isInsideSelfServiceWindow(selectedSession.startsAt, now);
 
   if (paymentReturn === "success" && packagePurchaseAdded) {
@@ -453,7 +453,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
                   {STATUS_LABEL[session.status] ?? session.status}
                   {activeSessionId === session.id ? " · selected" : ""}
                   {session.status !== "cancelled" && session.status !== "completed" && now !== null && (
-                    <span className="block font-semibold">{isInsideSelfServiceWindow(session.startsAt, now) ? "Within 48 hours · contact tutor" : "Rescheduling available"}</span>
+                    <span className="block font-semibold">{session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION ? "Reschedule used" : isInsideSelfServiceWindow(session.startsAt, now) ? "Within 48 hours · contact tutor" : "1 reschedule available"}</span>
                   )}
                 </span>
               </li>
@@ -578,11 +578,11 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
               }}
               disabled={busy}
             >
-              Reschedule ({2 - selectedSession.studentRescheduleCount} left)
+              Reschedule ({MAX_STUDENT_RESCHEDULES_PER_SESSION - selectedSession.studentRescheduleCount} left)
             </Button>
           ) : (
             <p className="max-w-md text-[13px] leading-relaxed text-soft">
-              You&rsquo;ve used both online reschedules for this booking. Call{" "}
+              You&rsquo;ve used the online reschedule for this lesson. Call{" "}
               <a href="tel:+12362343229" className="font-extrabold text-gold-deep underline-offset-2 hover:underline">
                 Shan at +1 236-234-3229
               </a>{" "}

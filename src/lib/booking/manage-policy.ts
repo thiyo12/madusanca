@@ -1,4 +1,5 @@
 export const SELF_SERVICE_CUTOFF_MS = 48 * 60 * 60 * 1000;
+export const MAX_STUDENT_RESCHEDULES_PER_SESSION = 1;
 
 /** Rescheduling eligibility is evaluated for one session, never its package. */
 export function isInsideSelfServiceWindow(startsAt: string, nowMs = Date.now()): boolean {

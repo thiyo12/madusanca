@@ -7,6 +7,7 @@ import { addVancouverCalendarMonths, DEFAULT_RULES, occupiedDurationMin, validat
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { OTP_MAX_ATTEMPTS } from "@/lib/booking/otp";
 import { customerCanAccessBooking } from "@/lib/booking/customer-access";
+import { MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 import { lessons as defaultLessons, type Lesson } from "@/lib/data/lessons";
 import type {
@@ -515,7 +516,7 @@ export const fileStore: BookingStore = {
       if (!booking || booking.status === "cancelled" || booking.status === "completed") {
         return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       }
-      if ((booking.studentRescheduleCount ?? 0) >= 2) {
+      if ((booking.studentRescheduleCount ?? 0) >= MAX_STUDENT_RESCHEDULES_PER_SESSION) {
         return Promise.resolve({ ok: false, error: "reschedule_limit" as const });
       }
 
@@ -558,7 +559,7 @@ export const fileStore: BookingStore = {
       if ((target.sessionCount ?? 1) === 1 && target.paymentStatus === "paid") {
         return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       }
-      if ((target.studentRescheduleCount ?? 0) >= 2) return Promise.resolve({ ok: false, error: "reschedule_limit" as const });
+      if ((target.studentRescheduleCount ?? 0) >= MAX_STUDENT_RESCHEDULES_PER_SESSION) return Promise.resolve({ ok: false, error: "reschedule_limit" as const });
       if (Date.parse(target.startsAt) - Date.now() < 48 * 60 * 60 * 1000) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       const start = Date.parse(startsAt);
       const end = occupiedEnd(startsAt, target.durationMin);
@@ -1331,10 +1332,15 @@ export const fileStore: BookingStore = {
       const data = load();
       const now = Date.now();
       const token = data.tokens.find((item) => item.tokenHash === manageTokenHash && Date.parse(item.expiresAt) >= now);
-      const anchor = token && data.bookings.find((item) => item.id === token.bookingId);
+      const purchaseToken = data.packagePurchaseTokens.find((item) => item.tokenHash === manageTokenHash && Date.parse(item.expiresAt) >= now);
+      const anchor = token
+        ? data.bookings.find((item) => item.id === token.bookingId)
+        : purchaseToken && data.packagePurchases.some((item) => item.id === purchaseToken.purchaseId && item.paymentStatus === "paid")
+          ? data.bookings.find((item) => item.purchaseId === purchaseToken.purchaseId && ["confirmed", "rescheduled"].includes(item.status) && item.paymentStatus === "paid")
+          : undefined;
       if (!anchor || data.packagePurchases.some((item) => item.id === input.id)) return { ok: false, error: "not_found" as const };
       const group = data.bookings.filter((item) => (item.packageId ?? item.id) === (anchor.packageId ?? anchor.id));
-      if (!group.some((item) => ["confirmed", "rescheduled"].includes(item.status) && item.paymentStatus === "paid" && Date.parse(item.startsAt) - now > 48 * 60 * 60_000)) {
+      if (!group.some((item) => ["confirmed", "rescheduled"].includes(item.status) && item.paymentStatus === "paid")) {
         return { ok: false, error: "not_modifiable" as const };
       }
       if (startsAt.length !== input.creditsPurchased || startsAt.length < 1 || startsAt.length > 20 || Date.parse(checkoutExpiresAt) <= now) {
