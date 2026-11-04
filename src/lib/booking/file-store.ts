@@ -556,9 +556,6 @@ export const fileStore: BookingStore = {
         return Promise.resolve({ ok: false, error: "expired" as const });
       }
       if (["cancelled", "completed"].includes(target.status)) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
-      if ((target.sessionCount ?? 1) === 1 && target.paymentStatus === "paid") {
-        return Promise.resolve({ ok: false, error: "not_modifiable" as const });
-      }
       if ((target.studentRescheduleCount ?? 0) >= MAX_STUDENT_RESCHEDULES_PER_SESSION) return Promise.resolve({ ok: false, error: "reschedule_limit" as const });
       if (Date.parse(target.startsAt) - Date.now() < 48 * 60 * 60 * 1000) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       const start = Date.parse(startsAt);
@@ -1327,7 +1324,7 @@ export const fileStore: BookingStore = {
     });
   },
 
-  createScheduledPackagePurchase(input, startsAt, manageTokenHash, checkoutSessionId, checkoutExpiresAt) {
+  createScheduledPackagePurchase(input, packageQuantity, startsAt, manageTokenHash, checkoutSessionId, checkoutExpiresAt) {
     return withLock(async () => {
       const data = load();
       const now = Date.now();
@@ -1343,7 +1340,9 @@ export const fileStore: BookingStore = {
       if (!group.some((item) => ["confirmed", "rescheduled"].includes(item.status) && item.paymentStatus === "paid")) {
         return { ok: false, error: "not_modifiable" as const };
       }
-      if (startsAt.length !== input.creditsPurchased || startsAt.length < 1 || startsAt.length > 20 || Date.parse(checkoutExpiresAt) <= now) {
+      const lesson = data.lessons.find((item) => item.id === input.lessonId && item.category === "package");
+      if (!lesson || packageQuantity < 1 || lesson.sessionCount * packageQuantity !== input.creditsPurchased ||
+          startsAt.length !== input.creditsPurchased || startsAt.length < 1 || startsAt.length > 20 || Date.parse(checkoutExpiresAt) <= now) {
         return { ok: false, error: "not_found" as const };
       }
 

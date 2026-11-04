@@ -924,12 +924,12 @@ export const supabaseStore: BookingStore = {
     return toPackagePurchase(data as PackagePurchaseRow);
   },
 
-  async createScheduledPackagePurchase(input, startsAt, manageTokenHash, checkoutSessionId, checkoutExpiresAt) {
+  async createScheduledPackagePurchase(input, packageQuantity, startsAt, manageTokenHash, checkoutSessionId, checkoutExpiresAt) {
     const { data, error } = await adminClient().rpc("create_scheduled_package_purchase_checkout", {
       p_purchase_id: input.id,
       p_reference: input.reference,
       p_lesson_id: input.lessonId,
-      p_quantity: input.creditsPurchased,
+      p_quantity: packageQuantity,
       p_amount_cad: input.amountCad,
       p_starts_at: startsAt,
       p_manage_token_hash: manageTokenHash,

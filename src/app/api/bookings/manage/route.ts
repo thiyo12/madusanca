@@ -247,15 +247,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (isInsideSelfServiceWindow(targetBooking.startsAt)) {
       return errorResponse("cutoff", messageFor("cutoff"));
     }
-    const paidMultiSessionPackage = found.sessions.length > 1 &&
-      found.sessions.every((session) => session.paymentStatus === "paid");
-    if (!paidMultiSessionPackage && paymentBooking.stripeCheckoutSessionId) {
+    const paidBooking = targetBooking.paymentStatus === "paid" ||
+      (found.sessions.length > 1 && found.sessions.every((session) => session.paymentStatus === "paid"));
+    if (!paidBooking && paymentBooking.stripeCheckoutSessionId) {
       try {
         const stripe = (await import("@/lib/stripe/server")).getStripe();
         const session = await stripe.checkout.sessions.retrieve(paymentBooking.stripeCheckoutSessionId);
         if (session.status === "complete") {
           return errorResponse("not_modifiable", session.payment_status === "paid"
-            ? "This booking has already been paid. Contact the school before rescheduling."
+            ? "Payment is complete, but this booking has not been marked paid yet. Please refresh and try again."
             : "Payment is still processing. Please try again after Stripe confirms its status.");
         }
         if (session.status === "open") await stripe.checkout.sessions.expire(session.id);

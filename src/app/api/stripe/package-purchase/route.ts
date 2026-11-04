@@ -178,7 +178,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         durationMin: lesson.durationMin,
         creditsPurchased,
         amountCad,
-      }, startsAt, tokenHash, session.id, new Date(session.expires_at * 1000).toISOString());
+      }, parsed.data.quantity, startsAt, tokenHash, session.id, new Date(session.expires_at * 1000).toISOString());
     } catch (error) {
       await stripe.checkout.sessions.expire(session.id).catch((expireError: unknown) => logSafeError("[stripe/package-purchase] orphan checkout expiry failed", expireError));
       throw error;
@@ -187,7 +187,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await stripe.checkout.sessions.expire(session.id).catch((error: unknown) => logSafeError("[stripe/package-purchase] expired checkout after unavailable schedule", error));
       const conflict = created.error === "conflict";
       const notModifiable = created.error === "not_modifiable";
-      return NextResponse.json({ ok: false, error: conflict ? "One of those times was just taken. Choose another time." : notModifiable ? "Add-on packages are available when you have an active paid lesson." : "Your booking could not be verified for this package purchase. Please verify your email again." }, { status: conflict || notModifiable ? 409 : 401 });
+      return NextResponse.json({ ok: false, error: conflict ? "One of those times was just taken. Choose another time." : notModifiable ? "Add-on packages are available when you have an active paid lesson." : "We couldn’t reserve those lesson times. Refresh My Booking and choose available times again." }, { status: 409 });
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {
