@@ -53,14 +53,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const found = await store.getBookingByToken(tokenHash);
-    if (!found) return NextResponse.json({ ok: false, error: "This booking session is invalid. Verify your email again." }, { status: 401 });
-    const activePaidBooking = found.sessions.some((session) =>
-      ["confirmed", "rescheduled"].includes(session.status) &&
-      session.paymentStatus === "paid" && Date.parse(session.startsAt) - Date.now() > 48 * 60 * 60_000,
+    const purchaseContext = found ? null : await store.getPackagePurchaseByToken(tokenHash);
+    const purchaseSessions = purchaseContext ? await store.findBookingsByPurchaseId(purchaseContext.id) : [];
+    const eligibleSessions = found?.sessions ?? purchaseSessions;
+    const activePaidBooking = (Boolean(found) || purchaseContext?.paymentStatus === "paid") && eligibleSessions.some((session) =>
+      ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid",
     );
-    if (!activePaidBooking) {
-      return NextResponse.json({ ok: false, error: "You can add packages from My Booking when you have an active paid lesson more than 48 hours away." }, { status: 409 });
+    if (!activePaidBooking || (!found && !purchaseContext)) {
+      return NextResponse.json({ ok: false, error: "You can add packages from My Booking when you have an active paid lesson." }, { status: 409 });
     }
+    const anchorBooking = found?.booking ?? purchaseSessions.find((session) =>
+      ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid",
+    );
+    if (!anchorBooking) return NextResponse.json({ ok: false, error: "You can add packages from My Booking when you have an active paid lesson." }, { status: 409 });
 
     const lesson = (await store.getLessons()).find((item) => item.id === parsed.data.lessonId && item.category === "package");
     if (!lesson) return NextResponse.json({ ok: false, error: "That package is no longer available." }, { status: 404 });
@@ -116,7 +121,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       mode: "payment",
       expires_at: Math.floor(Date.parse(expiresAt) / 1000),
       submit_type: "book",
-      customer_email: found.booking.email,
+      customer_email: anchorBooking.email,
       customer_creation: "always",
       billing_address_collection: "auto",
       automatic_tax: { enabled: true },
@@ -164,10 +169,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       created = await store.createScheduledPackagePurchase({
         id: purchaseId,
         reference,
-        studentName: found.booking.studentName,
-        email: found.booking.email,
-        phone: found.booking.phone,
-        notes: `Added from My Booking ${found.booking.reference}`,
+        studentName: anchorBooking.studentName,
+        email: anchorBooking.email,
+        phone: anchorBooking.phone,
+        notes: `Added from My Booking ${anchorBooking.reference}`,
         lessonId: lesson.id,
         lessonName: lesson.name,
         durationMin: lesson.durationMin,
@@ -182,7 +187,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       await stripe.checkout.sessions.expire(session.id).catch((error: unknown) => logSafeError("[stripe/package-purchase] expired checkout after unavailable schedule", error));
       const conflict = created.error === "conflict";
       const notModifiable = created.error === "not_modifiable";
-      return NextResponse.json({ ok: false, error: conflict ? "One of those times was just taken. Choose another time." : notModifiable ? "Add-on packages are available only when you have an active paid lesson more than 48 hours away." : "Your booking could not be verified for this package purchase. Please verify your email again." }, { status: conflict || notModifiable ? 409 : 401 });
+      return NextResponse.json({ ok: false, error: conflict ? "One of those times was just taken. Choose another time." : notModifiable ? "Add-on packages are available when you have an active paid lesson." : "Your booking could not be verified for this package purchase. Please verify your email again." }, { status: conflict || notModifiable ? 409 : 401 });
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {

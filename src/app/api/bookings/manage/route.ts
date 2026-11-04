@@ -182,12 +182,19 @@ export async function POST(request: Request): Promise<NextResponse> {
         const purchase = await getStore().getPackagePurchaseByToken(hash);
         if (purchase) {
           const purchaseBookings = await getStore().findBookingsByPurchaseId(purchase.id);
+          const activePaidSessions = purchaseBookings.filter((session) =>
+            ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid",
+          );
+          const addOnOptions = activePaidSessions.length > 0
+            ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package")
+              .map(({ id, name, priceCad, durationMin, sessionCount }) => ({ id, name, priceCad, durationMin, sessionCount }))
+            : [];
           const sessions = purchaseBookings.map(safeView);
-          const activeBooking = purchaseBookings.find((session) => !["cancelled", "completed"].includes(session.status));
+          const activeBookingRecord = activePaidSessions[0] ?? purchaseBookings.find((session) => !["cancelled", "completed"].includes(session.status));
           return NextResponse.json({
             ok: true,
             purchase: safePurchaseView(purchase),
-            ...(activeBooking ? { booking: safeView(activeBooking) } : {}),
+            ...(activeBookingRecord ? { booking: { ...safeView(activeBookingRecord), addOnOptions } } : {}),
             sessions,
           });
         }
@@ -196,7 +203,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       const purchaseId = found.sessions.find((session) => session.purchaseId)?.purchaseId;
       const purchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
       const activePaidSessions = found.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid");
-      const canAddPackage = activePaidSessions.length === found.sessions.length && activePaidSessions.some((session) => !isInsideSelfServiceWindow(session.startsAt));
+      // Add-ons reserve their own future lesson times, so do not hide the
+      // option just because an existing lesson is inside the 48-hour cutoff.
+      const canAddPackage = activePaidSessions.length > 0;
       const packages = canAddPackage ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package") : [];
       return NextResponse.json({
         ok: true,
@@ -359,7 +368,7 @@ function messageFor(error: string): string {
     case "cutoff":
       return "This appointment is within 48 hours. Please contact your driving instructor to request a change.";
     case "reschedule_limit":
-      return "This booking has already been rescheduled twice online. Call Shan at +1 236-234-3229 for help.";
+      return "This lesson has already used its one online reschedule. Call Shan at +1 236-234-3229 for help.";
     default:
       return "This booking link is invalid or has expired.";
   }
