@@ -8,12 +8,8 @@ import { Logo } from "@/components/ui/logo";
 
 const navLinks = [
   { href: "/", label: "Home" },
-  { href: "/lessons", label: "Lessons" },
-  { href: "/#how", label: "How It Works" },
   { href: "/about", label: "About" },
-  { href: "/#faq", label: "FAQ" },
-  { href: "/terms#cancellations", label: "Lesson Policy", highlighted: true },
-  { href: "/privacy", label: "Privacy Policy" },
+  { href: "/terms", label: "Policies", highlighted: true },
   { href: "/booking/manage", label: "My Booking" },
   { href: "/contact", label: "Contact" },
 ] as const;
@@ -32,7 +28,7 @@ export function Navigation() {
   }, []);
 
   function isActive(href: string) {
-    if (href.startsWith("/terms")) return pathname === "/terms";
+    if (href.startsWith("/terms")) return pathname === "/terms" || pathname === "/privacy";
     return href === "/" ? isHome : !href.includes("#") && pathname.startsWith(href);
   }
 
