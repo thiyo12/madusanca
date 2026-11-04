@@ -1,6 +1,6 @@
 import { createHmac, randomInt } from "crypto";
 
-/** Short-lived: enough to switch tabs and copy, not enough to brute force. */
+/** Keep OTP validity and the database resend cooldown aligned. */
 export const OTP_TTL_MIN = 10;
 export const OTP_MAX_ATTEMPTS = 5;
 

@@ -100,7 +100,7 @@ export function BookingFind() {
       setCode("");
       const nextSendCount = sendCount + 1;
       setSendCount(nextSendCount);
-      setRetryAfter(nextSendCount >= 3 ? 24 * 60 * 60 : result.retryAfterSeconds ?? 120);
+       setRetryAfter(nextSendCount >= 3 ? 24 * 60 * 60 : result.retryAfterSeconds ?? 10 * 60);
       setStep("code");
     } catch {
       setError("Network error. Please try again.");
@@ -209,8 +209,7 @@ export function BookingFind() {
       {step === "code" && (
         <form onSubmit={verifyCode} className="grid gap-3.5">
           <p className="text-[13px] leading-relaxed text-soft">
-            If an active booking exists, a code was requested for <strong className="text-ink">{email}</strong>. It
-            expires in 10 minutes. Use it to view booking and payment options. Check spam if it doesn&rsquo;t arrive.
+            If an active booking exists, a code was requested for <strong className="text-ink">{email}</strong>. The newest code stays valid for 10 minutes. The countdown below is when you may request a replacement; requesting a new code invalidates the previous one. Check spam if it doesn&rsquo;t arrive.
           </p>
           <p className="rounded-[12px] bg-[#eaf5df] px-3 py-2 text-[12px] leading-relaxed text-[#31543a]">
             You can still view or pay for your booking. Online date changes close 48 hours before the lesson; for a late change, call{" "}
@@ -246,7 +245,7 @@ export function BookingFind() {
               disabled={pending || retryAfter > 0}
               className="inline-flex h-10 items-center rounded-full border border-line bg-white px-4 text-[13px] font-extrabold text-ink transition-colors hover:border-[#83b657] hover:text-[#426a2c] disabled:opacity-60"
             >
-              {retryAfter > 0 ? `Resend in ${cooldownText}` : "Resend code"}
+              {retryAfter > 0 ? `New code available in ${cooldownText}` : "Resend code"}
             </button>
             <button
               type="button"

@@ -65,8 +65,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   const genericSend = {
     ok: true,
-    message: `If a booking or package purchase exists for that email, a 6-digit code has been requested; it expires in ${OTP_TTL_MIN} minutes. Use it to view bookings, purchases, and payment options.`,
-    retryAfterSeconds: 120,
+    message: `If a booking or package purchase exists for that email, a 6-digit code has been requested. The newest code stays valid for ${OTP_TTL_MIN} minutes; you can request a replacement after it expires.`,
+    retryAfterSeconds: OTP_TTL_MIN * 60,
   };
 
   try {

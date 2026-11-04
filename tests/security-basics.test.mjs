@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { generateToken, hashToken, isValidTokenFormat, tokensMatch } from "../src/lib/booking/tokens.ts";
-import { generateOtpCode, hashOtp } from "../src/lib/booking/otp.ts";
+import { generateOtpCode, hashOtp, otpExpiry, OTP_TTL_MIN } from "../src/lib/booking/otp.ts";
 import { readBoundedBody } from "../src/lib/server/read-bounded-body.ts";
 import { clientIp, isIpRateLimitedShared, isRateLimited } from "../src/lib/server/rate-limit.ts";
 import {
@@ -63,6 +63,17 @@ test("OTP generation is six digits and hashes bind case-insensitively to email",
   assert.match(code, /^\d{6}$/);
   assert.equal(hashOtp(" STUDENT@example.com ", code), hashOtp("student@example.com", code));
   assert.notEqual(hashOtp("other@example.com", code), hashOtp("student@example.com", code));
+});
+
+test("OTP expiration is exactly 10 minutes and resend is delayed until that expiry", () => {
+  const issuedAt = new Date("2026-11-04T12:00:00.000Z");
+  assert.equal(OTP_TTL_MIN, 10);
+  assert.equal(Date.parse(otpExpiry(issuedAt)) - issuedAt.getTime(), 10 * 60_000);
+  const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
+  const resendMigration = readFileSync(new URL("../supabase/migrations/0038_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
+  assert.match(otpRoute, /retryAfterSeconds: OTP_TTL_MIN \* 60/);
+  assert.match(resendMigration, /last_sent_at \+ interval '10 minutes'/);
+  assert.doesNotMatch(resendMigration, /interval '2 minutes'/);
 });
 
 test("the 48-hour reschedule cutoff applies independently to each package session", () => {
