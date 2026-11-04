@@ -77,6 +77,13 @@ export const manageSchema = z.object({
   startsAt: isoDateTimeSchema.optional(),
 }).strict();
 
+export const packagePurchaseSchema = z.object({
+  lessonId: z.string().trim().min(1).max(64),
+  // Keep the request bounded while allowing quantities far beyond the former
+  // small UI limit. The API also enforces a maximum checkout amount.
+  quantity: z.number().int().safe().min(1).max(100_000),
+}).strict();
+
 
 /**
  * Self-service booking finder: prove email ownership with a one-time code,

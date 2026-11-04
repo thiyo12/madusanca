@@ -1,6 +1,5 @@
 import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { getStore } from "@/lib/booking/store";
 import { hashToken } from "@/lib/booking/tokens";
 import { getManageToken } from "@/lib/booking/manage-cookie";
@@ -11,13 +10,9 @@ import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
+import { packagePurchaseSchema } from "@/lib/validation/booking";
 
 export const dynamic = "force-dynamic";
-
-const schema = z.object({
-  lessonId: z.string().trim().min(1).max(64),
-  quantity: z.number().int().min(1).max(10),
-}).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
@@ -43,7 +38,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid request." }, { status: 400 });
   }
-  const parsed = schema.safeParse(body);
+  const parsed = packagePurchaseSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Choose a package and quantity." }, { status: 400 });
 
   try {

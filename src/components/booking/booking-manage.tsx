@@ -319,7 +319,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       {purchase.validUntil && <p className="mt-1 text-[12px] text-soft">Schedule before {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}.</p>}
       {purchase.paymentStatus === "paid" && purchase.creditsAvailable > 0 && (!purchase.validUntil || (now !== null && Date.parse(purchase.validUntil) > now)) && (
         <div className="mt-3">
-          <p className="mb-2 text-[12px] font-bold text-ink">Choose a time for one available lesson</p>
+          <p className="mb-2 text-[12px] font-bold text-ink">Choose a date and time for one paid lesson. Repeat for each available lesson.</p>
           <DateTimeStep
             key={`${purchase.id}-${availabilityRevision}`}
             lessonId={purchase.lessonId}
@@ -514,7 +514,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         const option = booking.addOnOptions!.find((item) => item.id === addOnLessonId);
         return <section className="mt-5 rounded-[14px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Add another package</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">This adds a separate package to your account. It will not change, cancel, or downgrade your current booking. After payment, verify your email in My Booking to schedule the extra lessons.</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Each add-on is a separate paid purchase. Your existing package will not change, and no lessons are added until payment succeeds. After payment, verify your email in My Booking and choose dates and times for the paid lessons.</p>
           <label className="mt-3 grid gap-1.5 text-xs font-bold text-ink">Package to add
             <select value={addOnLessonId} onChange={(event) => setAddOnLessonId(event.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
               <option value="">Select a package</option>
@@ -523,9 +523,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </label>
           {option && <>
             <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
-              <select value={addOnQuantity} onChange={(event) => setAddOnQuantity(Number(event.target.value))} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm">
-                {[1, 2, 3, 4, 5].map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}
-              </select>
+              <input type="number" min="1" step="1" inputMode="numeric" value={addOnQuantity} onChange={(event) => setAddOnQuantity(Math.max(1, Math.floor(Number(event.target.value) || 1)))} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />
             </label>
             <p className="mt-3 text-[12px] font-bold text-soft">Total: ${(option.priceCad * addOnQuantity).toFixed(2)} CAD + applicable taxes</p>
             <div className="mt-3"><StripePackagePurchaseButton lessonId={option.id} quantity={addOnQuantity} disabled={busy} /></div>

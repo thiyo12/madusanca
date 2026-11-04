@@ -20,6 +20,7 @@ import {
   dateOnlySchema,
   isoDateTimeSchema,
   manageSchema,
+  packagePurchaseSchema,
 } from "../src/lib/validation/booking.ts";
 import { contactSchema } from "../src/lib/validation/contact.ts";
 import { hasTrustedRequestOrigin } from "../src/lib/server/request-origin.ts";
@@ -71,6 +72,13 @@ test("the 48-hour reschedule cutoff applies independently to each package sessio
     "2026-11-10T12:00:00.000Z",
   ];
   assert.deepEqual(sessions.map((startsAt) => isInsideSelfServiceWindow(startsAt, now)), [true, false, false]);
+});
+
+test("add-on package purchases allow large quantities but still require a bounded positive integer", () => {
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 100 }).success, true);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 0 }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 100_001 }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 1.5 }).success, false);
 });
 
 test("90-minute lessons and 45-minute road tests reserve 120-minute instructor blocks", () => {
