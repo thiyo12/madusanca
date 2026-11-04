@@ -12,6 +12,8 @@ const navLinks = [
   { href: "/#how", label: "How It Works" },
   { href: "/about", label: "About" },
   { href: "/#faq", label: "FAQ" },
+  { href: "/terms#cancellations", label: "Lesson Policy", highlighted: true },
+  { href: "/privacy", label: "Privacy Policy" },
   { href: "/booking/manage", label: "My Booking" },
   { href: "/contact", label: "Contact" },
 ] as const;
@@ -30,6 +32,7 @@ export function Navigation() {
   }, []);
 
   function isActive(href: string) {
+    if (href.startsWith("/terms")) return pathname === "/terms";
     return href === "/" ? isHome : !href.includes("#") && pathname.startsWith(href);
   }
 
@@ -49,7 +52,7 @@ export function Navigation() {
               key={link.href}
               href={link.href}
               aria-current={isActive(link.href) ? "page" : undefined}
-              className={`whitespace-nowrap py-2 text-[12px] font-bold transition-colors hover:text-[#c2ee84] ${isActive(link.href) ? "text-[#c2ee84]" : "text-white/90"}`}
+              className={`whitespace-nowrap py-2 text-[12px] font-bold transition-colors hover:text-[#c2ee84] ${"highlighted" in link && link.highlighted ? "rounded-full bg-[#c2ee84] px-3 text-[#17252c] hover:bg-[#d4f5a5] hover:text-[#17252c]" : isActive(link.href) ? "text-[#c2ee84]" : "text-white/90"}`}
             >
               {link.label}
             </Link>
@@ -85,7 +88,7 @@ export function Navigation() {
                 href={link.href}
                 onClick={() => setIsMenuOpen(false)}
                 aria-current={isActive(link.href) ? "page" : undefined}
-                className={`rounded-[10px] px-3 py-2.5 text-[14px] font-bold transition-colors hover:bg-white/10 ${isActive(link.href) ? "text-[#c2ee84]" : "text-white"}`}
+                className={`rounded-[10px] px-3 py-2.5 text-[14px] font-bold transition-colors hover:bg-white/10 ${"highlighted" in link && link.highlighted ? "bg-[#c2ee84] text-[#17252c] hover:bg-[#d4f5a5]" : isActive(link.href) ? "text-[#c2ee84]" : "text-white"}`}
               >
                 {link.label}
               </Link>

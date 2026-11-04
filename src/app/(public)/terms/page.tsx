@@ -2,9 +2,9 @@ import { PageHeader } from "@/components/layout/page-header";
 import { publicPageMetadata } from "@/lib/seo/metadata";
 
 export const metadata = publicPageMetadata({
-  title: "Lesson Booking Terms",
+  title: "Lesson Policy and Booking Terms",
   description:
-    "Review lesson booking, payment, rescheduling, cancellation and refund terms for Wisdom Driving Academy in British Columbia.",
+    "Review cancellation, rescheduling, refund, road-test and student policies for Wisdom Driving Academy in British Columbia.",
   path: "/terms",
 });
 
@@ -59,7 +59,7 @@ const sections: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
-    heading: "Your responsibilities as a student",
+    heading: "Student responsibilities",
     body: (
       <>
         <p>To take in-car lessons you must:</p>
@@ -83,7 +83,8 @@ const sections: { heading: string; body: React.ReactNode }[] = [
           <li>
             For a road test, bring your driving licence and two pieces of valid
             government-issued identification (for example, a passport, birth
-            certificate, PR card or work/study permit);
+            certificate or PR card). Temporary residents must also bring their
+            work or study permit;
           </li>
           <li>
             Disclose any medical condition, disability or accessibility need
@@ -97,32 +98,33 @@ const sections: { heading: string; body: React.ReactNode }[] = [
     heading: "Fees, payment and taxes",
     body: (
       <p>
-        Prices are listed in Canadian dollars (CAD). Payment is arranged
-        directly with the school (for example e-transfer, card or in person) —
-        this website does not take online payment in this release. Applicable
-        taxes are added where required by law. A lesson is only confirmed once
-        its payment/arrangement terms with the school are satisfied.
+        All students must be registered and payment must be arranged in advance,
+        no later than the first lesson. Prices are listed in Canadian dollars
+        (CAD); applicable taxes are added where required by law. Any payment
+        options available for a booking are shown during checkout.
       </p>
     ),
   },
   {
-    heading: "Rescheduling and cancellation",
+    heading: "Cancellations and rescheduling",
     body: (
       <>
         <p>
-          Please cancel or reschedule at least <strong>48 hours</strong> before
-          the agreed lesson time to avoid a cancellation fee. Use the private
-          management link in your confirmation email or choose{" "}
+          Cancellations must be requested at least <strong>48 hours</strong>
+          before the scheduled lesson to avoid a cancellation fee. Contact the
+          school by email, phone or text. Online rescheduling is available for
+          each individual session until 48 hours before that session. Use the
+          private management link in your confirmation email or choose{" "}
           <a href="/booking/manage" className="font-semibold text-gold-deep underline-offset-2 hover:underline">
             My Booking
           </a>{" "}
-          and verify your booking email. Requests made within 48 hours, and
-          missed lessons, may incur a cancellation fee.
+          and verify your booking email. Requests made within 48 hours may incur
+          a cancellation fee. A no-show is charged for that lesson.
         </p>
         <ul className="list-disc space-y-1.5 pl-5">
           <li>
-            Online self-service changes are available until 48 hours before the
-            lesson; contact the school about a later change or emergency.
+            Changes requested within 48 hours must be arranged with the
+            instructor by phone, email or text.
           </li>
           <li>
             If we cancel or move your lesson, you always receive a new time or a
@@ -137,13 +139,13 @@ const sections: { heading: string; body: React.ReactNode }[] = [
     body: (
       <ul className="list-disc space-y-1.5 pl-5">
         <li>
-          Refunds for unused lessons in a package may be requested if the school
-          receives notice at least 48 hours before the next scheduled lesson.
-          A cancellation fee may apply to requests made within 48 hours.
+          A refund for unused lessons may be requested if the school receives
+          notice at least 48 hours before the next scheduled lesson. A
+          cancellation fee may apply to a refund request made within 48 hours.
         </li>
         <li>
-          A completed lesson is final sale; a road-test result does not qualify
-          for a refund. Purchased lessons are non-transferable.
+          Completed lessons are final sale and non-refundable. A road-test
+          result does not qualify for a refund. Lessons are non-transferable.
         </li>
       </ul>
     ),
@@ -161,12 +163,18 @@ const sections: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
-    heading: "General policies",
+    heading: "General and road-test policies",
     body: (
       <ul className="list-disc space-y-1.5 pl-5">
         <li>
-          Students must be registered and payment arrangements made no later
-          than the first lesson.
+          Students must bring their valid licence (Class 7L, 7N, 5 or
+          equivalent) to every lesson. Lessons where a licence is not brought
+          may be charged and are not refundable.
+        </li>
+        <li>Wear proper footwear. Heels and flip-flops are not permitted.</li>
+        <li>
+          Each regular driving lesson is 90 minutes, including pickup, drop-off,
+          manoeuvre explanations and questions and answers.
         </li>
         <li>
           The school may cancel or reschedule for unforeseen circumstances,
@@ -175,13 +183,22 @@ const sections: { heading: string; body: React.ReactNode }[] = [
           lesson time.
         </li>
         <li>
-          The instructor may end a lesson without refund if a student is
+          The school may cancel a lesson without refund if a student is
           suspected of being under the influence of alcohol or drugs, or uses
-          abusive or aggressive language.
+          foul, abusive or aggressive language.
         </li>
         <li>
-          Lessons where the student does not bring a valid licence or suitable
-          footwear may be treated as a late cancellation and may incur a fee.
+          A road-test package includes a 45-minute mock test and car rental. If
+          a person who is not a Wisdom Driving Academy student requests a rental,
+          a driving-skills assessment of at least 90 minutes is required and is
+          charged at the regular 90-minute lesson rate.
+        </li>
+        <li>All package lessons must be booked within six months.</li>
+        <li>
+          One parent may attend the first lesson at no charge. An additional
+          passenger on later lessons is subject to a $20 fee per lesson. With
+          the student&rsquo;s prior consent, the school may also have a passenger
+          in the vehicle for training purposes.
         </li>
       </ul>
     ),
@@ -248,21 +265,21 @@ export default function TermsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Legal"
-        title="Clear terms,"
-        accent="fair rules."
-        lead="Everything you need to know about booking, rescheduling and your rights as a student."
+        eyebrow="Customer policy"
+        title="Lesson policies,"
+        accent="clearly explained."
+        lead="Cancellation, refund, lesson and road-test rules for Wisdom Driving Academy students."
       />
 
       <section className="bg-white py-12 sm:py-16">
         <article className="mx-auto max-w-3xl px-5 sm:px-6">
           <p className="text-[13px] font-bold uppercase tracking-wider text-soft">
-            Last updated: October 25, 2026
+            Last updated: November 4, 2026
           </p>
 
           <div className="mt-8 space-y-9">
             {sections.map((section) => (
-              <section key={section.heading}>
+              <section key={section.heading} id={section.heading === "Cancellations and rescheduling" ? "cancellations" : undefined}>
                 <h2 className="font-display text-[21px] font-extrabold text-ink sm:text-[24px]">
                   {section.heading}
                 </h2>

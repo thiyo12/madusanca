@@ -6,7 +6,7 @@ const quickLinks = [
   { href: "/lessons", label: "Lesson Packages" },
   { href: "/booking", label: "Book a Lesson" },
   { href: "/booking/manage", label: "My Booking" },
-  { href: "/terms", label: "Lesson Terms" },
+  { href: "/terms", label: "Lesson Policy" },
   { href: "/privacy", label: "Privacy Policy" },
   { href: "/accessibility", label: "Accessibility" },
   { href: "/contact", label: "Contact" },
