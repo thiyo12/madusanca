@@ -137,7 +137,7 @@ export function BookingFind() {
       const result = await callOtp({ action: "token", code, reference });
       if (result.ok) {
         markManageSessionVerified();
-        router.push("/booking/manage");
+        router.push(`/booking/manage?selected=${encodeURIComponent(reference)}`);
         return;
       }
       setError(result.error ?? "Could not open that booking.");

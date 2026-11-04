@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { preserveManageSessionForStripeReturn } from "@/lib/booking/manage-session-client";
 
-export function StripePackagePurchaseButton({ lessonId, quantity, disabled = false }: {
+export function StripePackagePurchaseButton({ lessonId, quantity, startsAt, disabled = false }: {
   lessonId: string;
   quantity: number;
+  startsAt: string[];
   disabled?: boolean;
 }) {
   const [pending, setPending] = useState(false);
@@ -18,7 +19,7 @@ export function StripePackagePurchaseButton({ lessonId, quantity, disabled = fal
       const response = await fetch("/api/stripe/package-purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lessonId, quantity }),
+        body: JSON.stringify({ lessonId, quantity, startsAt }),
       });
       const result = await response.json() as { ok?: boolean; url?: string; error?: string };
       if (!response.ok || !result.ok || !result.url) {

@@ -56,6 +56,7 @@ function safeView(booking: BookingRecord): {
   sessionCount: number;
   packagePriceCad: number;
   packageWindowStart: string;
+  isAdditionalPackage: boolean;
 } {
   return {
     id: booking.id,
@@ -76,6 +77,7 @@ function safeView(booking: BookingRecord): {
     sessionCount: booking.sessionCount ?? 1,
     packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
     packageWindowStart: booking.packageWindowStart ?? dayKeyOf(booking.startsAt),
+    isAdditionalPackage: Boolean(booking.purchaseId),
   };
 }
 
@@ -193,21 +195,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
       const purchaseId = found.sessions.find((session) => session.purchaseId)?.purchaseId;
       const purchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
-      const currentPackagePrice = found.booking.packagePriceCad ?? found.booking.priceCad;
       const activePaidSessions = found.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid");
-      const allSessionsPaid = activePaidSessions.length === found.sessions.length;
-      const canAddPackage = allSessionsPaid && activePaidSessions.some((session) => !isInsideSelfServiceWindow(session.startsAt));
+      const canAddPackage = activePaidSessions.length === found.sessions.length && activePaidSessions.some((session) => !isInsideSelfServiceWindow(session.startsAt));
       const packages = canAddPackage ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package") : [];
-      const upgradeOptions = allSessionsPaid
-        ? packages.filter((lesson) => lesson.priceCad > currentPackagePrice)
-          .map(({ id, name, priceCad, sessionCount }) => ({ id, name, priceCad, sessionCount, balanceCad: Math.round((priceCad - currentPackagePrice) * 100) / 100 }))
-        : [];
       return NextResponse.json({
         ok: true,
         booking: {
           ...safeView(found.booking),
-          upgradeOptions,
-          addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, sessionCount }) => ({ id, name, priceCad, sessionCount })) : [],
+          addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, durationMin, sessionCount }) => ({ id, name, priceCad, durationMin, sessionCount })) : [],
         },
         sessions: found.sessions.map(safeView),
         ...(purchase ? { purchase: safePurchaseView(purchase) } : {}),

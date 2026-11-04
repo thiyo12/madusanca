@@ -420,6 +420,13 @@ export interface BookingStore {
   handleStripeCheckoutEvent(event: StripeCheckoutEvent): Promise<void>;
   handleStripeUpgradeCheckoutEvent(event: StripeUpgradeCheckoutEvent): Promise<void>;
   createPackagePurchase(input: CreatePackagePurchaseInput): Promise<PackagePurchaseRecord>;
+  createScheduledPackagePurchase(
+    input: CreatePackagePurchaseInput & { id: string },
+    startsAt: string[],
+    manageTokenHash: string,
+    checkoutSessionId: string,
+    checkoutExpiresAt: string,
+  ): Promise<StoreResult<PackagePurchaseRecord>>;
   setStripePackagePurchaseCheckout(purchaseId: string, sessionId: string, expiresAt: string): Promise<void>;
   getPackagePurchaseByCheckoutSession(sessionId: string): Promise<PackagePurchaseRecord | null>;
   findPackagePurchasesByEmail(email: string): Promise<PackagePurchaseRecord[]>;

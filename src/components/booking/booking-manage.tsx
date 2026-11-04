@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { BookingFind } from "@/components/booking/booking-find";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
-import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button";
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
@@ -37,8 +36,8 @@ interface BookingView {
   sessionCount: number;
   packagePriceCad: number;
   packageWindowStart: string;
-  upgradeOptions?: Array<{ id: string; name: string; priceCad: number; sessionCount: number; balanceCad: number }>;
-  addOnOptions?: Array<{ id: string; name: string; priceCad: number; sessionCount: number }>;
+  isAdditionalPackage: boolean;
+  addOnOptions?: Array<{ id: string; name: string; priceCad: number; durationMin: number; sessionCount: number }>;
 }
 
 interface ManageResponse {
@@ -92,11 +91,10 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
-  const [upgradeLessonId, setUpgradeLessonId] = useState("");
   const [addOnLessonId, setAddOnLessonId] = useState("");
   const [addOnQuantity, setAddOnQuantity] = useState(1);
-  const [upgradeSessions, setUpgradeSessions] = useState<string[]>([]);
-  const [upgradeSessionIndex, setUpgradeSessionIndex] = useState(0);
+  const [addOnSchedule, setAddOnSchedule] = useState<string[]>([]);
+  const [addOnSessionIndex, setAddOnSessionIndex] = useState(0);
   const [creditStart, setCreditStart] = useState<string | null>(null);
   const sessionAuthorizedRef = useRef(false);
 
@@ -315,7 +313,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
     <section className="mt-5 rounded-[16px] border border-line p-4">
       <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#426a2c]">Package purchase</p>
       <h3 className="mt-1 text-sm font-extrabold text-ink">{purchase.lessonName}</h3>
-      <p className="mt-1 text-[12.5px] text-soft">{purchase.creditsAvailable} of {purchase.creditsPurchased} lessons available · {purchase.paymentStatus === "paid" ? "Paid" : purchase.paymentStatus}</p>
+      <p className="mt-1 text-[12.5px] text-soft">{purchase.creditsAvailable > 0 ? `${purchase.creditsAvailable} of ${purchase.creditsPurchased} lessons available` : purchase.paymentStatus === "paid" && sessions.some((session) => session.isAdditionalPackage) ? "All package lessons are scheduled" : `${purchase.creditsPurchased} lessons`} · {purchase.paymentStatus === "paid" ? "Paid" : purchase.paymentStatus}</p>
       {purchase.validUntil && <p className="mt-1 text-[12px] text-soft">Schedule before {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}.</p>}
       {purchase.paymentStatus === "paid" && purchase.creditsAvailable > 0 && (!purchase.validUntil || (now !== null && Date.parse(purchase.validUntil) > now)) && (
         <div className="mt-3">
@@ -376,9 +374,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       <div className="rounded-[25px] border border-[#d3e9c5] bg-[#f5fbed] p-6 sm:p-8">
         <h2 className="font-display text-2xl font-extrabold text-ink">Package checkout returned</h2>
         <p role="status" className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
-          Stripe returned you from checkout. Your package is separate from your current booking and will not replace or downgrade it. Verify your email in My Booking to see the package once payment is confirmed and schedule its lessons.
+          Stripe returned you from checkout. Your existing booking is unchanged. Verify your email below to view and manage the package lessons you selected.
         </p>
-        <Button href="/booking/manage" variant="dark" className="mt-5">Return to My Booking</Button>
+        <div className="mt-5 rounded-[18px] border border-line bg-white p-4 sm:p-5"><BookingFind /></div>
       </div>
     );
   }
@@ -487,46 +485,68 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </a>
         )}
       </div>
-      {booking.paymentStatus === "due" && !closed && (
+      {booking.paymentStatus === "due" && !closed && !booking.isAdditionalPackage && (
         <div className="mt-4">
           <StripeCheckoutButton />
         </div>
       )}
-      {booking.paymentStatus === "paid" && !closed && (booking.upgradeOptions?.length ?? 0) > 0 && (() => {
-        const option = booking.upgradeOptions!.find((item) => item.id === upgradeLessonId);
-        return <section className="mt-5 rounded-[14px] border border-line p-4">
-          <h3 className="text-sm font-extrabold text-ink">Upgrade package</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a new date and time for every session. Your current booking stays unchanged unless the upgrade payment succeeds.</p>
-          <label className="mt-3 grid gap-1.5 text-xs font-bold text-ink">New package
-            <select value={upgradeLessonId} onChange={(event) => { setUpgradeLessonId(event.target.value); setUpgradeSessions([]); setUpgradeSessionIndex(0); }} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
-              <option value="">Select a package</option>
-              {booking.upgradeOptions!.map((item) => <option key={item.id} value={item.id}>{item.name} · pay ${item.balanceCad.toFixed(2)} CAD + GST</option>)}
-            </select>
-          </label>
-          {option && <>
-            <div className="mt-4 flex flex-wrap gap-2">{Array.from({ length: option.sessionCount }, (_, index) => <button key={index} type="button" onClick={() => setUpgradeSessionIndex(index)} aria-pressed={upgradeSessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold ${upgradeSessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>Session {index + 1}{upgradeSessions[index] ? " ✓" : ""}</button>)}</div>
-            <div className="mt-3"><DateTimeStep lessonId={option.id} selectedStart={upgradeSessions[upgradeSessionIndex] ?? null} maxDate={upgradeSessions[0] ? addMonthsToKey(dayKeyOf(upgradeSessions[0]), 6) : undefined} minDate={upgradeSessionIndex > 0 && upgradeSessions[0] ? dayKeyOf(upgradeSessions[0]) : undefined} horizonDays={370} onSelect={(slot) => { setUpgradeSessions((current) => { const next = [...current]; next[upgradeSessionIndex] = slot; return next; }); setUpgradeSessionIndex((index) => Math.min(index + 1, option.sessionCount - 1)); }} /></div>
-            <div className="mt-3"><StripeUpgradeButton targetLessonId={option.id} amountCad={option.balanceCad} sessions={upgradeSessions} disabled={upgradeSessions.length !== option.sessionCount || upgradeSessions.some((slot) => !slot)} /></div>
-          </>}
-        </section>;
-      })()}
       {booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
         const option = booking.addOnOptions!.find((item) => item.id === addOnLessonId);
+        const sessionTotal = option ? option.sessionCount * addOnQuantity : 0;
+        const addOnWindowEnd = addOnSchedule[0] ? addMonthsToKey(dayKeyOf(addOnSchedule[0]), 6) : undefined;
+        const addOnBlocked = addOnSchedule.flatMap((startsAt, index) => startsAt && index !== addOnSessionIndex && option
+          ? [{ startsAt, durationMin: option.durationMin }]
+          : []);
         return <section className="mt-5 rounded-[14px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Add another package</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Each add-on is a separate paid purchase. Your existing package will not change, and no lessons are added until payment succeeds. After payment, verify your email in My Booking and choose dates and times for the paid lessons.</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a package and quantity, then schedule every lesson before paying. Your existing package and appointments stay unchanged.</p>
           <label className="mt-3 grid gap-1.5 text-xs font-bold text-ink">Package to add
-            <select value={addOnLessonId} onChange={(event) => setAddOnLessonId(event.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
+            <select value={addOnLessonId} onChange={(event) => { const selected = booking.addOnOptions?.find((item) => item.id === event.target.value); setAddOnLessonId(event.target.value); if (selected) setAddOnQuantity((quantity) => Math.min(quantity, Math.floor(20 / selected.sessionCount))); setAddOnSchedule([]); setAddOnSessionIndex(0); }} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
               <option value="">Select a package</option>
               {booking.addOnOptions!.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.sessionCount} lesson{item.sessionCount === 1 ? "" : "s"} · ${item.priceCad.toFixed(2)} CAD</option>)}
             </select>
           </label>
           {option && <>
             <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
-              <input type="number" min="1" step="1" inputMode="numeric" value={addOnQuantity} onChange={(event) => setAddOnQuantity(Math.max(1, Math.floor(Number(event.target.value) || 1)))} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />
+              <input type="number" min="1" max={Math.floor(20 / option.sessionCount)} step="1" inputMode="numeric" value={addOnQuantity} onChange={(event) => { setAddOnQuantity(Math.max(1, Math.min(Math.floor(20 / option.sessionCount), Math.floor(Number(event.target.value) || 1)))); setAddOnSchedule([]); setAddOnSessionIndex(0); }} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />
             </label>
+            <p className="mt-3 text-[12px] font-bold text-ink">Select a date and time for each of the {sessionTotal} lessons:</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Array.from({ length: sessionTotal }, (_, index) => (
+                <button key={index} type="button" disabled={index > 0 && !addOnSchedule[index - 1]} onClick={() => setAddOnSessionIndex(index)} aria-pressed={addOnSessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${addOnSessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>
+                  Lesson {index + 1}{addOnSchedule[index] ? " ✓" : ""}
+                </button>
+              ))}
+            </div>
+            <ol className="mt-3 grid gap-1 rounded-xl bg-[#f7f7f3] p-3 text-[12px] text-soft">
+              {Array.from({ length: sessionTotal }, (_, index) => (
+                <li key={index}><span className="font-bold text-ink">Lesson {index + 1}:</span> {addOnSchedule[index] ? `${formatSlotFull(addOnSchedule[index])} Pacific` : "Choose a date and time"}</li>
+              ))}
+            </ol>
+            <div className="mt-3">
+              <DateTimeStep
+                key={`${addOnLessonId}-${sessionTotal}-${addOnSessionIndex}-${availabilityRevision}`}
+                lessonId={option.id}
+                selectedStart={addOnSchedule[addOnSessionIndex] ?? null}
+                minDate={addOnSessionIndex > 0 && addOnSchedule[addOnSessionIndex - 1] ? dayKeyOf(addOnSchedule[addOnSessionIndex - 1]) : undefined}
+                maxDate={addOnWindowEnd}
+                horizonDays={185}
+                blockedStartsAt={addOnBlocked}
+                onSelect={(slot) => {
+                  setAddOnSchedule((current) => {
+                    if (current[addOnSessionIndex] === slot) return current;
+                    const next = current.slice(0, addOnSessionIndex);
+                    next[addOnSessionIndex] = slot;
+                    return next;
+                  });
+                  setAddOnSessionIndex((index) => Math.min(index + 1, sessionTotal - 1));
+                  setActionError(null);
+                }}
+                onUnavailableSelection={() => setAddOnSchedule((current) => current.slice(0, addOnSessionIndex))}
+              />
+            </div>
             <p className="mt-3 text-[12px] font-bold text-soft">Total: ${(option.priceCad * addOnQuantity).toFixed(2)} CAD + applicable taxes</p>
-            <div className="mt-3"><StripePackagePurchaseButton lessonId={option.id} quantity={addOnQuantity} disabled={busy} /></div>
+            <div className="mt-3"><StripePackagePurchaseButton lessonId={option.id} quantity={addOnQuantity} startsAt={addOnSchedule} disabled={busy || addOnSchedule.length !== sessionTotal || addOnSchedule.some((slot) => !slot)} /></div>
           </>}
         </section>;
       })()}
