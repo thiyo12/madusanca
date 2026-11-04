@@ -83,7 +83,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       const purchaseTarget = purchases[0];
       if (target || purchaseTarget) {
         const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
-        if (!quota.allowed) return NextResponse.json(genericSend);
+        if (!quota.allowed) {
+          console.info("[otp] verification request was suppressed by the send quota");
+          return NextResponse.json(genericSend);
+        }
         const otp = generateOtpCode();
         await store.putOtp(email, hashOtp(email, otp), otpExpiry());
         const sent = await sendBookingOtpEmail({
@@ -93,7 +96,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         });
         if (!sent) {
           console.error("[otp] verification email was not delivered; check Resend sender/domain settings");
+        } else {
+          console.info("[otp] verification email accepted by the configured provider");
         }
+      } else {
+        console.info("[otp] verification request had no eligible booking or package purchase");
       }
       return NextResponse.json(genericSend);
     }

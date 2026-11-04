@@ -28,6 +28,7 @@ import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts"
 import { addMonthsToKey, dayKeyOf, formatSlotTime } from "../src/lib/booking/format.ts";
 import { generateSlots, HORIZON_DAYS, occupiedDurationMin, toVancouverDayKey, toVancouverParts, zonedToUtc } from "../src/lib/booking/slots.ts";
 import { manageUrl } from "../src/lib/booking/urls.ts";
+import { isInsideSelfServiceWindow } from "../src/lib/booking/manage-policy.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -60,6 +61,16 @@ test("OTP generation is six digits and hashes bind case-insensitively to email",
   assert.match(code, /^\d{6}$/);
   assert.equal(hashOtp(" STUDENT@example.com ", code), hashOtp("student@example.com", code));
   assert.notEqual(hashOtp("other@example.com", code), hashOtp("student@example.com", code));
+});
+
+test("the 48-hour reschedule cutoff applies independently to each package session", () => {
+  const now = Date.parse("2026-11-04T12:00:00.000Z");
+  const sessions = [
+    "2026-11-05T11:00:00.000Z", // today's/next-day lesson: blocked
+    "2026-11-06T12:00:00.000Z", // exactly 48 hours: eligible
+    "2026-11-10T12:00:00.000Z",
+  ];
+  assert.deepEqual(sessions.map((startsAt) => isInsideSelfServiceWindow(startsAt, now)), [true, false, false]);
 });
 
 test("90-minute lessons and 45-minute road tests reserve 120-minute instructor blocks", () => {

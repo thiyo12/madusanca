@@ -10,6 +10,7 @@ import { StripeUpgradeButton } from "@/components/booking/stripe-upgrade-button"
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
+import { isInsideSelfServiceWindow } from "@/lib/booking/manage-policy";
 import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
@@ -177,11 +178,16 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           setError(result.error ?? "This booking link is invalid or has expired.");
           return;
         }
+        const loadedAt = Date.now();
+        const loadedSessions = result.sessions ?? (result.booking ? [result.booking] : []);
+        const firstEligibleSession = loadedSessions.find((session) =>
+          !["cancelled", "completed"].includes(session.status) && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
+        );
         setPurchase(result.purchase ?? null);
         setBooking(result.booking ?? null);
-        setSessions(result.sessions ?? (result.booking ? [result.booking] : []));
-        setActiveSessionId(result.booking?.id ?? null);
-        setNow(Date.now());
+        setSessions(loadedSessions);
+        setActiveSessionId(firstEligibleSession?.id ?? result.booking?.id ?? null);
+        setNow(loadedAt);
         setStatus("ready");
       })
       .catch(() => {
@@ -363,8 +369,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const selectedSession = sessions.find((session) => session.id === activeSessionId) ?? booking;
   const selectedSessionOpen = !["cancelled", "completed"].includes(selectedSession.status);
   const rescheduleLimitReached = selectedSession.studentRescheduleCount >= 2;
-  const withinCancellationWindow =
-    now !== null && Date.parse(selectedSession.startsAt) - now < 48 * 60 * 60 * 1000;
+  const withinCancellationWindow = now !== null && isInsideSelfServiceWindow(selectedSession.startsAt, now);
 
   if (paymentReturn === "success" && packagePurchaseAdded) {
     return (
@@ -446,7 +451,13 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
                 <button type="button" onClick={() => setActiveSessionId(session.id)} aria-pressed={activeSessionId === session.id} className="text-left font-bold text-ink underline decoration-transparent underline-offset-2 hover:decoration-current aria-pressed:text-gold-deep">
                   Session {session.sessionIndex}: {formatSlotFull(session.startsAt)}
                 </button>
-                <span className="text-soft">{STATUS_LABEL[session.status] ?? session.status}{activeSessionId === session.id ? " · selected" : ""}</span>
+                <span className="text-right text-soft">
+                  {STATUS_LABEL[session.status] ?? session.status}
+                  {activeSessionId === session.id ? " · selected" : ""}
+                  {session.status !== "cancelled" && session.status !== "completed" && now !== null && (
+                    <span className="block font-semibold">{isInsideSelfServiceWindow(session.startsAt, now) ? "Within 48 hours · contact tutor" : "Rescheduling available"}</span>
+                  )}
+                </span>
               </li>
             ))}
           </ol>

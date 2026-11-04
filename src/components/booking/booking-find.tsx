@@ -168,7 +168,7 @@ export function BookingFind() {
           Find my booking
         </h3>
         <p className="mt-1 text-[13.5px] leading-relaxed text-soft">
-          Enter the email you booked with. Online changes are available until
+          Enter the email you booked with. If the code doesn’t arrive, check your spam/junk folder and confirm the address matches your booking. Online changes are available until
           48 hours before the lesson. To cancel, or for a later change, contact Shan at{" "}
           <a href="tel:+12362343229" className="font-bold text-gold-deep underline-offset-2 hover:underline">
             +1 236-234-3229

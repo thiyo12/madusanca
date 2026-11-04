@@ -16,6 +16,7 @@ import { getStripe } from "@/lib/stripe/server";
 import { getManageToken, MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 import { dayKeyOf } from "@/lib/booking/format";
+import { isInsideSelfServiceWindow } from "@/lib/booking/manage-policy";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
@@ -28,12 +29,6 @@ const ERROR_STATUS: Record<string, number> = {
   cutoff: 409,
   reschedule_limit: 409,
 };
-
-const SELF_SERVICE_CUTOFF_MS = 48 * 60 * 60 * 1000;
-
-function isInsideSelfServiceWindow(startsAt: string): boolean {
-  return Date.parse(startsAt) - Date.now() < SELF_SERVICE_CUTOFF_MS;
-}
 
 function errorResponse(error: string, message: string): NextResponse {
   return NextResponse.json(
@@ -201,7 +196,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       const currentPackagePrice = found.booking.packagePriceCad ?? found.booking.priceCad;
       const activePaidSessions = found.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid");
       const allSessionsPaid = activePaidSessions.length === found.sessions.length;
-      const canAddPackage = allSessionsPaid && activePaidSessions.some((session) => Date.parse(session.startsAt) - Date.now() > SELF_SERVICE_CUTOFF_MS);
+      const canAddPackage = allSessionsPaid && activePaidSessions.some((session) => !isInsideSelfServiceWindow(session.startsAt));
       const packages = canAddPackage ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package") : [];
       const upgradeOptions = allSessionsPaid
         ? packages.filter((lesson) => lesson.priceCad > currentPackagePrice)
