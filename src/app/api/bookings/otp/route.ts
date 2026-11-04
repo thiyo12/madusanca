@@ -63,16 +63,22 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 429 },
     );
   }
-  const genericSend = {
+  const genericSend = (retryAfterSeconds: number) => ({
     ok: true,
-    message: `If a booking or package purchase exists for that email, a 6-digit code has been requested; it expires in ${OTP_TTL_MIN} minutes. Use it to view bookings, purchases, and payment options.`,
-    retryAfterSeconds: 120,
-  };
+    message: `If a booking or package purchase exists for that email, a code may have been sent. Codes expire in ${OTP_TTL_MIN} minutes; only the newest code works. If you already have a recent code, enter it instead of requesting another.`,
+    retryAfterSeconds,
+  });
 
   try {
     const store = getStore();
 
     if (action === "send") {
+      // Apply the same per-address quota before checking whether records exist.
+      // This keeps the response/timer from revealing account existence and
+      // gives the UI the real 2-minute or 24-hour retry window.
+      const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
+      if (!quota.allowed) return NextResponse.json(genericSend(quota.retryAfterSeconds));
+
       const found = await store.findBookingsByEmail(email);
       const purchases = await store.findPackagePurchasesByEmail(email);
       const eligible = found.filter(
@@ -82,11 +88,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       const target = eligible[0];
       const purchaseTarget = purchases[0];
       if (target || purchaseTarget) {
-        const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
-        if (!quota.allowed) {
-          console.info("[otp] verification request was suppressed by the send quota");
-          return NextResponse.json(genericSend);
-        }
         const otp = generateOtpCode();
         await store.putOtp(email, hashOtp(email, otp), otpExpiry());
         const sent = await sendBookingOtpEmail({
@@ -102,11 +103,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       } else {
         console.info("[otp] verification request had no eligible booking or package purchase");
       }
-      return NextResponse.json(genericSend);
+      return NextResponse.json(genericSend(120));
     }
 
     // verify / token both require the code.
-    const verification = await store.verifyOtp(email, hashOtp(email, code ?? ""), action === "token");
+    // A successful My Booking sign-in must not invalidate the code: the same
+    // code remains valid until its original 10-minute expiry.
+    const verification = await store.verifyOtp(email, hashOtp(email, code ?? ""), false);
     if (!verification.ok) {
       const message =
         verification.reason === "locked"
@@ -129,7 +132,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
     }
 
-    // action === "token"
+    // action === "token"; OTP remains reusable until its expiry.
     const wanted = reference?.toUpperCase();
     const target = wanted
       ? found.find((b) => b.reference === wanted)

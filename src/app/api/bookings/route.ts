@@ -9,7 +9,7 @@ import { sendBookingPaymentPendingEmail } from "@/lib/email/booking-emails";
 import { manageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
-import { MANAGE_COOKIE_NAME } from "@/lib/booking/manage-cookie";
+import { CHECKOUT_COOKIE_NAME, checkoutCookieOptions, createCheckoutGrant } from "@/lib/booking/checkout-cookie";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 import type { Lesson } from "@/lib/data/lessons";
 
@@ -48,10 +48,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const { lessonId, studentName, email, phone, notes, website } = parsed.data;
-  const addOnPackages = parsed.data.addOnPackages ?? [];
-  if (new Set(addOnPackages.map((item) => item.lessonId)).size !== addOnPackages.length) {
-    return NextResponse.json({ ok: false, error: "Choose each package once, then set its quantity." }, { status: 400 });
-  }
 
   if (await isRateLimitedShared(`booking-email:${email.trim().toLowerCase()}`, 5, 10 * 60 * 1000)) {
     return NextResponse.json(
@@ -72,15 +68,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!lesson) {
       return NextResponse.json({ ok: false, error: "Lesson not found." }, { status: 404 });
     }
-    const addOns = addOnPackages.map((selection) => ({
-      quantity: selection.quantity,
-      lesson: catalogue.find((item) => item.id === selection.lessonId && item.category === "package"),
-    }));
-    if (addOns.some((item) => !item.lesson)) {
-      return NextResponse.json({ ok: false, error: "An additional lesson is no longer available. Refresh the catalogue and review your booking." }, { status: 409 });
-    }
-    const addOnSubtotal = addOns.reduce((sum, item) => sum + (item.lesson?.priceCad ?? 0) * item.quantity, 0);
-    if (!Number.isSafeInteger(Math.round((lesson.priceCad + addOnSubtotal) * 100)) || lesson.priceCad + addOnSubtotal > 999_999.99) {
+    if (!Number.isSafeInteger(Math.round(lesson.priceCad * 100)) || lesson.priceCad > 999_999.99) {
       return NextResponse.json({ ok: false, error: "The selected total exceeds the secure checkout limit. Reduce package quantities and try again." }, { status: 400 });
     }
     const packageSchedules = parsed.data.packageSchedules ?? [{
@@ -88,21 +76,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       quantity: 1,
       startsAt: parsed.data.sessions ?? [parsed.data.startsAt!],
     }];
-    const addOnSet = addOnPackages.map(({ lessonId: id, quantity }) => ({ lessonId: id, quantity })).sort((a, b) => a.lessonId.localeCompare(b.lessonId));
-    const scheduledAddOnSet = (packageSchedules ?? []).slice(1).map(({ lessonId: id, quantity }) => ({ lessonId: id, quantity })).sort((a, b) => a.lessonId.localeCompare(b.lessonId));
-    if (
-      packageSchedules[0].lessonId !== lesson.id || packageSchedules[0].quantity !== 1 ||
-      JSON.stringify(addOnSet) !== JSON.stringify(scheduledAddOnSet)
-    ) {
-      return NextResponse.json({ ok: false, error: "Review your selected packages and lesson schedule." }, { status: 400 });
-    }
-    if (packageSchedules.some((selection, index) => {
-      const selectedLesson = catalogue.find((item) => item.id === selection.lessonId && (index === 0 || item.category === "package"));
-      return !selectedLesson || selection.startsAt.length !== selectedLesson.sessionCount * selection.quantity;
-    })) {
+    if (packageSchedules.length !== 1 || packageSchedules[0].lessonId !== lesson.id || packageSchedules[0].quantity !== 1 ||
+      packageSchedules[0].startsAt.length !== lesson.sessionCount) {
       return NextResponse.json({ ok: false, error: "Choose a date and time for every lesson in each selected package." }, { status: 400 });
     }
-    const startsAt = packageSchedules.flatMap((selection) => selection.startsAt);
+    const startsAt = packageSchedules[0].startsAt;
     if (startsAt.length > 200) return NextResponse.json({ ok: false, error: "This selection contains too many scheduled lessons. Reduce package quantities." }, { status: 400 });
     const sortedStarts = [...startsAt].sort((a, b) => Date.parse(a) - Date.parse(b));
     const anchorStart = packageSchedules[0].startsAt[0];
@@ -220,20 +198,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         sessions: result.value.map(({ startsAt: sessionStart }) => ({ startsAt: sessionStart })),
         sessionCount: result.value.length,
       },
-      manageToken: token,
       emailSent,
-      addOns: addOns.map(({ lesson: item, quantity }) => ({
-        id: item!.id,
-        name: item!.name,
-        priceCad: item!.priceCad,
-        sessionCount: item!.sessionCount,
-        quantity,
-      })),
     });
-    // Booking creation must not grant this browser an authenticated manage
-    // session. Customers must verify their email in My Booking; the email link
-    // is only a route to that OTP entry point.
-    response.cookies.delete(MANAGE_COOKIE_NAME);
+    // A checkout-only grant is deliberately separate from the manage cookie.
+    response.cookies.set(CHECKOUT_COOKIE_NAME, createCheckoutGrant(booking.id), checkoutCookieOptions);
     return response;
   } catch (error) {
     logSafeError("[bookings] create failed", error);
