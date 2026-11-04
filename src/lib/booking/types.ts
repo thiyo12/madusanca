@@ -422,6 +422,7 @@ export interface BookingStore {
   createPackagePurchase(input: CreatePackagePurchaseInput): Promise<PackagePurchaseRecord>;
   createScheduledPackagePurchase(
     input: CreatePackagePurchaseInput & { id: string },
+    packageQuantity: number,
     startsAt: string[],
     manageTokenHash: string,
     checkoutSessionId: string,

@@ -99,6 +99,19 @@ test("each scheduled lesson has exactly one student reschedule", () => {
   assert.match(fileStore, /studentRescheduleCount \?\? 0\) >= MAX_STUDENT_RESCHEDULES_PER_SESSION/);
 });
 
+test("paid single lessons can use their one online reschedule", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0040_allow_paid_single_booking_reschedule.sql", import.meta.url), "utf8");
+  const manageRoute = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
+  const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
+  assert.match(migration, /student_reschedule_count >= 1/);
+  assert.match(migration, /starts_at < now\(\) \+ interval '48 hours'/);
+  assert.doesNotMatch(migration, /session_count = 1 and exists[\s\S]{0,180}payment_status = 'paid'/);
+  assert.match(manageRoute, /const paidBooking = targetBooking\.paymentStatus === "paid"/);
+  assert.match(manageRoute, /if \(!paidBooking && paymentBooking\.stripeCheckoutSessionId\)/);
+  assert.doesNotMatch(manageRoute, /This booking has already been paid\. Contact the school before rescheduling\./);
+  assert.doesNotMatch(fileStore, /sessionCount \?\? 1\) === 1 && target\.paymentStatus === "paid"/);
+});
+
 test("add-on package checkout requires a bounded list of valid selected times", () => {
   const startsAt = ["2026-12-01T17:00:00.000Z", "2026-12-08T17:00:00.000Z"];
   assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1, startsAt }).success, true);
@@ -124,7 +137,14 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(purchaseRoute, /startsAt\.length !== creditsPurchased/);
   assert.match(purchaseRoute, /session\.paymentStatus === "paid"/);
   assert.match(purchaseRoute, /getPackagePurchaseByToken\(tokenHash\)/);
+  assert.match(purchaseRoute, /\}, parsed\.data\.quantity, startsAt, tokenHash/);
   assert.doesNotMatch(purchaseRoute, /Date\.parse\(session\.startsAt\).*48/);
+  const store = readFileSync(new URL("../src/lib/booking/supabase-store.ts", import.meta.url), "utf8");
+  assert.match(store, /p_quantity: packageQuantity/);
+  assert.doesNotMatch(store, /p_quantity: input\.creditsPurchased/);
+  const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
+  assert.match(fileStore, /lesson\.sessionCount \* packageQuantity !== input\.creditsPurchased/);
+  assert.match(purchaseRoute, /We couldn’t reserve those lesson times/);
   const manageRoute = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
   assert.match(manageRoute, /const canAddPackage = activePaidSessions\.length > 0/);
   assert.match(manageRoute, /addOnOptions/);
