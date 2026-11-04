@@ -94,6 +94,15 @@ test("initial booking schema accepts one package and rejects multiple scheduled 
   assert.equal(createBookingSchema.safeParse({ ...base, startsAt: "2026-11-03T16:00:00.000Z", addOnPackages: [] }).success, false);
 });
 
+test("production password-reset email and callback use the same canonical site origin", () => {
+  const actions = readFileSync(new URL("../src/app/admin/login/actions.ts", import.meta.url), "utf8");
+  const callback = readFileSync(new URL("../src/app/auth/confirm/route.ts", import.meta.url), "utf8");
+  const origin = readFileSync(new URL("../src/lib/auth/public-site-url.ts", import.meta.url), "utf8");
+  assert.match(actions, /new URL\("\/auth\/confirm\?next=\/admin\/reset-password", publicSiteUrl\(\)\)/);
+  assert.match(callback, /new URL\(publicSiteUrl\(\)\)\.origin/);
+  assert.match(origin, /NODE_ENV === "production"\) return "https:\/\/wisdomdrivingacademy\.com"/);
+});
+
 test("OTP generation is six digits and hashes bind case-insensitively to email", () => {
   const code = generateOtpCode();
   assert.match(code, /^\d{6}$/);

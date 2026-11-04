@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { siteBase } from "@/lib/booking/urls";
+import { publicSiteUrl } from "@/lib/auth/public-site-url";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = request.nextUrl;
   const origin = process.env.NODE_ENV === "production"
-    ? new URL(siteBase()).origin
+    ? new URL(publicSiteUrl()).origin
     : request.nextUrl.origin;
   const tokenHash = searchParams.get("token_hash");
   const code = searchParams.get("code");
