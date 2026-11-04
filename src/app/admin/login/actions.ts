@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { logSafeError } from "@/lib/server/safe-log";
+import { publicSiteUrl } from "@/lib/auth/public-site-url";
 
 export interface LoginState {
   error: string | null;
@@ -21,13 +22,6 @@ const loginSchema = z.object({
 const resetSchema = z.object({
   email: z.email("Enter a valid email address."),
 }).strict();
-
-function publicSiteUrl(): string {
-  // Never let a stale production environment value send recovery links to localhost.
-  if (process.env.NODE_ENV === "production") return "https://wisdomdrivingacademy.com";
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
-  return configured || "http://localhost:3000";
-}
 
 function safeNext(next: string | undefined): string {
   if (next && next.startsWith("/admin") && !next.startsWith("//")) return next;

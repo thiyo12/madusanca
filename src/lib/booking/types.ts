@@ -352,6 +352,7 @@ export interface BookingStore {
   listBookings(filter?: BookingFilter): Promise<BookingRecord[]>;
   /** Admin: single booking by id. */
   getBookingById(id: string): Promise<BookingRecord | null>;
+  getBookingCheckoutBundle(id: string): Promise<{ booking: BookingRecord; sessions: BookingRecord[] } | null>;
   /** Admin: status transition (confirm/complete/no_show/cancel). No schedule impact. */
   updateBookingStatus(id: string, status: BookingStatus): Promise<StoreResult<BookingRecord>>;
   /** Admin: set payment status (paid/refunded/waived/due). */

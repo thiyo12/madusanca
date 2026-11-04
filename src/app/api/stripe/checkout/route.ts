@@ -12,19 +12,12 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { isStripePaymentsEnabled } from "@/lib/stripe/payment-validation";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
+import { getCheckoutGrantBookingId } from "@/lib/booking/checkout-cookie";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 2_048;
 
-const checkoutSchema = z.object({
-  manageToken: z.string().min(32).max(256).optional(),
-  addOnPackages: z.array(z.object({
-    lessonId: z.string().trim().min(1).max(64),
-    quantity: z.number().int().safe().min(1).max(100_000),
-  }).strict()).max(20).optional(),
-}).strict().refine((value) => new Set((value.addOnPackages ?? []).map((item) => item.lessonId)).size === (value.addOnPackages ?? []).length, {
-  message: "Choose each package once and set its quantity.",
-});
+const checkoutSchema = z.object({ checkoutOnly: z.boolean().optional() }).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
@@ -63,14 +56,18 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const store = getStore();
-    const addOnPackages = parsed.data.addOnPackages ?? [];
-    const token = parsed.data.manageToken ?? await getManageToken();
-    if (!token) return NextResponse.json({ ok: false, error: "Open the private manage link for this booking." }, { status: 401 });
-    const tokenHash = hashToken(token);
-    if (await isRateLimitedShared(`stripe-checkout-token:${tokenHash}`, 8, 10 * 60 * 1000)) {
+    const token = parsed.data.checkoutOnly ? null : await getManageToken();
+    const checkoutGrantBookingId = !token ? await getCheckoutGrantBookingId() : null;
+    if (!token && !checkoutGrantBookingId) return NextResponse.json({ ok: false, error: "Open the private manage link for this booking." }, { status: 401 });
+    const tokenHash = token ? hashToken(token) : null;
+    const rateKey = tokenHash ?? `checkout-grant:${checkoutGrantBookingId}`;
+    if (await isRateLimitedShared(`stripe-checkout-token:${rateKey}`, 8, 10 * 60 * 1000)) {
       return NextResponse.json({ ok: false, error: "Too many checkout attempts. Please try again shortly." }, { status: 429 });
     }
-    let found = await store.getBookingByToken(tokenHash);
+    const loadBooking = () => tokenHash
+      ? store.getBookingByToken(tokenHash)
+      : store.getBookingCheckoutBundle(checkoutGrantBookingId!).then((bundle) => bundle ? { ...bundle, tokenExpiresAt: "" } : null);
+    let found = await loadBooking();
     if (!found) {
       return NextResponse.json({ ok: false, error: "This booking link is invalid or has expired." }, { status: 404 });
     }
@@ -85,6 +82,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     const stripe = getStripe();
     const lessons = await store.getLessons();
+    // Add-on lesson sessions are persisted with the booking bundle. Derive
+    // checkout add-ons from those server-side rows, never from browser input.
+    const scheduledSessionCounts = new Map<string, number>();
+    for (const session of found.sessions) {
+      scheduledSessionCounts.set(session.lessonId, (scheduledSessionCounts.get(session.lessonId) ?? 0) + 1);
+    }
+    const primaryLesson = lessons.find((item) => item.id === found!.booking.lessonId);
+    if (!primaryLesson) throw new Error("Stored primary booking lesson is missing from the catalogue.");
+    const primarySessionCount = scheduledSessionCounts.get(primaryLesson.id) ?? 0;
+    if (primarySessionCount < primaryLesson.sessionCount) {
+      throw new Error("Stored primary booking sessions do not match the package catalogue.");
+    }
+    const scheduledAddOnCounts = new Map(scheduledSessionCounts);
+    const primaryAddOnCount = primarySessionCount - primaryLesson.sessionCount;
+    if (primaryAddOnCount) scheduledAddOnCounts.set(primaryLesson.id, primaryAddOnCount);
+    else scheduledAddOnCounts.delete(primaryLesson.id);
+    const addOnPackages = [...scheduledAddOnCounts].map(([lessonId, sessionTotal]) => {
+      const lesson = lessons.find((item) => item.id === lessonId && item.category === "package");
+      if (!lesson || sessionTotal % lesson.sessionCount !== 0) {
+        throw new Error("Stored add-on booking sessions do not match the package catalogue.");
+      }
+      return { lessonId, quantity: sessionTotal / lesson.sessionCount };
+    });
     if (found.booking.stripeCheckoutSessionId) {
       const existing = await stripe.checkout.sessions.retrieve(found.booking.stripeCheckoutSessionId);
       const sessionStillValid = !found.booking.stripeCheckoutExpiresAt ||
@@ -111,7 +131,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           bookingId: found.booking.id,
           sessionId: existing.id,
         });
-        found = await store.getBookingByToken(tokenHash);
+        found = await loadBooking();
         if (!found) return NextResponse.json({ ok: false, error: "This booking link is invalid or has expired." }, { status: 404 });
       }
       if (existing.status === "complete") {
@@ -131,7 +151,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         bookingId: found.booking.id,
         sessionId: existing.id,
       });
-      found = await store.getBookingByToken(tokenHash);
+      found = await loadBooking();
       if (!found) {
         return NextResponse.json({ ok: false, error: "This booking link is invalid or has expired." }, { status: 404 });
       }

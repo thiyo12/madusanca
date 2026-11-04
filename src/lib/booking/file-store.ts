@@ -609,6 +609,16 @@ export const fileStore: BookingStore = {
     return load().bookings.find((b) => b.id === id) ?? null;
   },
 
+  async getBookingCheckoutBundle(id: string) {
+    const bookings = load().bookings;
+    const booking = bookings.find((item) => item.id === id);
+    if (!booking) return null;
+    const packageId = booking.packageId ?? booking.id;
+    const sessions = bookings.filter((item) => (item.packageId ?? item.id) === packageId)
+      .sort((a, b) => (a.sessionIndex ?? 1) - (b.sessionIndex ?? 1));
+    return { booking, sessions };
+  },
+
   async getBookingStudentDetails(bookingId: string) {
     const details = load().bookingStudentDetails.find((item) => item.bookingId === bookingId);
     if (!details) return null;

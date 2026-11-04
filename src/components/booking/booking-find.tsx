@@ -202,6 +202,13 @@ export function BookingFind() {
             >
               {pending ? "Sending…" : "Send my code"}
             </button>
+            <button
+              type="button"
+              onClick={() => { setError(null); setMessage("Enter the newest code sent to this email within the last 10 minutes."); setStep("code"); }}
+              className="ml-3 inline-flex h-11 items-center px-2 text-[13px] font-bold text-soft hover:text-gold-deep"
+            >
+              I already have a code
+            </button>
           </div>
         </form>
       )}
@@ -209,8 +216,7 @@ export function BookingFind() {
       {step === "code" && (
         <form onSubmit={verifyCode} className="grid gap-3.5">
           <p className="text-[13px] leading-relaxed text-soft">
-            If an active booking exists, a code was requested for <strong className="text-ink">{email}</strong>. It
-            expires in 10 minutes. Use it to view booking and payment options. Check spam if it doesn&rsquo;t arrive.
+            {message ?? <>Enter the newest code sent to <strong className="text-ink">{email}</strong> within the last 10 minutes. If you requested a replacement, older codes no longer work. Check spam/junk if needed.</>}
           </p>
           <p className="rounded-[12px] bg-[#eaf5df] px-3 py-2 text-[12px] leading-relaxed text-[#31543a]">
             You can still view or pay for your booking. Online date changes close 48 hours before the lesson; for a late change, call{" "}

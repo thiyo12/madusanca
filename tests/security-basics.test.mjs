@@ -57,6 +57,52 @@ test("booking email links omit management tokens and legacy links cannot set an 
   }
 });
 
+test("initial booking uses a checkout-only grant and exposes direct payment", () => {
+  const bookingRoute = readFileSync(new URL("../src/app/api/bookings/route.ts", import.meta.url), "utf8");
+  const checkoutRoute = readFileSync(new URL("../src/app/api/stripe/checkout/route.ts", import.meta.url), "utf8");
+  const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
+  assert.match(bookingRoute, /createCheckoutGrant\(booking\.id\)/);
+  assert.match(checkoutRoute, /getCheckoutGrantBookingId/);
+  assert.doesNotMatch(checkoutRoute, /parsed\.data\.manageToken/);
+  assert.match(wizard, /<StripeCheckoutButton checkoutOnly\s*\/>/);
+});
+
+test("My Booking OTP remains reusable and initial bookings reject add-on packages", () => {
+  const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
+  const schema = readFileSync(new URL("../src/lib/validation/booking.ts", import.meta.url), "utf8");
+  const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
+  assert.match(otpRoute, /verifyOtp\(email, hashOtp\(email, code \?\? ""\), false\)/);
+  assert.match(schema, /length\(1, "Book one package at a time/);
+  assert.doesNotMatch(schema, /addOnPackages:/);
+  assert.match(wizard, /Extra lesson packages can be purchased separately after this booking is paid/);
+});
+
+test("initial booking schema accepts one package and rejects multiple scheduled packages", () => {
+  const base = {
+    lessonId: "90-minute-lesson",
+    studentName: "Example Student", email: "student@example.com", phone: "6045550100",
+    dateOfBirth: "1990-01-01", gender: "prefer_not_to_say", licenseNumber: "BC123456",
+    holdToken: "h".repeat(43), consent: true,
+  };
+  assert.equal(createBookingSchema.safeParse({ ...base, packageSchedules: [
+    { lessonId: base.lessonId, quantity: 1, startsAt: ["2026-11-03T16:00:00.000Z"] },
+  ] }).success, true);
+  assert.equal(createBookingSchema.safeParse({ ...base, packageSchedules: [
+    { lessonId: base.lessonId, quantity: 1, startsAt: ["2026-11-03T16:00:00.000Z"] },
+    { lessonId: "eight-lesson-pack", quantity: 1, startsAt: ["2026-11-04T16:00:00.000Z"] },
+  ] }).success, false);
+  assert.equal(createBookingSchema.safeParse({ ...base, startsAt: "2026-11-03T16:00:00.000Z", addOnPackages: [] }).success, false);
+});
+
+test("production password-reset email and callback use the same canonical site origin", () => {
+  const actions = readFileSync(new URL("../src/app/admin/login/actions.ts", import.meta.url), "utf8");
+  const callback = readFileSync(new URL("../src/app/auth/confirm/route.ts", import.meta.url), "utf8");
+  const origin = readFileSync(new URL("../src/lib/auth/public-site-url.ts", import.meta.url), "utf8");
+  assert.match(actions, /new URL\("\/auth\/confirm\?next=\/admin\/reset-password", publicSiteUrl\(\)\)/);
+  assert.match(callback, /new URL\(publicSiteUrl\(\)\)\.origin/);
+  assert.match(origin, /NODE_ENV === "production"\) return "https:\/\/wisdomdrivingacademy\.com"/);
+});
+
 test("OTP generation is six digits and hashes bind case-insensitively to email", () => {
   const code = generateOtpCode();
   assert.match(code, /^\d{6}$/);

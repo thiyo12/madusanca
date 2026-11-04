@@ -9,7 +9,7 @@ import { BookingSummary } from "@/components/booking/booking-summary";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { formatLessonPrice, type Lesson } from "@/lib/data/lessons";
 import { addMonthsToKey, dayKeyOf, formatSlotFull, formatSlotTime } from "@/lib/booking/format";
-import type { PackageQuantitySelection, ScheduledPackageSelection } from "@/lib/booking/types";
+import type { ScheduledPackageSelection } from "@/lib/booking/types";
 
 export interface BookingWizardProps {
   lessons: Lesson[];
@@ -28,7 +28,8 @@ const STEPS: Array<{ key: StepKey; label: string }> = [
 ];
 
 const BOOKING_DRAFT_KEY = "wda-booking-draft-v1";
-const BOOKING_REVIEW_KEY = "wda-booking-review-v1";
+const BOOKING_REVIEW_KEY = "wda-booking-review-v2";
+const LEGACY_BOOKING_REVIEW_KEY = "wda-booking-review-v1";
 const BOOKING_DRAFT_TTL_MS = 30 * 60 * 1000;
 const BOOKING_REVIEW_TTL_MS = 60 * 60 * 1000;
 
@@ -48,7 +49,6 @@ interface StoredBookingDraft {
 
 interface SuccessData {
   reference: string;
-  manageToken: string;
   lessonName: string;
   durationMin: number;
   startsAt: string;
@@ -56,7 +56,6 @@ interface SuccessData {
   email: string;
   priceCad: number;
   emailSent: boolean;
-  addOnPackages: PackageQuantitySelection[];
   addOns: Array<{ id: string; name: string; priceCad: number; sessionCount: number; quantity: number }>;
   sessions: Array<{ lessonName: string; startsAt: string }>;
 }
@@ -69,12 +68,11 @@ interface StoredBookingReview {
 function isSuccessData(value: unknown): value is SuccessData {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<SuccessData>;
-  return typeof item.reference === "string" && typeof item.manageToken === "string" &&
+  return typeof item.reference === "string" &&
     typeof item.lessonName === "string" && typeof item.durationMin === "number" &&
     typeof item.startsAt === "string" && typeof item.studentName === "string" &&
     typeof item.email === "string" && typeof item.priceCad === "number" &&
-    typeof item.emailSent === "boolean" && Array.isArray(item.addOnPackages) &&
-    item.addOnPackages.every((entry) => entry && typeof entry.lessonId === "string" && typeof entry.quantity === "number") &&
+    typeof item.emailSent === "boolean" &&
     Array.isArray(item.addOns) && item.addOns.every((entry) => entry && typeof entry.id === "string" && typeof entry.name === "string" && typeof entry.priceCad === "number" && typeof entry.sessionCount === "number" && typeof entry.quantity === "number") &&
     Array.isArray(item.sessions) && item.sessions.every((entry) => entry && typeof entry.lessonName === "string" && typeof entry.startsAt === "string");
 }
@@ -86,11 +84,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
     return lessons.find((l) => l.id === initialLessonId) ?? null;
   });
   const [scheduledStarts, setScheduledStarts] = useState<Record<string, string>>({});
-  const [packageQuantities, setPackageQuantities] = useState<Record<string, number>>({});
-  const addOnPackages = useMemo(() => Object.entries(packageQuantities)
-    .filter(([, quantity]) => quantity > 0)
-    .map(([lessonId, quantity]) => ({ lessonId, quantity })), [packageQuantities]);
-  const [showAddOns, setShowAddOns] = useState(false);
   const [appointmentIndex, setAppointmentIndex] = useState(0);
   const [details, setDetails] = useState<DetailsValue>(emptyDetails);
   const [detailsError, setDetailsError] = useState<string | null>(null);
@@ -113,22 +106,8 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
       lessonName: lesson.name,
       label: `Lesson ${index + 1} of ${lesson.sessionCount}`,
     }));
-    const extras = addOnPackages.flatMap((selection) => {
-      const selectedLesson = lessons.find((item) => item.id === selection.lessonId);
-      if (!selectedLesson) return [];
-      return Array.from({ length: selection.quantity }, (_, packIndex) =>
-        Array.from({ length: selectedLesson.sessionCount }, (_, sessionIndex) => ({
-          key: `addon-${selectedLesson.id}-${packIndex}-${sessionIndex}`,
-          groupKey: `addon-${selectedLesson.id}-${packIndex}`,
-          groupLabel: `Additional ${selectedLesson.name} · Package ${packIndex + 1}`,
-          lessonId: selectedLesson.id,
-          lessonName: selectedLesson.name,
-          label: `Lesson ${sessionIndex + 1} of ${selectedLesson.sessionCount}`,
-        })),
-      ).flat();
-    });
-    return [...primary, ...extras];
-  }, [lesson, addOnPackages, lessons]);
+    return primary;
+  }, [lesson]);
 
   const appointmentGroups = useMemo(() => {
     const groups = new Map<string, { key: string; label: string; items: typeof appointments }>();
@@ -146,6 +125,8 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
   useEffect(() => {
     const restore = window.setTimeout(() => {
       try {
+        // Older versions temporarily stored a bearer manage token here.
+        window.sessionStorage.removeItem(LEGACY_BOOKING_REVIEW_KEY);
         const savedReview = window.sessionStorage.getItem(BOOKING_REVIEW_KEY);
         if (savedReview) {
           const review = JSON.parse(savedReview) as Partial<StoredBookingReview>;
@@ -164,9 +145,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         const age = Date.now() - (typeof saved.savedAt === "number" ? saved.savedAt : 0);
         if (saved.version === 1 && age >= 0 && age < BOOKING_DRAFT_TTL_MS) {
           const restoredLesson = lessons.find((item) => item.id === saved.lessonId) ?? null;
-          const quantities = Object.fromEntries(Object.entries(saved.packageQuantities ?? {}).filter(([id, quantity]) =>
-            lessons.some((item) => item.id === id && item.category === "package") && Number.isSafeInteger(quantity) && quantity > 0,
-          ));
           const starts = Object.fromEntries(Object.entries(saved.scheduledStarts ?? {}).filter(([, startsAt]) =>
             typeof startsAt === "string" && Number.isFinite(Date.parse(startsAt)),
           ));
@@ -179,11 +157,9 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
             }
           }
           setLesson(restoredLesson);
-          setPackageQuantities(quantities);
           setScheduledStarts(starts);
           setHoldToken(typeof saved.holdToken === "string" ? saved.holdToken : null);
           setHoldExpiresAt(typeof saved.holdExpiresAt === "string" ? saved.holdExpiresAt : null);
-          setShowAddOns(saved.showAddOns === true);
           setAppointmentIndex(Number.isSafeInteger(saved.appointmentIndex) && (saved.appointmentIndex ?? -1) >= 0 ? saved.appointmentIndex! : 0);
           setDetails(restoredDetails);
           const maxStep = Math.max(0, Math.min(STEPS.length - 1, Number.isSafeInteger(saved.stepIndex) ? saved.stepIndex! : 0));
@@ -206,7 +182,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
 
   useEffect(() => {
     if (!draftReady || success) return;
-    const hasDraft = Boolean(lesson || Object.keys(packageQuantities).length || Object.keys(scheduledStarts).length ||
+    const hasDraft = Boolean(lesson || Object.keys(scheduledStarts).length ||
       details.firstName || details.lastName || details.studentName || details.dateOfBirth || details.gender || details.licenseNumber || details.email);
     if (!hasDraft) return;
 
@@ -215,9 +191,9 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
       savedAt: Date.now(),
       stepIndex,
       lessonId: lesson?.id ?? null,
-      packageQuantities,
+      packageQuantities: {},
       scheduledStarts,
-      showAddOns,
+      showAddOns: false,
       appointmentIndex,
       details,
       holdToken,
@@ -237,26 +213,17 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
       }
       setStepIndex(0);
       setLesson(null);
-      setPackageQuantities({});
       setScheduledStarts({});
-      setShowAddOns(false);
       setAppointmentIndex(0);
       setDetails(emptyDetails);
     }, BOOKING_DRAFT_TTL_MS);
     return () => window.clearTimeout(expiry);
-  }, [draftReady, success, stepIndex, lesson, packageQuantities, scheduledStarts, showAddOns, appointmentIndex, details, holdToken, holdExpiresAt]);
+  }, [draftReady, success, stepIndex, lesson, scheduledStarts, appointmentIndex, details, holdToken, holdExpiresAt]);
 
   const packageSchedules = useMemo<ScheduledPackageSelection[]>(() => {
     if (!lesson) return [];
-    return [
-      { lessonId: lesson.id, quantity: 1, startsAt: Array.from({ length: lesson.sessionCount }, (_, index) => scheduledStarts[`primary-${index}`]).filter((value): value is string => Boolean(value)) },
-      ...addOnPackages.map((selection) => ({
-        ...selection,
-        startsAt: appointments.filter((item) => item.key.startsWith(`addon-${selection.lessonId}-`))
-          .map((item) => scheduledStarts[item.key]).filter((value): value is string => Boolean(value)),
-      })),
-    ];
-  }, [lesson, addOnPackages, appointments, scheduledStarts]);
+    return [{ lessonId: lesson.id, quantity: 1, startsAt: Array.from({ length: lesson.sessionCount }, (_, index) => scheduledStarts[`primary-${index}`]).filter((value): value is string => Boolean(value)) }];
+  }, [lesson, scheduledStarts]);
 
   const startsAt = useMemo(() => Array.from({ length: lesson?.sessionCount ?? 0 }, (_, index) => scheduledStarts[`primary-${index}`]).filter((value): value is string => Boolean(value)), [lesson, scheduledStarts]);
 
@@ -397,7 +364,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         body: JSON.stringify({
           lessonId: lesson.id,
           packageSchedules,
-          addOnPackages,
           holdToken,
           studentName: details.studentName.trim(),
           email: details.email.trim(),
@@ -421,7 +387,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
       const result = (await response.json()) as {
         ok?: boolean;
         error?: string;
-          manageToken?: string;
         booking?: {
           reference: string;
           lessonName: string;
@@ -436,7 +401,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         addOns?: Array<{ id: string; name: string; priceCad: number; sessionCount: number; quantity: number }>;
       };
 
-      if (!response.ok || !result.ok || !result.booking || !result.manageToken) {
+      if (!response.ok || !result.ok || !result.booking) {
         const message = result.error ?? "Could not complete your booking. Please try again.";
         if (response.status === 409 || message === "We couldn’t reserve this booking. Please review your selected times and try again.") {
           setSubmitError("Your time hold expired or a selected time changed. Please select the currently available times again.");
@@ -453,7 +418,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
 
       const successData: SuccessData = {
         reference: result.booking.reference,
-        manageToken: result.manageToken,
         lessonName: result.booking.lessonName,
         durationMin: result.booking.durationMin,
         startsAt: result.booking.startsAt,
@@ -461,8 +425,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         email: details.email.trim(),
         priceCad: result.booking.priceCad ?? lesson.priceCad,
         emailSent: result.emailSent === true,
-        addOnPackages: (result.addOns ?? []).map((item) => ({ lessonId: item.id, quantity: item.quantity })),
-        addOns: result.addOns ?? [],
+        addOns: [],
         sessions: appointments.map((item) => ({ lessonName: item.lessonName, startsAt: scheduledStarts[item.key] })).filter((item): item is { lessonName: string; startsAt: string } => Boolean(item.startsAt)),
       };
       try {
@@ -492,7 +455,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         </h2>
         {paymentCancelled && (
           <p role="status" className="mt-2 rounded-[12px] bg-white px-3.5 py-2.5 text-[13px] font-semibold leading-relaxed text-[#31543a]">
-            Payment wasn&rsquo;t completed. Your saved booking details are still here; you can return to secure checkout when ready.
+            Payment wasn&rsquo;t completed. Continue to secure checkout below when you&rsquo;re ready.
           </p>
         )}
         {success.emailSent ? (
@@ -535,10 +498,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           </section>
         )}
         <div className="mt-5 flex flex-wrap gap-3">
-          <StripeCheckoutButton manageToken={success.manageToken} addOnPackages={success.addOnPackages} />
-          <Button href="/booking/manage" variant="outline">
-            My Booking (email code)
-          </Button>
+          <StripeCheckoutButton checkoutOnly />
           <Button href="/lessons" variant="outline" onClick={() => {
             try { window.sessionStorage.removeItem(BOOKING_REVIEW_KEY); } catch { /* Ignore disabled storage. */ }
           }}>
@@ -546,7 +506,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           </Button>
         </div>
           <p className="mt-4 text-[12.5px] leading-relaxed text-[#616872]">
-          Your selected time is held for 10 minutes. Start secure card checkout above before the hold expires; the time stays reserved while checkout is open. If you plan to pay cash, contact the tutor to confirm availability. To manage a paid booking, verify your email in My Booking. Please bring your valid driver&rsquo;s licence.
+          Your selected time is held temporarily. Complete secure card checkout to confirm this booking. Extra packages can be purchased separately in My Booking after payment. If you plan to pay cash, contact the tutor to confirm availability. Please bring your valid driver&rsquo;s licence.
         </p>
       </div>
     );
@@ -594,46 +554,10 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         <div className="grid gap-5">
           <LessonStep lessons={lessons} selectedId={lesson?.id ?? null} onSelect={(selected) => {
             setLesson(selected);
-            setPackageQuantities({});
             setScheduledStarts({});
             setAppointmentIndex(0);
           }} />
-          {lesson && (
-            <section className="rounded-[16px] border border-line bg-[#fbfcf9] p-4 sm:p-5">
-              <button type="button" onClick={() => setShowAddOns((open) => !open)} aria-expanded={showAddOns} className="flex w-full items-center justify-between gap-3 text-left">
-                <span className="text-sm font-extrabold text-ink">Need extra driving lessons?</span>
-                <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-[#eaf5df] text-lg font-bold text-[#426a2c]">{showAddOns ? "−" : "+"}</span>
-              </button>
-              {showAddOns && (
-                <div className="mt-3 grid gap-2">
-                    {lessons.filter((item) => item.category === "package").map((item) => {
-                      const quantity = packageQuantities[item.id] ?? 0;
-                      const scheduledElsewhere = lesson.sessionCount + addOnPackages
-                        .filter((selection) => selection.lessonId !== item.id)
-                        .reduce((sum, selection) => sum + (lessons.find((candidate) => candidate.id === selection.lessonId)?.sessionCount ?? 0) * selection.quantity, 0);
-                      const maxQuantity = Math.max(0, Math.floor((200 - scheduledElsewhere) / item.sessionCount));
-                      return (
-                       <label key={item.id} className="flex items-center gap-3 rounded-xl border border-line bg-white p-3">
-                         <span className="grid gap-0.5">
-                           <span className="text-[13px] font-extrabold text-ink">{item.name}{item.id === lesson.id ? " · same package as selected" : ""}</span>
-                            <span className="text-[12px] text-soft">{item.sessionCount} lessons per package · {item.durationMin} min each · {formatLessonPrice(item.priceCad)}</span>
-                         </span>
-                         <span className="ml-auto grid shrink-0 gap-1 text-right">
-                           <span className="text-[10px] font-bold uppercase tracking-wide text-soft">Packages</span>
-                            <input type="number" min="0" max={maxQuantity} step="1" inputMode="numeric" aria-label={`Additional ${item.name} packages`} value={quantity || ""} placeholder="0" onChange={(event) => {
-                              const next = Number(event.target.value);
-                              setPackageQuantities((current) => ({ ...current, [item.id]: Number.isSafeInteger(next) && next > 0 ? Math.min(next, maxQuantity) : 0 }));
-                              setAppointmentIndex(0);
-                            }} className="h-10 w-20 rounded-lg border border-line px-2 text-center text-sm font-bold text-ink" />
-                         </span>
-                       </label>
-                     );
-                   })}
-                    <p className="text-[11px] leading-relaxed text-soft">Choose a quantity for any package, including the selected package. You will choose a date and time for every lesson in each selected package, then pay for everything together.</p>
-                </div>
-              )}
-            </section>
-          )}
+          {lesson && <p className="rounded-xl bg-[#fbfcf9] px-4 py-3 text-xs leading-relaxed text-soft">Extra lesson packages can be purchased separately after this booking is paid, then scheduled in My Booking.</p>}
         </div>
       )}
 
@@ -762,11 +686,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
               <h3 className="text-sm font-extrabold text-ink">Package summary</h3>
               <ul className="mt-3 grid gap-3 text-[13px]">
                 <li className="flex justify-between gap-3"><span className="text-soft">{lesson.name} × 1</span><strong className="text-ink">{formatLessonPrice(lesson.priceCad)}</strong></li>
-                {addOnPackages.map(({ lessonId: id, quantity }) => {
-                  const extra = lessons.find((item) => item.id === id);
-                  return extra ? <li key={id} className="flex justify-between gap-3"><span className="text-soft">{extra.name} × {quantity}</span><strong className="text-ink">{formatLessonPrice(extra.priceCad * quantity)}</strong></li> : null;
-                })}
-                <li className="flex justify-between gap-3 border-t border-line pt-3 font-extrabold"><span>Estimated subtotal</span><span>{formatLessonPrice(lesson.priceCad + addOnPackages.reduce((sum, selection) => sum + (lessons.find((item) => item.id === selection.lessonId)?.priceCad ?? 0) * selection.quantity, 0))}</span></li>
+                <li className="flex justify-between gap-3 border-t border-line pt-3 font-extrabold"><span>Estimated subtotal</span><span>{formatLessonPrice(lesson.priceCad)}</span></li>
               </ul>
               <p className="mt-3 text-[11px] leading-relaxed text-soft">Applicable taxes are calculated and shown before payment. No payment is taken on this preview page.</p>
             </section>
@@ -801,19 +721,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
               email: details.email.trim(),
             }}
           />
-          {addOnPackages.length > 0 && (
-            <section className="mt-4 rounded-[17px] border border-line p-4 sm:p-5">
-              <h3 className="text-sm font-extrabold text-ink">Additional lesson packages</h3>
-              <ul className="mt-2 grid gap-2 text-[13px]">
-                {addOnPackages.map(({ lessonId: id, quantity }) => {
-                  const extra = lessons.find((item) => item.id === id);
-                  return extra ? <li key={id} className="flex justify-between gap-3"><span className="text-soft">{extra.name} × {quantity} · {extra.sessionCount * quantity} lessons</span><strong className="text-ink">{formatLessonPrice(extra.priceCad * quantity)}</strong></li> : null;
-                })}
-                <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>New items subtotal</span><span>${(lesson.priceCad + addOnPackages.reduce((sum, selection) => sum + (lessons.find((item) => item.id === selection.lessonId)?.priceCad ?? 0) * selection.quantity, 0)).toFixed(2)} CAD + applicable taxes</span></li>
-              </ul>
-              <p className="mt-2 text-[11px] leading-relaxed text-soft">Stripe will calculate applicable tax and show the final payable total before you pay.</p>
-            </section>
-          )}
           <section className="mt-4 rounded-[17px] border border-line p-4 sm:p-5">
             <h3 className="text-sm font-extrabold text-ink">Your details</h3>
             <dl className="mt-2 grid gap-2 text-[13px] sm:grid-cols-2">

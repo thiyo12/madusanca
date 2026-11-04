@@ -488,6 +488,18 @@ export const supabaseStore: BookingStore = {
     return data ? toRecord(data) : null;
   },
 
+  async getBookingCheckoutBundle(id: string) {
+    const anchorResult = await adminClient().from("bookings").select("*").eq("id", id).maybeSingle();
+    if (anchorResult.error) throw new Error(`Failed to load booking: ${anchorResult.error.message}`);
+    if (!anchorResult.data) return null;
+    const anchor = toRecord(anchorResult.data);
+    const packageId = anchor.packageId ?? anchor.id;
+    const { data, error } = await adminClient().from("bookings").select("*")
+      .eq("package_id", packageId).order("session_index", { ascending: true });
+    if (error) throw new Error(`Failed to load booking sessions: ${error.message}`);
+    return { booking: anchor, sessions: (data ?? []).map(toRecord) };
+  },
+
   async updateBookingStatus(id: string, status: BookingStatus): Promise<StoreResult<BookingRecord>> {
     if (status === "completed") {
       const { data, error } = await adminClient().rpc("complete_booking_session", { p_booking_id: id });

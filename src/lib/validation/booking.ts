@@ -35,15 +35,11 @@ export const createBookingSchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
   startsAt: isoDateTimeSchema.optional(),
   sessions: z.array(isoDateTimeSchema).min(1).max(20).optional(),
-  addOnPackages: z.array(z.object({
-    lessonId: z.string().trim().min(1).max(64),
-    quantity: z.number().int().safe().min(1).max(100_000),
-  }).strict()).max(20).optional(),
   packageSchedules: z.array(z.object({
     lessonId: z.string().trim().min(1).max(64),
     quantity: z.number().int().safe().min(1).max(100_000),
     startsAt: z.array(isoDateTimeSchema).min(1).max(200),
-  }).strict()).min(1).max(20).optional(),
+  }).strict()).length(1, "Book one package at a time. Extra packages can be purchased after payment.").optional(),
   studentName: z.string().trim().min(2, "Please enter your name.").max(80),
   email: z.email("Please enter a valid email address.").max(160),
   phone: z
@@ -66,9 +62,6 @@ export const createBookingSchema = z.object({
   : Boolean(value.startsAt) !== Boolean(value.sessions), {
   message: "Provide either a single start time or the package session times.",
   path: ["sessions"],
-}).refine((value) => !(value.addOnPackages?.length) || Boolean(value.packageSchedules), {
-  message: "Choose a date and time for every lesson in each additional package.",
-  path: ["packageSchedules"],
 });
 
 export const manageSchema = z.object({
