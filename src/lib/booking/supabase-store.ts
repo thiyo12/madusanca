@@ -924,6 +924,26 @@ export const supabaseStore: BookingStore = {
     return toPackagePurchase(data as PackagePurchaseRow);
   },
 
+  async createScheduledPackagePurchase(input, startsAt, manageTokenHash, checkoutSessionId, checkoutExpiresAt) {
+    const { data, error } = await adminClient().rpc("create_scheduled_package_purchase_checkout", {
+      p_purchase_id: input.id,
+      p_reference: input.reference,
+      p_lesson_id: input.lessonId,
+      p_quantity: input.creditsPurchased,
+      p_amount_cad: input.amountCad,
+      p_starts_at: startsAt,
+      p_manage_token_hash: manageTokenHash,
+      p_session_id: checkoutSessionId,
+      p_expires_at: checkoutExpiresAt,
+      p_notes: input.notes,
+    });
+    if (error) throw new Error(`Failed to reserve package lesson times: ${error.message}`);
+    const envelope = data as RpcEnvelope<PackagePurchaseRow>;
+    if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
+    if (!envelope.record) return { ok: false, error: "not_found" };
+    return { ok: true, value: toPackagePurchase(envelope.record) };
+  },
+
   async setStripePackagePurchaseCheckout(purchaseId: string, sessionId: string, expiresAt: string): Promise<void> {
     const { data, error } = await adminClient().from("package_purchases")
       .update({ payment_status: "pending", stripe_checkout_session_id: sessionId, stripe_checkout_expires_at: expiresAt, updated_at: new Date().toISOString() })

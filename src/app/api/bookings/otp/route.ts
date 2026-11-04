@@ -131,12 +131,16 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // action === "token"
     const wanted = reference?.toUpperCase();
-    const target = wanted
+    let target = wanted
       ? found.find((b) => b.reference === wanted)
       : found.find((b) => b.status === "pending_payment" || b.status === "confirmed" || b.status === "rescheduled") ?? found[0];
     const purchaseTarget = wanted
       ? purchases.find((purchase) => purchase.reference === wanted)
       : purchases.find((purchase) => purchase.paymentStatus === "paid" && purchase.creditsAvailable > 0) ?? purchases[0];
+    if (!target && purchaseTarget) {
+      const purchaseBookings = await store.findBookingsByPurchaseId(purchaseTarget.id);
+      target = purchaseBookings.find((booking) => ["pending_payment", "confirmed", "rescheduled"].includes(booking.status)) ?? purchaseBookings[0];
+    }
     if (!target && !purchaseTarget) {
       return NextResponse.json(
         { ok: false, error: "That booking could not be found for this email." },

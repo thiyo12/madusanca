@@ -20,6 +20,7 @@ import {
   dateOnlySchema,
   isoDateTimeSchema,
   manageSchema,
+  otpSchema,
   packagePurchaseSchema,
 } from "../src/lib/validation/booking.ts";
 import { contactSchema } from "../src/lib/validation/contact.ts";
@@ -74,11 +75,29 @@ test("the 48-hour reschedule cutoff applies independently to each package sessio
   assert.deepEqual(sessions.map((startsAt) => isInsideSelfServiceWindow(startsAt, now)), [true, false, false]);
 });
 
-test("add-on package purchases allow large quantities but still require a bounded positive integer", () => {
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 100 }).success, true);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 0 }).success, false);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 100_001 }).success, false);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "five-lesson-package", quantity: 1.5 }).success, false);
+test("add-on package checkout requires a bounded list of valid selected times", () => {
+  const startsAt = ["2026-12-01T17:00:00.000Z", "2026-12-08T17:00:00.000Z"];
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1, startsAt }).success, true);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1 }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1, startsAt: ["not-a-date"] }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 0, startsAt }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 21, startsAt }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1.5, startsAt }).success, false);
+});
+
+test("OTP reference validation accepts add-on package references", () => {
+  assert.equal(otpSchema.safeParse({ action: "token", email: "student@example.com", code: "123456", reference: "WDA-A-1234567890AB" }).success, true);
+});
+
+test("My Booking lets users add packages only after selecting all lesson times and has no upgrade controls", () => {
+  const manage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  const purchaseButton = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
+  assert.match(manage, /Select a date and time for each of the/);
+  assert.match(manage, /startsAt=\{addOnSchedule\}/);
+  assert.doesNotMatch(manage, /Upgrade package|StripeUpgradeButton|upgradeOptions/);
+  assert.match(purchaseButton, /startsAt/);
+  const purchaseRoute = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  assert.match(purchaseRoute, /startsAt\.length !== creditsPurchased/);
 });
 
 test("90-minute lessons and 45-minute road tests reserve 120-minute instructor blocks", () => {
