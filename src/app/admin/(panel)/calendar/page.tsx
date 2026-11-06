@@ -11,6 +11,7 @@ import {
 import { CHIP_TONES, MonthGrid, href, type CalendarFilters } from "./month-grid";
 import { ScheduleGrid } from "./schedule-grid";
 import { DayBookingsAccordion, type DayBookingAccordionEntry } from "./day-bookings-accordion";
+import { searchStudentByLicenseAction } from "./actions";
 
 export const metadata: Metadata = {
   title: "Calendar — Wisdom Driving Academy Admin",
@@ -91,6 +92,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
   const query = typeof params.q === "string" ? params.q.trim() : "";
   const statusParam = typeof params.status === "string" ? params.status : "";
   const selectedBookingId = typeof params.booking === "string" ? params.booking : "";
+  const licenseSearchState = typeof params.licenseSearch === "string" ? params.licenseSearch : "";
   const validStatuses: BookingStatus[] = ["pending_payment", "confirmed", "rescheduled", "completed", "cancelled", "no_show"];
   const status = validStatuses.includes(statusParam as BookingStatus)
     ? (statusParam as BookingStatus)
@@ -305,7 +307,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
       <section aria-label="Calendar instructions" className="mt-4 rounded-[12px] border border-[#eadcb1] bg-[#fff9e9] px-4 py-3">
         <p className="text-[12.5px] font-extrabold text-ink">Quick guide</p>
         <p className="mt-1 text-[12px] leading-relaxed text-soft">
-          Choose a day to see its lesson list. Click a booked time to jump to that lesson’s details and actions. From there you can reschedule, mark it complete, cancel it, or mark a past lesson no-show and arrange a new time. Use <strong className="text-ink">Open full student record</strong> for the student’s broader record.
+          Choose a day to see its lesson list. Click a booked time to jump to that lesson’s details and actions. No-show is a status marker only (not an automatic charge), available after lesson start; you can still reschedule afterward. Use <strong className="text-ink">Open full student record</strong> for the student’s broader record.
         </p>
       </section>
 
@@ -349,6 +351,14 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
           </Link>
         )}
       </form>
+      <form action={searchStudentByLicenseAction} className="mt-3 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
+        <label className="grid min-w-[220px] flex-1 gap-1 text-[11px] font-bold text-soft">Find student by driver’s licence number
+          <input name="license" required minLength={4} maxLength={32} autoComplete="off" className="h-9 rounded-[8px] border border-[#dce0e4] px-3 text-[13px] text-ink outline-none focus:border-gold" />
+        </label>
+        <button className="btn-gold inline-flex h-9 items-center rounded-[8px] px-4 text-[12px] font-extrabold">Find student</button>
+      </form>
+      {licenseSearchState === "none" && <p role="status" className="mt-2 text-sm text-soft">No student matched that driver’s licence number.</p>}
+      {licenseSearchState === "invalid" && <p role="alert" className="mt-2 text-sm text-[#bc4633]">Enter a valid driver’s licence number.</p>}
 
       {view === "month" && (
         <div className="mt-6 overflow-hidden rounded-[18px] border border-line bg-white">

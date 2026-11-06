@@ -47,7 +47,7 @@ function paymentLabel(booking: BookingRecord): string {
   return `${status.toUpperCase()} · $${amount.toFixed(2)} CAD`;
 }
 
-function recordLines(bookings: BookingRecord[], generatedAt: Date, studentDetails?: BookingStudentDetails | null): string[] {
+function recordLines(bookings: BookingRecord[], generatedAt: Date, studentDetails?: BookingStudentDetails | null, progress: string[] = []): string[] {
   const first = bookings[0];
   if (!first) return [];
   const lines = [
@@ -85,13 +85,15 @@ function recordLines(bookings: BookingRecord[], generatedAt: Date, studentDetail
     lines.push("");
   });
 
+  if (progress.length) lines.push("SCHOOL DRIVING-PERFORMANCE ASSESSMENTS (NOT AN OFFICIAL ICBC SCORE)", ...progress, "");
+
   lines.push("CONFIDENTIAL - for authorized school administration only.");
   return lines.flatMap((line) => wrap(line));
 }
 
 /** Builds a text-only PDF without adding a client-side PDF dependency. */
-export function createStudentBookingPdf(bookings: BookingRecord[], generatedAt = new Date(), studentDetails?: BookingStudentDetails | null): Uint8Array {
-  const lines = recordLines(bookings, generatedAt, studentDetails);
+export function createStudentBookingPdf(bookings: BookingRecord[], generatedAt = new Date(), studentDetails?: BookingStudentDetails | null, progress: string[] = []): Uint8Array {
+  const lines = recordLines(bookings, generatedAt, studentDetails, progress);
   const pages: string[][] = [];
   for (let index = 0; index < lines.length; index += PAGE_LINE_LIMIT) {
     pages.push(lines.slice(index, index + PAGE_LINE_LIMIT));

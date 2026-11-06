@@ -10,7 +10,7 @@ import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 import { logSafeError } from "@/lib/server/safe-log";
 
 export const dynamic = "force-dynamic";
-const HOLD_MS = 8 * 60_000;
+const HOLD_MS = 20 * 60_000;
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {

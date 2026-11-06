@@ -98,7 +98,7 @@ interface BookingRow {
   purchase_id?: string | null;
 }
 
-function toRecord(row: BookingRow): BookingRecord {
+export function toRecord(row: BookingRow): BookingRecord {
   return {
     id: row.id,
     reference: row.reference,
@@ -476,6 +476,12 @@ export const supabaseStore: BookingStore = {
     const { data, error } = await query.order("starts_at", { ascending: true });
     if (error) throw new Error(`Failed to list bookings: ${error.message}`);
     return (data ?? []).map(toRecord);
+  },
+
+  async countBookings(): Promise<number> {
+    const { count, error } = await adminClient().from("bookings").select("id", { count: "exact", head: true });
+    if (error) throw new Error(`Failed to count bookings: ${error.message}`);
+    return count ?? 0;
   },
 
   async getBookingById(id: string): Promise<BookingRecord | null> {

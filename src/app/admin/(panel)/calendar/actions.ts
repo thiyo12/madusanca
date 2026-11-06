@@ -10,11 +10,24 @@ import { manageUrl } from "@/lib/booking/urls";
 import { sendBookingConfirmedEmail } from "@/lib/email/booking-emails";
 import { logSafeError } from "@/lib/server/safe-log";
 import { dateOnlySchema } from "@/lib/validation/booking";
+import { searchBookingsByLicense } from "@/lib/admin/student-profiles";
+import { redirect } from "next/navigation";
 
 export interface QuickBookingState {
   ok: boolean;
   message: string;
   reference?: string;
+}
+
+export async function searchStudentByLicenseAction(formData: FormData): Promise<void> {
+  await requireAdmin("/admin/calendar");
+  const license = z.string().trim().min(4).max(32).safeParse(formData.get("license"));
+  if (!license.success) redirect("/admin/calendar?licenseSearch=invalid");
+  const ids = await searchBookingsByLicense(license.data);
+  if (!ids.length) redirect("/admin/calendar?licenseSearch=none");
+  // Only an opaque booking UUID goes into the redirect; the licence itself
+  // never appears in a URL, query string, or application log.
+  redirect(`/admin/students/${encodeURIComponent(ids[0])}`);
 }
 
 const quickBookingSchema = z.object({
