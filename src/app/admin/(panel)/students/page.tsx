@@ -1,86 +1,26 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getStore } from "@/lib/booking/store";
-import type { BookingRecord } from "@/lib/booking/types";
 import { formatSlotDay } from "@/lib/booking/format";
 import { adminStudentHref } from "@/lib/admin/urls";
+import { allStudentProfiles, bookingsForStudent } from "@/lib/admin/student-profiles";
 
 export const metadata: Metadata = {
   title: "Students — Wisdom Driving Academy Admin",
 };
 
-interface StudentRow {
-  bookingId: string;
-  name: string;
-  email: string;
-  phone: string;
-  lessonCount: number;
-  lastLesson: string | null;
-  upcoming: string | null;
-  spentCad: number;
-}
-
-function deriveStudents(bookings: BookingRecord[]): StudentRow[] {
-  const byEmail = new Map<string, StudentRow>();
-
-  for (const booking of bookings) {
-    const key = booking.email.toLowerCase();
-    const existing = byEmail.get(key);
-    const counts =
-      booking.status === "pending_payment" ||
-      booking.status === "confirmed" ||
-      booking.status === "rescheduled" ||
-      booking.status === "completed";
-
-    if (!existing) {
-      byEmail.set(key, {
-        bookingId: booking.id,
-        name: booking.studentName,
-        email: booking.email,
-        phone: booking.phone,
-        lessonCount: counts ? 1 : 0,
-        lastLesson: counts ? booking.startsAt : null,
-        upcoming: null,
-        spentCad: counts ? booking.priceCad : 0,
-      });
-      continue;
-    }
-
-    if (counts) {
-      existing.lessonCount += 1;
-      existing.spentCad += booking.priceCad;
-      if (!existing.lastLesson || booking.startsAt > existing.lastLesson) {
-        existing.lastLesson = booking.startsAt;
-      }
-    }
-    if (booking.phone && !existing.phone) existing.phone = booking.phone;
-  }
-
-  const nowIso = new Date().toISOString();
-  for (const booking of bookings) {
-    if (
-      (booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled") &&
-      booking.startsAt >= nowIso
-    ) {
-      const row = byEmail.get(booking.email.toLowerCase());
-      if (row && (!row.upcoming || booking.startsAt < row.upcoming)) {
-        row.upcoming = booking.startsAt;
-      }
-    }
-  }
-
-  return [...byEmail.values()].sort((a, b) => {
-    if (b.lastLesson && a.lastLesson) return b.lastLesson.localeCompare(a.lastLesson);
-    if (b.lastLesson) return 1;
-    if (a.lastLesson) return -1;
-    return a.name.localeCompare(b.name);
-  });
-}
-
 export default async function AdminStudentsPage() {
-  const store = getStore();
-  const bookings = await store.listBookings();
-  const students = deriveStudents(bookings);
+  const nowIso = new Date().toISOString();
+  const profiles = await allStudentProfiles();
+  const students = await Promise.all(profiles.map(async (profile) => {
+    const bookings = await bookingsForStudent(profile.id);
+    const included = bookings.filter((booking) => ["pending_payment","confirmed","rescheduled","completed"].includes(booking.status));
+    const sorted = [...included].sort((a,b) => a.startsAt.localeCompare(b.startsAt));
+    return { bookingId: bookings[0]?.id, profile, lessonCount: included.length,
+      lastLesson: sorted.at(-1)?.startsAt ?? null,
+      upcoming: bookings.filter((b) => ["pending_payment","confirmed","rescheduled"].includes(b.status) && b.startsAt >= nowIso).sort((a,b) => a.startsAt.localeCompare(b.startsAt))[0]?.startsAt ?? null,
+      spentCad: included.reduce((sum,b) => sum+b.priceCad,0) };
+  }));
+  students.sort((a,b) => (b.lastLesson ?? "").localeCompare(a.lastLesson ?? "") || a.profile.full_name.localeCompare(b.profile.full_name));
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -91,8 +31,7 @@ export default async function AdminStudentsPage() {
         Students
       </h1>
       <p className="mt-2 max-w-2xl text-sm leading-relaxed text-soft">
-        Derived from bookings — no separate account or profile is created for
-        students. {students.length} {students.length === 1 ? "student" : "students"} on record.
+        Student profiles stay separate unless an administrator explicitly links bookings. {students.length} {students.length === 1 ? "student" : "students"} on record.
       </p>
 
       <div className="mt-6 overflow-hidden rounded-[18px] border border-line bg-white">
@@ -115,18 +54,18 @@ export default async function AdminStudentsPage() {
               </thead>
               <tbody className="divide-y divide-line">
                 {students.map((student) => (
-                  <tr key={student.email.toLowerCase()} className="hover:bg-[#fcfcfd]">
+                  <tr key={student.profile.id} className="hover:bg-[#fcfcfd]">
                     <td className="px-4 py-3.5">
                       <Link
-                        href={adminStudentHref(student.bookingId)}
+                        href={adminStudentHref(student.bookingId ?? "")}
                         className="text-[13.5px] font-bold text-ink underline decoration-line underline-offset-2 hover:text-gold-deep"
                       >
-                        {student.name}
+                        {student.profile.full_name}
                       </Link>
                     </td>
                     <td className="px-4 py-3.5">
-                      <p className="text-[12.5px] text-soft">{student.email}</p>
-                      <p className="text-[12.5px] text-soft">{student.phone || "—"}</p>
+                      <p className="text-[12.5px] text-soft">{student.profile.email}</p>
+                      <p className="text-[12.5px] text-soft">{student.profile.phone || "—"}</p>
                     </td>
                     <td className="px-4 py-3.5 text-[13px] font-semibold text-ink">
                       {student.lessonCount}

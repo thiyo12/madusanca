@@ -350,6 +350,7 @@ export interface BookingStore {
   ): Promise<StoreResult<BookingRecord>>;
   /** Admin: list bookings (all statuses, newest first by start time). */
   listBookings(filter?: BookingFilter): Promise<BookingRecord[]>;
+  countBookings(): Promise<number>;
   /** Admin: single booking by id. */
   getBookingById(id: string): Promise<BookingRecord | null>;
   /** Admin: status transition (confirm/complete/no_show/cancel). No schedule impact. */

@@ -37,11 +37,12 @@ export default async function AdminDashboardPage() {
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
   ).toISOString();
 
-  const [upcoming, todays, thisMonth, catalogue] = await Promise.all([
+  const [upcoming, todays, thisMonth, catalogue, totalAppointments] = await Promise.all([
     store.listBookings({ fromIso: now.toISOString() }),
     store.listBookings({ fromIso: today.from, toIso: today.to }),
     store.listBookings({ fromIso: monthStartIso }),
     store.getLessons(),
+    store.countBookings(),
   ]);
 
   const active = (status: string) => status === "pending_payment" || status === "confirmed" || status === "rescheduled";
@@ -52,7 +53,8 @@ export default async function AdminDashboardPage() {
   const revenue = monthActive.reduce((sum, b) => sum + b.priceCad, 0);
 
   const stats = [
-    { label: "Upcoming lessons", value: String(upcomingActive.length), hint: "from now on" },
+    { label: "Total appointments", value: String(totalAppointments), hint: "all statuses" },
+    { label: "Active/upcoming", value: String(upcomingActive.length), hint: "from now on" },
     { label: "Today", value: String(todaysActive.length), hint: "Pacific Time" },
     { label: "Booked this month", value: String(monthActive.length), hint: "active bookings" },
     { label: "Expected this month", value: formatPrice(revenue), hint: "paid at the school" },
@@ -85,7 +87,7 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
-      <div className="mt-7 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="mt-7 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         {stats.map((stat) => (
           <div
             key={stat.label}

@@ -379,7 +379,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
   async function confirmBooking() {
     if (!lesson || !appointments.every((item) => Boolean(scheduledStarts[item.key]))) return;
     if (!holdToken || !holdExpiresAt || Date.parse(holdExpiresAt) <= Date.now()) {
-      setSubmitError("Your 8-minute time hold has expired. Please select the lesson times again.");
+      setSubmitError("Your 20-minute time hold has expired. Please select the lesson times again.");
       setHoldToken(null);
       setHoldExpiresAt(null);
       setScheduledStarts({});
@@ -497,7 +497,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         )}
         {success.emailSent ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
-            Booking and payment details were sent to <strong>{details.email.trim()}</strong>. Payment is required to confirm the booking. Your selected time is held for 10 minutes.
+            Booking and payment details were sent to <strong>{details.email.trim()}</strong>. Payment is required to confirm the booking. Your selected time is held for 20 minutes.
           </p>
         ) : (
           <p role="alert" className="mt-2 rounded-[12px] bg-[#eaf5df] px-3.5 py-2.5 text-[13px] leading-relaxed text-[#31543a]">
@@ -536,9 +536,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         )}
         <div className="mt-5 flex flex-wrap gap-3">
           <StripeCheckoutButton manageToken={success.manageToken} addOnPackages={success.addOnPackages} />
-          <Button href="/booking/manage" variant="outline">
-            My Booking (email code)
-          </Button>
           <Button href="/lessons" variant="outline" onClick={() => {
             try { window.sessionStorage.removeItem(BOOKING_REVIEW_KEY); } catch { /* Ignore disabled storage. */ }
           }}>
@@ -546,7 +543,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           </Button>
         </div>
           <p className="mt-4 text-[12.5px] leading-relaxed text-[#616872]">
-          Your selected time is held for 10 minutes. Start secure card checkout above before the hold expires; the time stays reserved while checkout is open. If you plan to pay cash, contact the tutor to confirm availability. To manage a paid booking, verify your email in My Booking. Please bring your valid driver&rsquo;s licence.
+          Your selected time is held for 20 minutes. Start secure card checkout above before the hold expires; the time stays reserved while checkout is open. If you plan to pay cash, contact the tutor to confirm availability. To manage a paid booking, request an email code from My Booking. Please bring your valid driver&rsquo;s licence.
         </p>
       </div>
     );
@@ -586,7 +583,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
 
       {holdExpiresAt && stepIndex >= STEPS.findIndex((item) => item.key === "preview") && (
         <p role="status" className="mt-4 rounded-lg bg-[#eaf5df] px-3 py-2 text-xs font-bold text-[#31543a]">
-          Your selected lesson times are held until {formatSlotTime(holdExpiresAt)} Pacific (8 minutes).
+          Your selected lesson times are held until {formatSlotTime(holdExpiresAt)} Pacific (20 minutes).
         </p>
       )}
 
@@ -831,7 +828,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           </section>
           <div className="mt-4 space-y-2 text-[13px] leading-relaxed text-soft">
             <p>
-              Your selected lesson times are temporarily held for 8 minutes. Confirm now to complete the booking. Your confirmation email links to My Booking,
+              Your selected lesson times are temporarily held for 20 minutes. Confirm now to complete the booking. Your confirmation email links to My Booking,
               where you must verify your email before viewing or changing bookings.
             </p>
             {appointments.length > 1 ? (
@@ -856,12 +853,6 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           <div className="mt-6 flex flex-wrap gap-3">
             <Button onClick={confirmBooking} disabled={submitting} className="w-full sm:w-auto">
               {submitting ? "Confirming…" : "Confirm booking"}
-            </Button>
-            <Button variant="outline" onClick={goBack} disabled={submitting}>
-              Change details
-            </Button>
-            <Button variant="outline" onClick={async () => { await releaseCurrentHold(); setSubmitError(null); setStepIndex(0); }} disabled={submitting}>
-              Change lesson / extras
             </Button>
             <Button variant="outline" onClick={async () => { await releaseCurrentHold(); setSubmitError(null); setStepIndex(1); setAppointmentIndex(0); }} disabled={submitting}>
               Change date / time

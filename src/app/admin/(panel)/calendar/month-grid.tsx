@@ -106,9 +106,9 @@ export function MonthGrid({
                 {list.length > 0 ? `${list.length} booked` : ""}
               </span>
               {list.length > 2 && (
-                <span className="hidden text-[10px] font-bold text-gold-deep sm:block">
+                <Link href={href({ view: "day", date: cell, ...filters })} aria-label={`View all ${list.length} bookings for ${cell}`} className="hidden text-[10px] font-bold text-gold-deep hover:underline sm:block">
                   +{list.length - 2} more
-                </span>
+                </Link>
               )}
             </div>
           </div>

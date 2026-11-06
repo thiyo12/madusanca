@@ -603,6 +603,10 @@ export const fileStore: BookingStore = {
       .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   },
 
+  async countBookings(): Promise<number> {
+    return load().bookings.length;
+  },
+
   async getBookingById(id: string): Promise<BookingRecord | null> {
     return load().bookings.find((b) => b.id === id) ?? null;
   },

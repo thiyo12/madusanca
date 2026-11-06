@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { getStore } from "@/lib/booking/store";
 import type { BookingRecord } from "@/lib/booking/types";
+import { bookingsForStudent, studentForBooking } from "@/lib/admin/student-profiles";
 
 const bookingIdSchema = z.uuid();
 
@@ -15,9 +16,7 @@ export async function getStudentBookingsByAnchor(
   const store = getStore();
   const anchor = await store.getBookingById(bookingId);
   if (!anchor) return null;
-
-  const bookings = await store.listBookings({ search: anchor.email });
-  return bookings
-    .filter((booking) => booking.email.trim().toLowerCase() === anchor.email.trim().toLowerCase())
-    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  const profile = await studentForBooking(bookingId);
+  if (profile) return bookingsForStudent(profile.id);
+  return [anchor];
 }

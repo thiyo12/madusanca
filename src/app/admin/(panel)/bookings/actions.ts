@@ -130,7 +130,7 @@ export async function setBookingPaymentAction(
   if (!result.ok) {
     fail(result.error === "not_found"
       ? "Booking not found."
-      : "The expired time is no longer available. Contact the customer to arrange another time before marking it paid.");
+      : "The booking hold expired and at least one reserved time is no longer available. Reschedule the booking or package into an available time first; then mark it paid.");
   }
 
   revalidateAdmin();
