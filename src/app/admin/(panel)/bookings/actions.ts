@@ -25,11 +25,16 @@ const chequeStatusSchema = z.enum(["none", "received", "cleared", "returned"]);
 function revalidateAdmin(): void {
   revalidatePath("/admin/bookings");
   revalidatePath("/admin/calendar");
+  revalidatePath("/admin/payments");
   revalidatePath("/admin");
 }
 
 function fail(message: string): never {
-  redirect(`/admin/bookings?error=${encodeURIComponent(message)}`);
+  failAt("/admin/bookings", message);
+}
+
+function failAt(path: "/admin/bookings" | "/admin/payments", message: string): never {
+  redirect(`${path}?error=${encodeURIComponent(message)}`);
 }
 
 export async function setBookingStatusAction(
@@ -93,29 +98,32 @@ export async function setBookingStatusAction(
 export async function setBookingPaymentAction(
   bookingId: string,
   paymentStatus: z.infer<typeof paymentStatusSchema>,
+  returnTo: "/admin/bookings" | "/admin/payments" = "/admin/bookings",
 ): Promise<void> {
-  await requireAdmin("/admin/bookings");
+  const safeReturnTo = returnTo === "/admin/payments" ? "/admin/payments" : "/admin/bookings";
+  await requireAdmin(safeReturnTo);
+  const paymentFail = (message: string): never => redirect(`${safeReturnTo}?error=${encodeURIComponent(message)}`);
   if (!idSchema.safeParse(bookingId).success || !paymentStatusSchema.safeParse(paymentStatus).success) {
-    fail("Invalid request.");
+    paymentFail("Invalid request.");
   }
 
   const store = getStore();
   const booking = await store.getBookingById(bookingId);
-  if (!booking) fail("Booking not found.");
+  if (!booking) return paymentFail("Booking not found.");
 
-  if (booking.paymentStatus !== "due") fail("Only bookings with payment due can be marked paid by cash.");
+  if (booking.paymentStatus !== "due") paymentFail("Only bookings with payment due can be marked paid by cash.");
 
   if (booking.stripePaymentIntentId) {
     try {
       const stripe = getStripe();
       const intent = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
       if (intent.status === "succeeded" || intent.status === "processing") {
-        fail("Stripe shows a successful or processing card payment. This booking cannot be marked paid by cash.");
+        paymentFail("Stripe shows a successful or processing card payment. This booking cannot be marked paid by cash.");
       }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
       logSafeError("[admin/payments] Stripe reconciliation failed", error);
-      fail("Could not verify the Stripe payment. Try again later.");
+      paymentFail("Could not verify the Stripe payment. Try again later.");
     }
   }
 
@@ -124,13 +132,13 @@ export async function setBookingPaymentAction(
   const checkoutOwner = sameEmailBookings.find((item) =>
     (item.packageId ?? item.id) === packageId && item.stripeCheckoutSessionId,
   ) ?? booking;
-  await expireOpenCheckout(checkoutOwner);
+  await expireOpenCheckout(checkoutOwner, safeReturnTo);
 
   const result = await store.updatePaymentStatus(bookingId, paymentStatus);
   if (!result.ok) {
-    fail(result.error === "not_found"
+    paymentFail(result.error === "not_found"
       ? "Booking not found."
-      : "The expired time is no longer available. Contact the customer to arrange another time before marking it paid.");
+      : "The booking hold expired and at least one reserved time is no longer available. Reschedule the booking or package into an available time first; then mark it paid.");
   }
 
   revalidateAdmin();
@@ -143,13 +151,13 @@ export async function updateBookingChequeAction(formData: FormData): Promise<voi
   const store = getStore();
   const booking = await store.getBookingById(parsed.data.bookingId);
   if (!booking) redirect("/admin/payments?error=Booking+not+found.");
-  if (booking.stripePaymentIntentId && booking.paymentStatus === "paid" && status !== "none") {
+  if (booking.stripePaymentIntentId && booking.paymentStatus === "paid" && parsed.data.status !== "none") {
     redirect("/admin/payments?error=This+booking+is+already+paid+through+Stripe.");
   }
-  if ((status === "received" || status === "cleared") && booking.paymentStatus === "due") {
+  if ((parsed.data.status === "received" || parsed.data.status === "cleared") && booking.paymentStatus === "due") {
     const sameEmailBookings = await store.listBookings({ search: booking.email });
     const checkoutOwner = sameEmailBookings.find((item) => (item.packageId ?? item.id) === (booking.packageId ?? booking.id) && item.stripeCheckoutSessionId);
-    if (checkoutOwner) await expireOpenCheckout(checkoutOwner);
+    if (checkoutOwner) await expireOpenCheckout(checkoutOwner, "/admin/payments");
   }
   const result = await store.updateBookingCheque(booking.id, parsed.data.status, parsed.data.reference);
   if (!result.ok) redirect("/admin/payments?error=Could+not+update+cheque+tracking.");
@@ -167,7 +175,7 @@ export async function updatePackageChequeAction(formData: FormData): Promise<voi
   if (purchase.stripePaymentIntentId && purchase.paymentStatus === "paid" && status !== "none") {
     redirect("/admin/payments?error=This+purchase+is+already+paid+through+Stripe.");
   }
-  if ((status === "received" || status === "cleared") && purchase.paymentStatus === "pending" && purchase.stripeCheckoutSessionId) {
+  if ((parsed.data.status === "received" || parsed.data.status === "cleared") && purchase.paymentStatus === "pending" && purchase.stripeCheckoutSessionId) {
     try {
       const stripe = getStripe();
       const session = await stripe.checkout.sessions.retrieve(purchase.stripeCheckoutSessionId);
@@ -190,13 +198,13 @@ export async function updatePackageChequeAction(formData: FormData): Promise<voi
   revalidatePath("/admin/payments");
 }
 
-async function expireOpenCheckout(booking: BookingRecord): Promise<void> {
+async function expireOpenCheckout(booking: BookingRecord, returnTo: "/admin/bookings" | "/admin/payments" = "/admin/bookings"): Promise<void> {
   if (!booking.stripeCheckoutSessionId) return;
   try {
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.retrieve(booking.stripeCheckoutSessionId);
     if (session.status === "complete") {
-      fail(session.payment_status === "paid"
+      failAt(returnTo, session.payment_status === "paid"
         ? "This booking has a completed Stripe payment. Reconcile the payment before cancelling."
         : "Stripe shows this Checkout is complete and payment may be processing. Verify it before changing the booking.");
     }
@@ -210,7 +218,7 @@ async function expireOpenCheckout(booking: BookingRecord): Promise<void> {
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
     logSafeError("[admin/bookings] checkout expiry failed", error);
-    fail("Could not verify or close the Stripe Checkout session. Try again.");
+    failAt(returnTo, "Could not verify or close the Stripe Checkout session. Try again.");
   }
 }
 

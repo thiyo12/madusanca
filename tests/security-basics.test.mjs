@@ -521,11 +521,52 @@ test("safe error logging never emits provider error messages", () => {
   let logged;
   console.error = (...args) => { logged = args; };
   try {
-    logSafeError("test", { name: "ApiError", code: "safe_code", message: "sensitive customer detail" });
+    logSafeError("test", { name: "ApiError", code: "safe_code", type: "StripeInvalidRequestError", statusCode: 400, message: "sensitive customer detail" });
   } finally {
     console.error = original;
   }
-  assert.deepEqual(logged, ["test", { name: "ApiError", code: "safe_code" }]);
+  assert.deepEqual(logged, ["test", { name: "ApiError", code: "safe_code", type: "StripeInvalidRequestError", statusCode: 400 }]);
+});
+
+test("booking holds are consistently twenty minutes across API, UI and database", () => {
+  const route = readFileSync(new URL("../src/app/api/bookings/hold/route.ts", import.meta.url), "utf8");
+  const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations/0042_extend_booking_holds_to_twenty_minutes.sql", import.meta.url), "utf8");
+  assert.match(route, /HOLD_MS = 20 \* 60_000/);
+  assert.match(wizard, /Pacific \(20 minutes\)/);
+  assert.doesNotMatch(wizard, /\(8 minutes\)|held for 10 minutes|held for 8 minutes/);
+  assert.match(migration, /20 minutes 15 seconds/);
+  assert.match(migration, /created_at\+interval '20 minutes'/);
+});
+
+test("admin student records require explicit booking links and protect licence search", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0041_secure_student_profiles_and_progress.sql", import.meta.url), "utf8");
+  const search = readFileSync(new URL("../src/app/admin/(panel)/calendar/actions.ts", import.meta.url), "utf8");
+  const csv = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/csv/route.ts", import.meta.url), "utf8");
+  assert.match(migration, /group by coalesce\(b\.package_id, b\.id\)/);
+  assert.doesNotMatch(migration, /group by lower\(b\.email\)/);
+  assert.match(migration, /regexp_replace\(upper\(s\.license_number\)/);
+  assert.match(migration, /booking_student_details d join public\.student_profile_bookings/);
+  assert.match(migration, /returns table\(booking_id uuid\)/);
+  assert.match(search, /await requireAdmin\("\/admin\/calendar"\)/);
+  assert.match(search, /redirect\(`\/admin\/students/);
+  assert.doesNotMatch(search, /redirect\([^\n]*license\.data/);
+  assert.match(csv, /await requireAdmin\("\/admin\/students"\)/);
+  assert.match(csv, /Cache-Control.*private, no-store/);
+  assert.match(migration, /student_profile_audit/);
+  assert.match(migration, /student_assessments/);
+});
+
+test("payment actions return failures to Payments and keep cheque changes functional", () => {
+  const actions = readFileSync(new URL("../src/app/admin/(panel)/bookings/actions.ts", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/admin/(panel)/payments/page.tsx", import.meta.url), "utf8");
+  assert.match(actions, /paymentFail = \(message: string\): never => redirect\(`\$\{safeReturnTo\}\?error=/);
+  assert.match(actions, /expireOpenCheckout\(checkoutOwner, safeReturnTo\)/);
+  assert.match(actions, /parsed\.data\.status === "received" \|\| parsed\.data\.status === "cleared"/);
+  assert.doesNotMatch(actions, /if \(\(status === "received" \|\| status === "cleared"\)/);
+  assert.match(page, /RecordCashButton bookingId=\{booking\.id\}/);
+  assert.match(page, /Cheque tracking/);
+  assert.match(page, /params\.error/);
 });
 
 test("date and timestamp schemas reject impossible or non-ISO values", () => {
