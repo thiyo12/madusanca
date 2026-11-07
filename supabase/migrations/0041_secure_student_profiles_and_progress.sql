@@ -113,10 +113,19 @@ create or replace function public.admin_find_student_bookings_by_license(p_licen
 returns table(booking_id uuid)
 language sql security definer set search_path = pg_catalog
 as $$
-  select distinct l.booking_id
-  from public.student_profiles s join public.student_profile_bookings l on l.student_id=s.id
-  where regexp_replace(upper(s.license_number), '[^A-Z0-9]', '', 'g') =
-        regexp_replace(upper(btrim(p_license)), '[^A-Z0-9]', '', 'g')
+  select matches.booking_id from (
+    select l.booking_id
+    from public.student_profiles s join public.student_profile_bookings l on l.student_id=s.id
+    where length(btrim(p_license)) between 4 and 32
+      and regexp_replace(upper(s.license_number), '[^A-Z0-9]', '', 'g') =
+          regexp_replace(upper(btrim(p_license)), '[^A-Z0-9]', '', 'g')
+    union
+    select l.booking_id
+    from public.booking_student_details d join public.student_profile_bookings l on l.booking_id=d.booking_id
+    where length(btrim(p_license)) between 4 and 32
+      and regexp_replace(upper(d.license_number), '[^A-Z0-9]', '', 'g') =
+          regexp_replace(upper(btrim(p_license)), '[^A-Z0-9]', '', 'g')
+  ) matches
   limit 100;
 $$;
 revoke all on function public.admin_find_student_bookings_by_license(text) from public,anon,authenticated;

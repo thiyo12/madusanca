@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { getStore } from "@/lib/booking/store";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
-import { setBookingPaymentAction, updateBookingChequeAction, updatePackageChequeAction } from "../bookings/actions";
+import { updateBookingChequeAction, updatePackageChequeAction } from "../bookings/actions";
 import { listPaidCheckoutSessions, paymentReportRange } from "@/lib/stripe/payment-report";
 import { stripeMode } from "@/lib/stripe/server";
 import { logSafeError } from "@/lib/server/safe-log";
+import { RecordCashButton } from "./record-cash-button";
 
 export const metadata: Metadata = {
   title: "Payments — Wisdom Driving Academy Admin",
@@ -24,6 +25,7 @@ const PAYMENT_STATUSES: Array<{ value: string; label: string }> = [
 
 export default async function AdminPaymentsPage({ searchParams }: PaymentsPageProps) {
   const params = await searchParams;
+  const actionError = typeof params.error === "string" ? params.error.slice(0, 300) : "";
 
   const q = typeof params.q === "string" ? params.q.slice(0, 80) : "";
   const paymentStatusParam = typeof params.payment === "string" ? params.payment : "";
@@ -99,6 +101,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
           <li><strong className="text-ink">Refund:</strong> issue refunds in Stripe. This page is for viewing records and does not process refunds.</li>
         </ul>
       </section>
+      {actionError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{actionError}</p>}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-[16px] border border-line bg-white p-5">
@@ -279,28 +282,19 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                       <p className="text-[11px] text-soft">before GST</p>
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="flex justify-end gap-2">
-                        {booking.paymentStatus === "due" && <form
-                          action={async () => {
-                            "use server";
-                            await setBookingPaymentAction(booking.id, "paid");
-                          }}
-                        >
-                          <button
-                            type="submit"
-                            className="inline-flex h-8 items-center rounded-[8px] px-3 text-[11.5px] font-extrabold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-50 border border-[#cce6b1] bg-[#f1f9e9] text-[#385a22] hover:bg-[#cce6b1]"
-                          >
-                            Mark Paid by Cash
-                          </button>
-                        </form>}
-                        <form action={updateBookingChequeAction} className="mt-2 grid gap-1.5">
-                          <input type="hidden" name="bookingId" value={booking.id} />
-                          <select name="status" defaultValue={booking.chequeStatus ?? "none"} aria-label={`Cheque status for ${booking.reference}`} className="h-8 rounded border border-line bg-white px-2 text-[11px]">
-                            <option value="none">No cheque</option><option value="received">Received</option><option value="cleared">Cleared</option><option value="returned">Returned</option>
-                          </select>
-                          <input name="reference" defaultValue={booking.chequeReference ?? ""} maxLength={80} aria-label={`Cheque reference for ${booking.reference}`} placeholder="Cheque ref (optional)" className="h-8 w-32 rounded border border-line px-2 text-[10px]" />
-                          <button type="submit" className="h-7 rounded bg-mist px-2 text-[10px] font-bold text-ink hover:bg-line">Save cheque</button>
-                        </form>
+                      <div className="flex min-w-[150px] flex-col items-end gap-2">
+                        {booking.paymentStatus === "due" && <RecordCashButton bookingId={booking.id} />}
+                        <details className="text-left">
+                          <summary className="cursor-pointer text-[10px] font-bold text-soft hover:text-ink">Cheque tracking</summary>
+                          <form action={updateBookingChequeAction} className="mt-1.5 grid gap-1.5">
+                            <input type="hidden" name="bookingId" value={booking.id} />
+                            <select name="status" defaultValue={booking.chequeStatus ?? "none"} aria-label={`Cheque status for ${booking.reference}`} className="h-8 rounded border border-line bg-white px-2 text-[11px]">
+                              <option value="none">No cheque</option><option value="received">Received</option><option value="cleared">Cleared</option><option value="returned">Returned</option>
+                            </select>
+                            <input name="reference" defaultValue={booking.chequeReference ?? ""} maxLength={80} aria-label={`Cheque reference for ${booking.reference}`} placeholder="Cheque ref (optional)" className="h-8 w-32 rounded border border-line px-2 text-[10px]" />
+                            <button type="submit" className="h-7 rounded bg-mist px-2 text-[10px] font-bold text-ink hover:bg-line">Save cheque details</button>
+                          </form>
+                        </details>
                       </div>
                     </td>
                   </tr>
