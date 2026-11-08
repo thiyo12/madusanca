@@ -499,7 +499,8 @@ export const supabaseStore: BookingStore = {
       const { data, error } = await adminClient().rpc("complete_booking_session", { p_booking_id: id });
       if (error) throw new Error(`Failed to complete booking session: ${error.message}`);
       const envelope = data as RpcEnvelope<BookingRow>;
-      if (!envelope.ok || !envelope.record) return { ok: false, error: "not_found" };
+      if (!envelope.ok) return { ok: false, error: envelope.error === "report_required" ? "report_required" : envelope.error === "not_modifiable" ? "not_modifiable" : "not_found" };
+      if (!envelope.record) return { ok: false, error: "not_found" };
       return { ok: true, value: toRecord(envelope.record) };
     }
     if (status === "cancelled") {

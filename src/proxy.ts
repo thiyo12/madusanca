@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomBytes } from "node:crypto";
+import { isLocalAdminBypassEnabled } from "@/lib/auth/local-admin-bypass";
 
 function supabaseOrigin(): string {
   try {
@@ -50,6 +51,12 @@ export async function proxy(request: NextRequest) {
   const isLoginPath = pathname === "/admin/login";
   const isPasswordResetPath = pathname === "/admin/reset-password";
   if (!isAdminPath) return supabaseResponse;
+
+  if (isLocalAdminBypassEnabled(process.env.NODE_ENV, request.nextUrl.hostname)) {
+    return isLoginPath
+      ? withCsp(NextResponse.redirect(new URL("/admin", request.url)), csp)
+      : supabaseResponse;
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

@@ -7,6 +7,7 @@ import { signOut } from "@/app/admin/login/actions";
 
 export interface AdminNavProps {
   email: string;
+  localBypass?: boolean;
 }
 
 const NAV_ITEMS = [
@@ -19,7 +20,7 @@ const NAV_ITEMS = [
   { href: "/admin/settings", label: "Settings" },
 ];
 
-export function AdminNav({ email }: AdminNavProps) {
+export function AdminNav({ email, localBypass = false }: AdminNavProps) {
   const pathname = usePathname();
 
   function isActive(href: string): boolean {
@@ -59,18 +60,20 @@ export function AdminNav({ email }: AdminNavProps) {
           >
             ← View website
           </Link>
-          <div className="px-2 text-[11.5px] leading-snug text-[#6b727c]">
-            Signed in as
-            <span className="block break-all text-[#b7bdc6]">{email}</span>
-          </div>
-          <form action={signOut}>
-            <button
-              type="submit"
-              className="w-full rounded-[10px] border border-[#2a2e33] px-3 py-2 text-[12.5px] font-extrabold text-[#c3c8cf] transition-colors hover:border-gold hover:text-gold"
-            >
-              Sign out
-            </button>
-          </form>
+          {localBypass ? <p className="px-2 text-[11.5px] text-[#6b727c]">Local development · sign-in bypassed</p> : <>
+            <div className="px-2 text-[11.5px] leading-snug text-[#6b727c]">
+              Signed in as
+              <span className="block break-all text-[#b7bdc6]">{email}</span>
+            </div>
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="w-full rounded-[10px] border border-[#2a2e33] px-3 py-2 text-[12.5px] font-extrabold text-[#c3c8cf] transition-colors hover:border-gold hover:text-gold"
+              >
+                Sign out
+              </button>
+            </form>
+          </>}
         </div>
       </aside>
 
@@ -79,14 +82,14 @@ export function AdminNav({ email }: AdminNavProps) {
         <header className="sticky top-0 z-30 border-b border-[#23262a] bg-ink px-5 py-4">
           <div className="flex items-center justify-between gap-3">
             <Logo compact href="/admin" />
-            <form action={signOut}>
-              <button
-                type="submit"
-                className="rounded-[9px] border border-[#2a2e33] px-3 py-1.5 text-[12px] font-extrabold text-[#c3c8cf]"
-              >
-                Sign out
-              </button>
-            </form>
+            {!localBypass && <form action={signOut}>
+                <button
+                  type="submit"
+                  className="rounded-[9px] border border-[#2a2e33] px-3 py-1.5 text-[12px] font-extrabold text-[#c3c8cf]"
+                >
+                  Sign out
+                </button>
+              </form>}
           </div>
           <nav className="no-scrollbar -mx-5 mt-3 flex gap-2 overflow-x-auto px-5" aria-label="Admin">
             {NAV_ITEMS.map((item) => (
@@ -105,7 +108,7 @@ export function AdminNav({ email }: AdminNavProps) {
             ))}
           </nav>
         </header>
-        <div className="px-5 pt-4 text-[11.5px] text-soft">{email}</div>
+        <div className="px-5 pt-4 text-[11.5px] text-soft">{localBypass ? "Local development · sign-in bypassed" : email}</div>
       </div>
     </>
   );

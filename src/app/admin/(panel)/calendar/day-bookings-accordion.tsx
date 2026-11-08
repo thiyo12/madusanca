@@ -8,6 +8,7 @@ import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { adminStudentHref } from "@/lib/admin/urls";
 import { occupiedDurationMin } from "@/lib/booking/slots";
 import type { BookingStatus, PaymentStatus } from "@/lib/booking/types";
+import { saveTutorLessonReportAction } from "./actions";
 
 interface AppointmentHistory {
   id: string;
@@ -35,6 +36,7 @@ interface BookingItem {
   sessionIndex: number;
   sessionCount: number;
   packagePriceCad: number;
+  report: { assessment_date: string; vehicle_control: number | null; observation: number | null; intersections: number | null; lane_changes: number | null; speed_space: number | null; parking: number | null; hazard_awareness: number | null; notes: string; road_test_date: string | null; road_test_location: string | null; road_test_outcome: string | null } | null;
 }
 
 interface PackagePlan {
@@ -69,10 +71,12 @@ export function DayBookingsAccordion({
   entries,
   nowMs,
   initialOpenId = "",
+  day,
 }: {
   entries: DayBookingAccordionEntry[];
   nowMs: number;
   initialOpenId?: string;
+  day: string;
 }) {
   const [openId, setOpenId] = useState(initialOpenId);
 
@@ -166,7 +170,19 @@ export function DayBookingsAccordion({
                 </details>
 
                 <div className="border-t border-line pt-3">
-                  <p className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-soft">Manage this class</p>
+                  <p className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-soft">Tutor lesson report</p>
+                  <p className="mb-3 text-[11px] text-soft">School teaching assessment only—not an official ICBC score. Save a report before completing this lesson.</p>
+                  <form action={saveTutorLessonReportAction} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="day" value={day} />
+                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Report date<input required type="date" name="reportDate" defaultValue={booking.report?.assessment_date ?? day} className="rounded border p-2 text-ink" /></label>
+                    {([["vehicle","Vehicle control","vehicle_control"],["observation","Observation","observation"],["intersections","Intersections","intersections"],["laneChanges","Lane changes","lane_changes"],["speedSpace","Speed and space","speed_space"],["parking","Parking","parking"],["hazard","Hazard awareness","hazard_awareness"]] as const).map(([key,label,field]) => <label key={key} className="grid gap-1 text-[11px] font-semibold text-soft">{label}<select name={key} defaultValue={booking.report?.[field] ?? ""} className="rounded border bg-white p-2 text-ink"><option value="">Not rated</option>{[1,2,3,4,5].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>)}
+                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test date<input type="date" name="roadTestDate" defaultValue={booking.report?.road_test_date ?? ""} className="rounded border p-2 text-ink" /></label>
+                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Test location<input name="location" maxLength={120} defaultValue={booking.report?.road_test_location ?? ""} className="rounded border p-2 text-ink" /></label>
+                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test outcome<select name="outcome" defaultValue={booking.report?.road_test_outcome ?? ""} className="rounded border bg-white p-2 text-ink"><option value="">Not recorded</option><option value="passed">Passed</option><option value="not_passed">Not passed</option><option value="not_taken">Not taken</option></select></label>
+                    <label className="grid gap-1 text-[11px] font-semibold text-soft sm:col-span-2 lg:col-span-4">Tutor notes<textarea name="notes" maxLength={4000} rows={3} defaultValue={booking.report?.notes ?? ""} className="rounded border p-2 text-ink" /></label>
+                    <div className="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-4"><button className="btn-gold rounded-lg px-4 py-2 text-xs font-extrabold">{booking.report ? "Update saved report" : "Save lesson report"}</button>{booking.report && <span className="text-[11px] font-bold text-[#385a22]">Report saved · lesson can be completed</span>}</div>
+                  </form>
+                  <p className="mb-2 mt-4 text-[11px] font-extrabold uppercase tracking-wide text-soft">Manage this class</p>
                   <BookingActions
                     bookingId={booking.id}
                     lessonId={booking.lessonId}

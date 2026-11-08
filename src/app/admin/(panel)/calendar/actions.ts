@@ -12,11 +12,29 @@ import { logSafeError } from "@/lib/server/safe-log";
 import { dateOnlySchema } from "@/lib/validation/booking";
 import { searchBookingsByLicense } from "@/lib/admin/student-profiles";
 import { redirect } from "next/navigation";
+import { saveBookingAssessment, studentForBooking } from "@/lib/admin/student-profiles";
 
 export interface QuickBookingState {
   ok: boolean;
   message: string;
   reference?: string;
+}
+
+export async function saveTutorLessonReportAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin("/admin/calendar");
+  const score = z.preprocess((value) => value === "" || value == null ? null : Number(value), z.number().int().min(1).max(5).nullable());
+  const parsed = z.object({ bookingId: z.uuid(), reportDate: z.iso.date(), vehicle: score, observation: score, intersections: score, laneChanges: score, speedSpace: score, parking: score, hazard: score, notes: z.string().max(4000), roadTestDate: z.iso.date().nullable(), location: z.string().max(120), outcome: z.enum(["passed", "not_passed", "not_taken"]).nullable(), day: z.iso.date() }).safeParse({
+    bookingId: formData.get("bookingId"), reportDate: formData.get("reportDate"), vehicle: formData.get("vehicle"), observation: formData.get("observation"), intersections: formData.get("intersections"), laneChanges: formData.get("laneChanges"), speedSpace: formData.get("speedSpace"), parking: formData.get("parking"), hazard: formData.get("hazard"), notes: formData.get("notes"), roadTestDate: String(formData.get("roadTestDate") ?? "") || null, location: formData.get("location"), outcome: String(formData.get("outcome") ?? "") || null, day: formData.get("day"),
+  });
+  if (!parsed.success || ![parsed.data.vehicle, parsed.data.observation, parsed.data.intersections, parsed.data.laneChanges, parsed.data.speedSpace, parsed.data.parking, parsed.data.hazard].some((value) => value !== null)) {
+    redirect(`/admin/calendar?view=day&date=${encodeURIComponent(String(formData.get("day") ?? ""))}&error=report`);
+  }
+  const student = await studentForBooking(parsed.data.bookingId);
+  if (!student) redirect(`/admin/calendar?view=day&date=${parsed.data.day}&error=student`);
+  const d = parsed.data;
+  await saveBookingAssessment(student.id, d.bookingId, admin.userId, { assessment_date: d.reportDate, vehicle_control: d.vehicle, observation: d.observation, intersections: d.intersections, lane_changes: d.laneChanges, speed_space: d.speedSpace, parking: d.parking, hazard_awareness: d.hazard, notes: d.notes, road_test_date: d.roadTestDate, road_test_location: d.location, road_test_outcome: d.outcome });
+  revalidatePath(`/admin/calendar`);
+  revalidatePath(`/admin/students/${d.bookingId}`);
 }
 
 export async function searchStudentByLicenseAction(formData: FormData): Promise<void> {

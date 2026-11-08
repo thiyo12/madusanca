@@ -8,7 +8,6 @@ import type { BookingStatus } from "@/lib/booking/types";
 import {
   rescheduleBookingAction,
   setBookingStatusAction,
-  setBookingPaymentAction,
   type RescheduleState,
 } from "./actions";
 
@@ -24,7 +23,7 @@ export interface BookingActionsProps {
 const buttonBase =
   "inline-flex h-8 items-center rounded-[8px] px-3 text-[11.5px] font-extrabold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-50";
 
-export function BookingActions({ bookingId, lessonId, status, startsAt, paymentStatus, nowMs }: BookingActionsProps) {
+export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }: BookingActionsProps) {
   const [open, setOpen] = useState(false);
   const [pendingStart, setPendingStart] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,27 +99,6 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, paymentS
           Cancel
         </button>
       </form>}
-
-      {status !== "no_show" && <div className="flex flex-wrap items-center gap-2 border-l border-line pl-2">
-        <p className="text-[10px] font-extrabold uppercase tracking-wider text-soft">
-          Payment: {paymentStatus === "paid" ? "Paid" : paymentStatus === "refunded" ? "Refunded" : "Due"}
-        </p>
-        {paymentStatus === "due" && (
-          <form
-            action={async () => {
-              if (!confirm("Confirm cash was received and mark this booking paid?")) return;
-              await setBookingPaymentAction(bookingId, "paid");
-            }}
-          >
-            <button
-              type="submit"
-              className={`${buttonBase} border border-[#cce6b1] bg-[#f1f9e9] text-[#385a22] hover:bg-[#cce6b1]`}
-            >
-              Mark Paid by Cash
-            </button>
-          </form>
-        )}
-      </div>}
 
       {open && (
         <div

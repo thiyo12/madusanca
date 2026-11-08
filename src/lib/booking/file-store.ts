@@ -38,6 +38,8 @@ import type {
   StoreResult,
 } from "@/lib/booking/types";
 
+const BOOKING_HOLD_MS = 20 * 60_000;
+
 interface FileData {
   rules: AvailabilityRule[];
   dateOverrides: AvailabilityDateOverride[];
@@ -149,7 +151,7 @@ function activeBookings(data: FileData): BookingRecord[] {
   return data.bookings.filter((b) =>
     b.status === "confirmed" || b.status === "rescheduled" ||
     (b.status === "pending_payment" &&
-      Date.parse(b.stripeCheckoutExpiresAt ?? new Date(Date.parse(b.createdAt) + 10 * 60 * 1000).toISOString()) > now),
+      Date.parse(b.stripeCheckoutExpiresAt ?? new Date(Date.parse(b.createdAt) + BOOKING_HOLD_MS).toISOString()) > now),
   );
 }
 
@@ -280,7 +282,7 @@ export const fileStore: BookingStore = {
         status: "pending_payment",
         paymentStatus: "due",
         stripeCheckoutAttempt: 0,
-        stripeCheckoutExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        stripeCheckoutExpiresAt: new Date(Date.now() + BOOKING_HOLD_MS).toISOString(),
         createdAt: now,
         updatedAt: now,
       };
@@ -350,7 +352,7 @@ export const fileStore: BookingStore = {
         status: "pending_payment",
         paymentStatus: "due",
         stripeCheckoutAttempt: 0,
-        stripeCheckoutExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        stripeCheckoutExpiresAt: new Date(Date.now() + BOOKING_HOLD_MS).toISOString(),
         createdAt: now,
         updatedAt: now,
       }));
@@ -455,7 +457,7 @@ export const fileStore: BookingStore = {
             status: "pending_payment",
             paymentStatus: "due",
             stripeCheckoutAttempt: 0,
-            stripeCheckoutExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+            stripeCheckoutExpiresAt: new Date(Date.now() + BOOKING_HOLD_MS).toISOString(),
             createdAt: now,
             updatedAt: now,
           });
@@ -679,19 +681,21 @@ export const fileStore: BookingStore = {
       if (!booking) return Promise.resolve({ ok: false, error: "not_found" as const });
       const packageId = booking.packageId ?? booking.id;
       if (paymentStatus === "paid" && booking.status === "pending_payment" &&
-          Date.parse(booking.stripeCheckoutExpiresAt ?? new Date(Date.parse(booking.createdAt) + 10 * 60_000).toISOString()) <= Date.now()) {
-        const packageSessions = data.bookings.filter((item) => (item.packageId ?? item.id) === packageId);
+          Date.parse(booking.stripeCheckoutExpiresAt ?? new Date(Date.parse(booking.createdAt) + BOOKING_HOLD_MS).toISOString()) <= Date.now()) {
         const otherBookings = activeBookings(data).filter((item) => (item.packageId ?? item.id) !== packageId);
-        const expiredTimeTaken = packageSessions.some((session) => otherBookings.some((other) =>
+        const expiredTimeTaken = otherBookings.some((other) =>
           overlaps(
-            Date.parse(session.startsAt), occupiedEnd(session.startsAt, session.durationMin),
+            Date.parse(booking.startsAt), occupiedEnd(booking.startsAt, booking.durationMin),
             Date.parse(other.startsAt), occupiedEnd(other.startsAt, other.durationMin),
           ),
-        ));
+        );
         if (expiredTimeTaken) return Promise.resolve({ ok: false, error: "conflict" as const });
       }
       const now = new Date().toISOString();
-      data.bookings.filter((item) => (item.packageId ?? item.id) === packageId).forEach((session) => {
+      const affectedBookings = paymentStatus === "paid"
+        ? [booking]
+        : data.bookings.filter((item) => (item.packageId ?? item.id) === packageId);
+      affectedBookings.forEach((session) => {
         session.paymentStatus = paymentStatus;
         if (paymentStatus === "paid" && session.status === "pending_payment") session.status = "confirmed";
         session.updatedAt = now;

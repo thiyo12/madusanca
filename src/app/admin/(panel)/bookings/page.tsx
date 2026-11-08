@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getStore } from "@/lib/booking/store";
 import type { BookingStatus } from "@/lib/booking/types";
-import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
+import { dayKeyOf, formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
-import { BookingActions } from "./booking-actions";
 import { adminStudentHref } from "@/lib/admin/urls";
 
 export const metadata: Metadata = {
@@ -194,16 +193,7 @@ export default async function AdminBookingsPage({ searchParams }: BookingsPagePr
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="flex justify-end">
-                        <BookingActions
-                          bookingId={booking.id}
-                          lessonId={booking.lessonId}
-                          status={booking.status}
-                          startsAt={booking.startsAt}
-                          paymentStatus={booking.paymentStatus ?? "due"}
-                          nowMs={Date.parse(nowIso)}
-                        />
-                      </div>
+                      <Link href={`/admin/calendar?view=day&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}`} className="inline-flex rounded-lg border border-line px-3 py-2 text-[11px] font-extrabold text-ink hover:border-gold hover:text-gold-deep">Open in Calendar</Link>
                     </td>
                   </tr>
                 ))}

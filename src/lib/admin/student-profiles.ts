@@ -11,8 +11,9 @@ export interface StudentAssessment {
   vehicle_control: number | null; observation: number | null; intersections: number | null;
   lane_changes: number | null; speed_space: number | null; parking: number | null;
   hazard_awareness: number | null; road_test_date: string | null; road_test_location: string | null;
-  road_test_outcome: "passed" | "not_passed" | "not_taken" | null; notes: string;
+  road_test_outcome: "passed" | "not_passed" | "not_taken" | null; notes: string; updated_at?: string;
 }
+export interface StudentCourseCompletion { course_key: string; ended_early: boolean; expected_lessons: number; completed_lessons: number; finished_at: string }
 let cached: SupabaseClient | null = null;
 function db(): SupabaseClient {
   if (cached) return cached;
@@ -43,9 +44,36 @@ export async function profileById(studentId: string): Promise<StudentProfile | n
   return data as StudentProfile | null;
 }
 export async function assessmentsForStudent(studentId: string): Promise<StudentAssessment[]> {
-  const { data, error } = await db().from("student_assessments").select("id,booking_id,assessment_date,vehicle_control,observation,intersections,lane_changes,speed_space,parking,hazard_awareness,road_test_date,road_test_location,road_test_outcome,notes").eq("student_id", studentId).order("assessment_date", { ascending: false });
+  const { data, error } = await db().from("student_assessments").select("id,booking_id,assessment_date,vehicle_control,observation,intersections,lane_changes,speed_space,parking,hazard_awareness,road_test_date,road_test_location,road_test_outcome,notes,updated_at").eq("student_id", studentId).order("assessment_date", { ascending: false });
   if (error) throw error;
   return (data ?? []) as StudentAssessment[];
+}
+export async function assessmentForBooking(bookingId: string): Promise<StudentAssessment | null> {
+  const { data, error } = await db().from("student_assessments").select("id,booking_id,assessment_date,vehicle_control,observation,intersections,lane_changes,speed_space,parking,hazard_awareness,road_test_date,road_test_location,road_test_outcome,notes,updated_at").eq("booking_id", bookingId).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return data as StudentAssessment | null;
+}
+export async function courseCompletionsForStudent(studentId: string): Promise<StudentCourseCompletion[]> {
+  const { data, error } = await db().from("student_course_completions").select("course_key,ended_early,expected_lessons,completed_lessons,finished_at").eq("student_id", studentId);
+  if (error) throw error;
+  return (data ?? []) as StudentCourseCompletion[];
+}
+export async function saveBookingAssessment(studentId: string, bookingId: string, adminId: string, values: Record<string, unknown>): Promise<void> {
+  const { error } = await db().rpc("admin_save_booking_assessment", {
+    p_student_id: studentId, p_booking_id: bookingId, p_admin_id: adminId,
+    p_assessment_date: values.assessment_date, p_vehicle_control: values.vehicle_control,
+    p_observation: values.observation, p_intersections: values.intersections,
+    p_lane_changes: values.lane_changes, p_speed_space: values.speed_space,
+    p_parking: values.parking, p_hazard_awareness: values.hazard_awareness,
+    p_road_test_date: values.road_test_date, p_road_test_location: values.road_test_location,
+    p_road_test_outcome: values.road_test_outcome, p_notes: values.notes,
+  });
+  if (error) throw error;
+}
+export async function finishStudentCourse(studentId: string, courseKey: string, adminId: string, endedEarly: boolean): Promise<{ok:boolean; error?:string}> {
+  const { data, error } = await db().rpc("admin_finish_student_course", { p_student_id: studentId, p_course_key: courseKey, p_admin_id: adminId, p_ended_early: endedEarly });
+  if (error) throw error;
+  return data as {ok:boolean; error?:string};
 }
 export async function searchBookingsByLicense(license: string): Promise<string[]> {
   const { data, error } = await db().rpc("admin_find_student_bookings_by_license", { p_license: license });
@@ -76,18 +104,6 @@ export async function updateStudentProfile(studentId: string, adminId: string, d
 }
 export async function linkBookingToStudent(studentId: string, bookingId: string, adminId: string): Promise<void> {
   const { error } = await db().rpc("admin_link_student_booking", { p_student_id: studentId, p_booking_id: bookingId, p_admin_id: adminId });
-  if (error) throw error;
-}
-export async function addStudentAssessment(studentId: string, bookingId: string | null, adminId: string, values: Record<string, unknown>): Promise<void> {
-  const { error } = await db().rpc("admin_add_student_assessment", {
-    p_student_id: studentId, p_booking_id: bookingId, p_admin_id: adminId,
-    p_assessment_date: values.assessment_date, p_vehicle_control: values.vehicle_control,
-    p_observation: values.observation, p_intersections: values.intersections,
-    p_lane_changes: values.lane_changes, p_speed_space: values.speed_space,
-    p_parking: values.parking, p_hazard_awareness: values.hazard_awareness,
-    p_road_test_date: values.road_test_date, p_road_test_location: values.road_test_location,
-    p_road_test_outcome: values.road_test_outcome, p_notes: values.notes,
-  });
   if (error) throw error;
 }
 export async function licenseSearchMatches(license: string): Promise<BookingRecord[]> {

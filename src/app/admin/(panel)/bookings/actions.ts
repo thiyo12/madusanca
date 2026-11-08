@@ -41,7 +41,7 @@ export async function setBookingStatusAction(
   bookingId: string,
   status: z.infer<typeof statusSchema>,
 ): Promise<void> {
-  await requireAdmin("/admin/bookings");
+  await requireAdmin(status === "completed" ? "/admin/calendar" : "/admin/bookings");
   if (!idSchema.safeParse(bookingId).success || !statusSchema.safeParse(status).success) {
     fail("Invalid request.");
   }
@@ -69,11 +69,13 @@ export async function setBookingStatusAction(
 
   const result = await store.updateBookingStatus(bookingId, status);
   if (!result.ok) {
-    fail(
-      result.error === "not_modifiable"
+    const message = result.error === "report_required"
+      ? "Save the tutor lesson report in Calendar before completing this lesson."
+      : result.error === "not_modifiable"
         ? "This booking is closed and can no longer change."
-        : "Could not update the booking.",
-    );
+        : "Could not update the booking.";
+    if (status === "completed") redirect(`/admin/calendar?view=day&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}&error=${encodeURIComponent(message)}`);
+    fail(message);
   }
 
   if (status === "cancelled") {
@@ -112,6 +114,7 @@ export async function setBookingPaymentAction(
   if (!booking) return paymentFail("Booking not found.");
 
   if (booking.paymentStatus !== "due") paymentFail("Only bookings with payment due can be marked paid by cash.");
+  if (booking.status === "cancelled" || booking.status === "completed") paymentFail("This lesson is closed and cannot be marked paid here.");
 
   if (booking.stripePaymentIntentId) {
     try {
@@ -138,7 +141,7 @@ export async function setBookingPaymentAction(
   if (!result.ok) {
     paymentFail(result.error === "not_found"
       ? "Booking not found."
-      : "The booking hold expired and at least one reserved time is no longer available. Reschedule the booking or package into an available time first; then mark it paid.");
+      : "This lesson’s unpaid hold expired and its time is no longer available. Reschedule this lesson first, then mark it paid.");
   }
 
   revalidateAdmin();

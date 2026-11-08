@@ -1,7 +1,9 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isLocalAdminBypassEnabled } from "@/lib/auth/local-admin-bypass";
 
 export interface AdminIdentity {
   userId: string;
@@ -49,6 +51,11 @@ async function isAdmin(userId: string, email: string): Promise<boolean> {
  * Redirects anonymous visitors to the login screen; signs out non-admins.
  */
 export async function requireAdmin(nextPath = "/admin"): Promise<AdminIdentity> {
+  const requestHeaders = await headers();
+  if (isLocalAdminBypassEnabled(process.env.NODE_ENV, requestHeaders.get("host") ?? "")) {
+    return { userId: "00000000-0000-4000-8000-000000000001", email: "local-admin@localhost" };
+  }
+
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },

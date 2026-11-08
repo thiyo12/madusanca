@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth/require-admin";
-import { addStudentAssessment, linkBookingToStudent, updateStudentProfile } from "@/lib/admin/student-profiles";
+import { finishStudentCourse, linkBookingToStudent, updateStudentProfile } from "@/lib/admin/student-profiles";
 
 const uuid = z.uuid();
 const gender = z.enum(["woman","man","non_binary","another_identity","prefer_not_to_say"]).nullable();
@@ -23,14 +23,12 @@ export async function linkStudentBookingAction(form: FormData): Promise<void> {
   await linkBookingToStudent(parsed.data.studentId, parsed.data.bookingId, admin.userId);
   revalidatePath(`/admin/students/${parsed.data.anchorId}`);
 }
-export async function addStudentAssessmentAction(form: FormData): Promise<void> {
+export async function finishStudentCourseAction(form: FormData): Promise<void> {
   const admin = await requireAdmin("/admin/students");
-  const score = z.preprocess((v) => v === "" || v == null ? null : Number(v), z.number().int().min(1).max(5).nullable());
-  const parsed = z.object({ studentId: uuid, anchorId: uuid, bookingId: uuid.nullable(), assessmentDate: z.iso.date(), vehicle: score, observation: score, intersections: score, laneChanges: score, speedSpace: score, parking: score, hazard: score, roadTestDate: z.iso.date().nullable(), location: z.string().max(120), outcome: z.enum(["passed","not_passed","not_taken"]).nullable(), notes: z.string().max(4000) }).safeParse({
-    studentId: form.get("studentId"), anchorId: form.get("anchorId"), bookingId: String(form.get("bookingId") ?? "") || null, assessmentDate: form.get("assessmentDate"), vehicle: form.get("vehicle"), observation: form.get("observation"), intersections: form.get("intersections"), laneChanges: form.get("laneChanges"), speedSpace: form.get("speedSpace"), parking: form.get("parking"), hazard: form.get("hazard"), roadTestDate: String(form.get("roadTestDate") ?? "") || null, location: form.get("location"), outcome: String(form.get("outcome") ?? "") || null, notes: form.get("notes"),
-  });
-  if (!parsed.success) redirect(`/admin/students/${encodeURIComponent(String(form.get("anchorId") ?? ""))}?error=assessment`);
-  const d = parsed.data;
-  await addStudentAssessment(d.studentId, d.bookingId, admin.userId, { assessment_date:d.assessmentDate, vehicle_control:d.vehicle, observation:d.observation, intersections:d.intersections, lane_changes:d.laneChanges, speed_space:d.speedSpace, parking:d.parking, hazard_awareness:d.hazard, road_test_date:d.roadTestDate, road_test_location:d.location, road_test_outcome:d.outcome, notes:d.notes });
-  revalidatePath(`/admin/students/${d.anchorId}`);
+  const parsed = z.object({ studentId: uuid, anchorId: uuid, courseKey: uuid, endedEarly: z.enum(["true", "false"]) }).safeParse({ studentId: form.get("studentId"), anchorId: form.get("anchorId"), courseKey: form.get("courseKey"), endedEarly: form.get("endedEarly") });
+  if (!parsed.success) redirect(`/admin/students/${encodeURIComponent(String(form.get("anchorId") ?? ""))}?courseError=invalid`);
+  const result = await finishStudentCourse(parsed.data.studentId, parsed.data.courseKey, admin.userId, parsed.data.endedEarly === "true");
+  if (!result.ok) redirect(`/admin/students/${parsed.data.anchorId}?courseError=${encodeURIComponent(result.error ?? "failed")}`);
+  revalidatePath(`/admin/students/${parsed.data.anchorId}`);
+  redirect(`/admin/students/${parsed.data.anchorId}`);
 }

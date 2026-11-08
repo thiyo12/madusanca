@@ -215,7 +215,8 @@ export type StoreError =
   | "not_found"
   | "expired"
   | "not_modifiable"
-  | "reschedule_limit";
+  | "reschedule_limit"
+  | "report_required";
 
 export type OtpSendPermit =
   | { allowed: true }

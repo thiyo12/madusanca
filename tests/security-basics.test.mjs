@@ -31,6 +31,7 @@ import { addMonthsToKey, dayKeyOf, formatSlotTime } from "../src/lib/booking/for
 import { generateSlots, HORIZON_DAYS, occupiedDurationMin, toVancouverDayKey, toVancouverParts, zonedToUtc } from "../src/lib/booking/slots.ts";
 import { manageUrl } from "../src/lib/booking/urls.ts";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "../src/lib/booking/manage-policy.ts";
+import { isLocalAdminBypassEnabled } from "../src/lib/auth/local-admin-bypass.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -531,12 +532,15 @@ test("safe error logging never emits provider error messages", () => {
 test("booking holds are consistently twenty minutes across API, UI and database", () => {
   const route = readFileSync(new URL("../src/app/api/bookings/hold/route.ts", import.meta.url), "utf8");
   const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
+  const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
   const migration = readFileSync(new URL("../supabase/migrations/0042_extend_booking_holds_to_twenty_minutes.sql", import.meta.url), "utf8");
   assert.match(route, /HOLD_MS = 20 \* 60_000/);
   assert.match(wizard, /Pacific \(20 minutes\)/);
   assert.doesNotMatch(wizard, /\(8 minutes\)|held for 10 minutes|held for 8 minutes/);
   assert.match(migration, /20 minutes 15 seconds/);
   assert.match(migration, /created_at\+interval '20 minutes'/);
+  assert.match(fileStore, /BOOKING_HOLD_MS = 20 \* 60_000/);
+  assert.doesNotMatch(fileStore, /createdAt\) \+ 10 \* 60/);
 });
 
 test("admin student records require explicit booking links and protect licence search", () => {
@@ -644,4 +648,46 @@ test("package scheduling uses calendar-month windows and package fields are vali
   assert.equal(createBookingSchema.safeParse({ ...details, sessions: Array.from({ length: 8 }, (_, i) => `2026-11-${String(i + 2).padStart(2, "0")}T18:00:00.000Z`) }).success, true);
   assert.equal(createBookingSchema.safeParse({ ...details, startsAt: "2026-11-02T18:00:00.000Z", sessions: ["2026-11-03T18:00:00.000Z"] }).success, false);
   assert.equal(createBookingSchema.safeParse(details).success, false);
+});
+
+test("tutor reports gate lesson completion and course closure preserves unused sessions", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0043_tutor_reports_and_course_completion.sql", import.meta.url), "utf8");
+  const calendar = readFileSync(new URL("../src/app/admin/(panel)/calendar/day-bookings-accordion.tsx", import.meta.url), "utf8");
+  const bookings = readFileSync(new URL("../src/app/admin/(panel)/bookings/page.tsx", import.meta.url), "utf8");
+  const students = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/page.tsx", import.meta.url), "utf8");
+  assert.match(calendar, /saveTutorLessonReportAction/);
+  assert.match(migration, /where l\.booking_id=p_booking_id/);
+  assert.match(migration, /'report_required'/);
+  assert.match(migration, /v_completed<v_expected/);
+  assert.match(migration, /ended_early/);
+  assert.match(students, /completedCount} of \{expectedCount} lessons completed/);
+  assert.match(students, /course\.averages/);
+  assert.match(bookings, /Open in Calendar/);
+  assert.doesNotMatch(bookings, /BookingActions/);
+  assert.doesNotMatch(students, /BookingActions/);
+  assert.match(migration, /where coalesce\(package_id,id\)=v_package_id and status not in \('cancelled','completed'\)/);
+});
+
+test("passwordless admin bypass is limited to loopback hosts in development", () => {
+  assert.equal(isLocalAdminBypassEnabled("development", "localhost:3010"), true);
+  assert.equal(isLocalAdminBypassEnabled("development", "127.0.0.1:3010"), true);
+  assert.equal(isLocalAdminBypassEnabled("development", "[::1]:3010"), true);
+  assert.equal(isLocalAdminBypassEnabled("production", "localhost:3010"), false);
+  assert.equal(isLocalAdminBypassEnabled("development", "wisdomdrivingacademy.com"), false);
+  assert.equal(isLocalAdminBypassEnabled("development", "localhost.evil.example"), false);
+  const proxy = readFileSync(new URL("../src/proxy.ts", import.meta.url), "utf8");
+  const adminGate = readFileSync(new URL("../src/lib/auth/require-admin.ts", import.meta.url), "utf8");
+  assert.match(proxy, /isLocalAdminBypassEnabled\(process\.env\.NODE_ENV, request\.nextUrl\.hostname\)/);
+  assert.match(adminGate, /isLocalAdminBypassEnabled\(process\.env\.NODE_ENV, requestHeaders\.get\("host"\)/);
+});
+
+test("cash payment and expired-hold validation apply only to the selected lesson", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0044_cash_payment_per_lesson.sql", import.meta.url), "utf8");
+  const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
+  const action = readFileSync(new URL("../src/app/admin/(panel)/bookings/actions.ts", import.meta.url), "utf8");
+  assert.match(migration, /where id = p_booking_id and payment_status = 'due'/);
+  assert.match(migration, /if v_booking\.status = 'pending_payment'[\s\S]*?v_booking\.stripe_checkout_expires_at/);
+  assert.doesNotMatch(migration, /update public\.bookings[\s\S]{0,250}where coalesce\(package_id, id\)/);
+  assert.match(fileStore, /paymentStatus === "paid"\s*\? \[booking\]/);
+  assert.match(action, /This lesson’s unpaid hold expired and its time is no longer available/);
 });

@@ -12,6 +12,7 @@ import { CHIP_TONES, MonthGrid, href, type CalendarFilters } from "./month-grid"
 import { ScheduleGrid } from "./schedule-grid";
 import { DayBookingsAccordion, type DayBookingAccordionEntry } from "./day-bookings-accordion";
 import { searchStudentByLicenseAction } from "./actions";
+import { assessmentForBooking } from "@/lib/admin/student-profiles";
 
 export const metadata: Metadata = {
   title: "Calendar — Wisdom Driving Academy Admin",
@@ -93,6 +94,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
   const statusParam = typeof params.status === "string" ? params.status : "";
   const selectedBookingId = typeof params.booking === "string" ? params.booking : "";
   const licenseSearchState = typeof params.licenseSearch === "string" ? params.licenseSearch : "";
+  const pageError = typeof params.error === "string" ? params.error : "";
   const validStatuses: BookingStatus[] = ["pending_payment", "confirmed", "rescheduled", "completed", "cancelled", "no_show"];
   const status = validStatuses.includes(statusParam as BookingStatus)
     ? (statusParam as BookingStatus)
@@ -236,6 +238,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
           sessionIndex: booking.sessionIndex ?? 1,
           sessionCount: booking.sessionCount ?? packageSessions.length,
           packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
+          report: await assessmentForBooking(booking.id),
         },
         packagePlan: {
           lessonName: packageAnchor.lessonName,
@@ -310,6 +313,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
           Choose a day to see its lesson list. Click a booked time to jump to that lesson’s details and actions. No-show is a status marker only (not an automatic charge), available after lesson start; you can still reschedule afterward. Use <strong className="text-ink">Open full student record</strong> for the student’s broader record.
         </p>
       </section>
+      {pageError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{pageError === "report" ? "Add at least one lesson skill rating and save the report." : pageError === "student" ? "This booking is not linked to a student record. Contact an administrator." : pageError}</p>}
 
       <form method="get" action="/admin/calendar" className="mt-4 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
         <input type="hidden" name="view" value={view} />
@@ -427,7 +431,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
               </span>
             </div>
 
-            <DayBookingsAccordion entries={dayBookingEntries} nowMs={nowMs} initialOpenId={selectedBookingId} />
+            <DayBookingsAccordion entries={dayBookingEntries} nowMs={nowMs} initialOpenId={selectedBookingId} day={anchor} />
           </div>
         </>
       )}

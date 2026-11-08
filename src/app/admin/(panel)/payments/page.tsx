@@ -96,7 +96,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
         <h2 id="payments-howto" className="text-[13px] font-extrabold text-ink">How to use this page</h2>
         <ul className="mt-2 grid gap-2 text-[12px] leading-relaxed text-soft sm:grid-cols-2">
           <li><strong className="text-ink">Card payment:</strong> Stripe records it automatically. You do not need to press a payment button.</li>
-          <li><strong className="text-ink">Cash payment:</strong> press <strong className="text-ink">Mark Paid by Cash</strong> only after you receive the cash.</li>
+          <li><strong className="text-ink">Cash payment:</strong> use the action on the specific lesson only after receiving its payment. Other lessons in the package stay due.</li>
           <li><strong className="text-ink">Cheque:</strong> choose its status and press <strong className="text-ink">Save cheque</strong> to keep a record. This tracks the cheque; it does not mark the booking paid.</li>
           <li><strong className="text-ink">Refund:</strong> issue refunds in Stripe. This page is for viewing records and does not process refunds.</li>
         </ul>
