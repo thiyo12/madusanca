@@ -72,7 +72,13 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   assert.equal(Date.parse(otpExpiry(issuedAt)) - issuedAt.getTime(), 10 * 60_000);
   const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
   const resendMigration = readFileSync(new URL("../supabase/migrations/0038_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
-  assert.match(otpRoute, /retryAfterSeconds: OTP_TTL_MIN \* 60/);
+  const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
+  const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
+  assert.match(otpRoute, /expiresAt,/);
+  assert.match(otpRoute, /verifyOtp\(email, hashOtp\(email, code \?\? ""\)\)/);
+  assert.doesNotMatch(otpRoute, /action === "token"\);/);
+  assert.match(fileStore, /cooldownMs = OTP_TTL_MIN \* 60 \* 1000/);
+  assert.match(bookingFind, /localStorage\.setItem\(PENDING_OTP_KEY, JSON\.stringify\(\{ email: email\.trim\(\)\.toLowerCase\(\), expiresAt:/);
   assert.match(resendMigration, /last_sent_at \+ interval '10 minutes'/);
   assert.doesNotMatch(resendMigration, /interval '2 minutes'/);
 });

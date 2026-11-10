@@ -107,7 +107,7 @@ export async function sendBookingOtpEmail(args: {
     "Your verification code",
     `<p>Hi ${escapeHtml(args.studentName)}, use this code to find and manage your booking on our website:</p>
      <p style="font-size:34px;font-weight:800;letter-spacing:8px;color:#111315;background:#f6f7f8;border-radius:12px;padding:16px 0;text-align:center;margin:18px 0 0">${args.code}</p>
-     <p style="font-size:13px;color:#4b525e;margin:18px 0 0">It expires in 10 minutes and can be used 5 times before it locks. If you didn&rsquo;t request this, you can safely ignore this message — nothing about your booking changes.</p>`,
+     <p style="font-size:13px;color:#4b525e;margin:18px 0 0">This code is valid for 10 minutes and can be used again during that time if you return to My Booking. After it expires, you can request a new code. If you didn&rsquo;t request this, you can safely ignore this message — nothing about your booking changes.</p>`,
   );
   return sendEmail({
     to: args.studentEmail,

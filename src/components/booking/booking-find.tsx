@@ -38,6 +38,7 @@ interface OtpResponse {
   bookings?: FoundBooking[];
   purchases?: FoundPurchase[];
   retryAfterSeconds?: number;
+  expiresAt?: string;
   studentName?: string | null;
 }
 
@@ -50,6 +51,24 @@ const STATUS_LABEL: Record<string, string> = {
   no_show: "No-show",
 };
 
+const PENDING_OTP_KEY = "wda_pending_booking_otp";
+
+function readPendingOtp(email: string): number | null {
+  if (typeof window === "undefined" || !email.trim()) return null;
+  try {
+    const pending = JSON.parse(window.localStorage.getItem(PENDING_OTP_KEY) ?? "null") as { email?: string; expiresAt?: string } | null;
+    if (pending?.email !== email.trim().toLowerCase() || !pending.expiresAt) return null;
+    const expiry = Date.parse(pending.expiresAt);
+    if (!Number.isFinite(expiry) || expiry <= Date.now()) {
+      window.localStorage.removeItem(PENDING_OTP_KEY);
+      return null;
+    }
+    return expiry;
+  } catch {
+    return null;
+  }
+}
+
 export function BookingFind() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
@@ -61,15 +80,22 @@ export function BookingFind() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [retryAfter, setRetryAfter] = useState(0);
-  const [sendCount, setSendCount] = useState(0);
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number | null>(null);
   const [studentName, setStudentName] = useState("");
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setRetryAfter((seconds) => Math.max(0, seconds - 1));
-    }, 1000);
+    const update = () => {
+      const remaining = otpExpiresAt === null ? 0 : Math.max(0, Math.ceil((otpExpiresAt - Date.now()) / 1000));
+      setRetryAfter(remaining);
+      if (otpExpiresAt !== null && remaining === 0) {
+        setOtpExpiresAt(null);
+        try { window.localStorage.removeItem(PENDING_OTP_KEY); } catch { /* storage may be unavailable */ }
+      }
+    };
+    update();
+    const timer = window.setInterval(update, 250);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [otpExpiresAt]);
 
   const cooldownText = retryAfter < 60
     ? `${retryAfter}s`
@@ -86,6 +112,15 @@ export function BookingFind() {
 
   async function requestCode(event?: React.FormEvent) {
     event?.preventDefault();
+    const existingExpiry = readPendingOtp(email);
+    if (existingExpiry) {
+      setOtpExpiresAt(existingExpiry);
+      setRetryAfter(Math.ceil((existingExpiry - Date.now()) / 1000));
+      setMessage("Use the code already sent to this email. It remains valid until the countdown reaches zero.");
+      setError(null);
+      setStep("code");
+      return;
+    }
     setPending(true);
     setError(null);
     setMessage(null);
@@ -98,9 +133,12 @@ export function BookingFind() {
       }
       setMessage(result.message ?? null);
       setCode("");
-      const nextSendCount = sendCount + 1;
-      setSendCount(nextSendCount);
-       setRetryAfter(nextSendCount >= 3 ? 24 * 60 * 60 : result.retryAfterSeconds ?? 10 * 60);
+      const expiry = Date.parse(result.expiresAt ?? "");
+      if (Number.isFinite(expiry) && expiry > Date.now()) {
+        setOtpExpiresAt(expiry);
+        setRetryAfter(Math.ceil((expiry - Date.now()) / 1000));
+        try { window.localStorage.setItem(PENDING_OTP_KEY, JSON.stringify({ email: email.trim().toLowerCase(), expiresAt: new Date(expiry).toISOString() })); } catch { /* countdown still works for this visit */ }
+      }
       setStep("code");
     } catch {
       setError("Network error. Please try again.");
@@ -157,7 +195,7 @@ export function BookingFind() {
     setMessage(null);
     setError(null);
     setRetryAfter(0);
-    setSendCount(0);
+    setOtpExpiresAt(null);
     setStudentName("");
   }
 
@@ -187,8 +225,10 @@ export function BookingFind() {
               value={email}
               onChange={(event) => {
                 setEmail(event.target.value);
-                setSendCount(0);
-                setRetryAfter(0);
+                const expiry = readPendingOtp(event.target.value);
+                setOtpExpiresAt(expiry);
+                setRetryAfter(expiry ? Math.ceil((expiry - Date.now()) / 1000) : 0);
+                setMessage(expiry ? "A code is already active for this email. Enter the email and continue to use it." : null);
               }}
               placeholder="you@example.com"
               className="h-11 w-full rounded-[12px] border border-[#d7dfdc] bg-white px-3 text-[14px] text-ink outline-none focus:border-[#83b657]"
@@ -200,7 +240,7 @@ export function BookingFind() {
               disabled={pending}
               className="btn-gold inline-flex h-11 items-center rounded-full px-6 text-[13px] font-extrabold disabled:opacity-60"
             >
-              {pending ? "Sending…" : "Send my code"}
+              {pending ? "Sending…" : readPendingOtp(email) ? "Continue with my active code" : "Send my code"}
             </button>
           </div>
         </form>
@@ -209,7 +249,7 @@ export function BookingFind() {
       {step === "code" && (
         <form onSubmit={verifyCode} className="grid gap-3.5">
           <p className="text-[13px] leading-relaxed text-soft">
-            If an active booking exists, a code was requested for <strong className="text-ink">{email}</strong>. The newest code stays valid for 10 minutes. The countdown below is when you may request a replacement; requesting a new code invalidates the previous one. Check spam if it doesn&rsquo;t arrive.
+            If an active booking exists, a code was sent to <strong className="text-ink">{email}</strong>. Use the same code until it expires. You can request a replacement when the countdown reaches zero. If you leave and return, enter this email again to continue with the active code. Check spam if it didn&rsquo;t arrive.
           </p>
           <p className="rounded-[12px] bg-[#eaf5df] px-3 py-2 text-[12px] leading-relaxed text-[#31543a]">
             You can still view or pay for your booking. Online date changes close 48 hours before the lesson; for a late change, call{" "}
@@ -245,7 +285,7 @@ export function BookingFind() {
               disabled={pending || retryAfter > 0}
               className="inline-flex h-10 items-center rounded-full border border-line bg-white px-4 text-[13px] font-extrabold text-ink transition-colors hover:border-[#83b657] hover:text-[#426a2c] disabled:opacity-60"
             >
-              {retryAfter > 0 ? `New code available in ${cooldownText}` : "Resend code"}
+            {retryAfter > 0 ? `Code expires in ${cooldownText}` : "Request a new code"}
             </button>
             <button
               type="button"

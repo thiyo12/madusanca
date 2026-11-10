@@ -5,7 +5,7 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import { addVancouverCalendarMonths, DEFAULT_RULES, occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
-import { OTP_MAX_ATTEMPTS } from "@/lib/booking/otp";
+import { OTP_MAX_ATTEMPTS, OTP_TTL_MIN } from "@/lib/booking/otp";
 import { customerCanAccessBooking } from "@/lib/booking/customer-access";
 import { MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
@@ -961,7 +961,7 @@ export const fileStore: BookingStore = {
       const key = email.trim().toLowerCase();
       const now = Date.parse(nowIso);
       const dayMs = 24 * 60 * 60 * 1000;
-      const cooldownMs = 2 * 60 * 1000;
+      const cooldownMs = OTP_TTL_MIN * 60 * 1000;
       let limit = data.otpSendLimits.find((entry) => entry.email === key);
 
       if (!limit || now - Date.parse(limit.windowStartedAt) >= dayMs) {
