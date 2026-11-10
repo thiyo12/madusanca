@@ -7,7 +7,6 @@ import { manageUrl } from "@/lib/booking/urls";
 import { sendBookingPaymentReceivedEmail, sendPackagePurchasePaidEmail } from "@/lib/email/booking-emails";
 import {
   matchesInitialBookingPayment,
-  matchesPackagePurchasePayment,
   matchesUpgradeBookingPayment,
 } from "@/lib/stripe/payment-validation";
 
@@ -133,9 +132,19 @@ export async function recordPaidPackagePurchaseCheckoutSession(
   paidAt: Date,
 ): Promise<void> {
   const purchaseId = session.metadata?.purchase_id;
-  if (session.payment_status !== "paid" || session.metadata?.checkout_kind !== "package_purchase" || !purchaseId) return;
-  const purchase = await getStore().getPackagePurchaseByCheckoutSession(session.id);
-  if (!purchase || purchase.id !== purchaseId || !matchesPackagePurchasePayment(session, purchase)) {
+  const bundle = session.metadata?.checkout_kind === "package_purchase_bundle";
+  if (session.payment_status !== "paid" || (!bundle && session.metadata?.checkout_kind !== "package_purchase") || !purchaseId) return;
+  const store = getStore();
+  const purchases = bundle
+    ? await store.getPackagePurchasesByCheckoutSession(session.id)
+    : [await store.getPackagePurchaseByCheckoutSession(session.id)].filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const ids = (session.metadata?.purchase_ids ?? purchaseId).split(",").filter(Boolean).sort();
+  const actualIds = purchases.map((item) => item.id).sort();
+  const expectedSubtotal = Math.round(purchases.reduce((sum, item) => sum + item.amountCad, 0) * 100);
+  if (!purchases.length || !ids.includes(purchaseId) || actualIds.join(",") !== ids.join(",") ||
+      (session.amount_subtotal ?? -1) !== expectedSubtotal || purchases.some((purchase) =>
+        purchase.stripeCheckoutSessionId !== session.id || purchase.currency.toLowerCase() !== "cad" || purchase.source !== "new"
+      )) {
     throw new Error("Stripe Checkout session does not match the stored package purchase.");
   }
 
@@ -146,22 +155,31 @@ export async function recordPaidPackagePurchaseCheckoutSession(
     catch (error) { console.error("[stripe] package purchase invoice lookup failed", error instanceof Error ? error.name : "unknown error"); }
   }
 
-  const shouldNotifyPayment = purchase.paymentStatus !== "paid";
-  await getStore().handleStripePackagePurchaseEvent({
-    eventId,
-    eventType: "paid",
-    purchaseId,
-    sessionId: session.id,
-    paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id,
-    invoiceId,
-    invoiceUrl,
-    subtotalCents: session.amount_subtotal ?? undefined,
-    taxCents: session.total_details?.amount_tax ?? undefined,
-    totalCents: session.amount_total ?? undefined,
-    currency: session.currency ?? undefined,
-    paidAt: paidAt.toISOString(),
-  });
-  if (shouldNotifyPayment) {
+  const aggregateTax = session.total_details?.amount_tax ?? 0;
+  const totalBaseCents = purchases.reduce((sum, item) => sum + Math.round(item.amountCad * 100), 0);
+  let taxAllocated = 0;
+  for (const [index, purchase] of purchases.entries()) {
+    const wasPending = purchase.paymentStatus === "pending";
+    const itemSubtotal = Math.round(purchase.amountCad * 100);
+    const itemTax = index === purchases.length - 1
+      ? aggregateTax - taxAllocated
+      : Math.floor(aggregateTax * itemSubtotal / totalBaseCents);
+    taxAllocated += itemTax;
+    if (wasPending) await store.handleStripePackagePurchaseEvent({
+      eventId: purchases.length === 1 ? eventId : `${eventId}:${index + 1}`,
+      eventType: "paid",
+      purchaseId: purchase.id,
+      sessionId: session.id,
+      paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id,
+      invoiceId,
+      invoiceUrl,
+      subtotalCents: itemSubtotal,
+      taxCents: itemTax,
+      totalCents: itemSubtotal + itemTax,
+      currency: session.currency ?? undefined,
+      paidAt: paidAt.toISOString(),
+    });
+    if (wasPending) {
     try {
       await sendPackagePurchasePaidEmail({
         reference: purchase.reference,
@@ -175,6 +193,7 @@ export async function recordPaidPackagePurchaseCheckoutSession(
       });
     } catch (error) {
       console.error("[stripe] package payment confirmation email failed", error instanceof Error ? error.name : "UnknownError");
+    }
     }
   }
 }

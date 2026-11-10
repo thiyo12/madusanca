@@ -1437,6 +1437,18 @@ export const fileStore: BookingStore = {
     });
   },
 
+  async createScheduledPackagePurchaseBundle(purchases, manageTokenHash, checkoutSessionId, checkoutExpiresAt) {
+    const records: PackagePurchaseRecord[] = [];
+    for (const item of purchases) {
+      const result = await this.createScheduledPackagePurchase(
+        item.input, item.packageQuantity, item.startsAt, manageTokenHash, checkoutSessionId, checkoutExpiresAt,
+      );
+      if (!result.ok) return result;
+      records.push(result.value);
+    }
+    return { ok: true, value: records };
+  },
+
   setStripePackagePurchaseCheckout(purchaseId, sessionId, expiresAt) {
     return withLock(async () => {
       const data = load();
@@ -1454,6 +1466,10 @@ export const fileStore: BookingStore = {
 
   async getPackagePurchaseByCheckoutSession(sessionId) {
     return load().packagePurchases.find((item) => item.stripeCheckoutSessionId === sessionId) ?? null;
+  },
+
+  async getPackagePurchasesByCheckoutSession(sessionId) {
+    return load().packagePurchases.filter((item) => item.stripeCheckoutSessionId === sessionId);
   },
 
   async findPackagePurchasesByEmail(email) {

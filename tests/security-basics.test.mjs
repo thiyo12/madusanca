@@ -113,8 +113,8 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(otpRoute, /paymentStatus: booking\.paymentStatus/);
   assert.match(manage, /Add lessons to this booking/);
   assert.match(manage, /StripePackagePurchaseButton/);
-  assert.match(manage, /<LessonStep/);
-  assert.doesNotMatch(manage, /<select value=\{addOnLessonId\}/);
+  assert.match(manage, /<input type="checkbox" checked=\{Boolean\(plan\)\}/);
+  assert.match(manage, /Select one or more package types/);
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);
@@ -148,12 +148,18 @@ test("paid single lessons can use their one online reschedule", () => {
 
 test("add-on package checkout requires a bounded list of valid selected times", () => {
   const startsAt = ["2026-12-01T17:00:00.000Z", "2026-12-08T17:00:00.000Z"];
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1, startsAt }).success, true);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1 }).success, false);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1, startsAt: ["not-a-date"] }).success, false);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 0, startsAt }).success, false);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 21, startsAt }).success, false);
-  assert.equal(packagePurchaseSchema.safeParse({ lessonId: "two-lesson-package", quantity: 1.5, startsAt }).success, false);
+  const packageItem = { lessonId: "two-lesson-package", quantity: 1, startsAt };
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [packageItem] }).success, true);
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [{ ...packageItem, startsAt: undefined }] }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [{ ...packageItem, startsAt: ["not-a-date"] }] }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [{ ...packageItem, quantity: 0 }] }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [{ ...packageItem, quantity: 21 }] }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [{ ...packageItem, quantity: 1.5 }] }).success, false);
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [packageItem, { ...packageItem, lessonId: "45-minute-package" }] }).success, true);
+  assert.equal(packagePurchaseSchema.safeParse({ packages: [packageItem, packageItem] }).success, false);
+  const bundleMigration = readFileSync(new URL("../supabase/migrations/0047_multi_package_addon_checkout.sql", import.meta.url), "utf8");
+  assert.match(bundleMigration, /create_scheduled_package_purchase_bundle/);
+  assert.match(bundleMigration, /stripe_checkout_session_id = p_session_id/);
 });
 
 test("OTP reference validation accepts add-on package references", () => {
@@ -164,14 +170,15 @@ test("My Booking lets users add packages only after selecting all lesson times a
   const manage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
   const purchaseButton = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   assert.match(manage, /Select a date and time for each of the/);
-  assert.match(manage, /startsAt=\{addOnSchedule\}/);
+  assert.match(manage, /packages=\{allScheduled\}/);
   assert.doesNotMatch(manage, /Upgrade package|StripeUpgradeButton|upgradeOptions/);
   assert.match(purchaseButton, /startsAt/);
   const purchaseRoute = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
-  assert.match(purchaseRoute, /startsAt\.length !== creditsPurchased/);
+  assert.match(purchaseRoute, /selection\.startsAt\.length !== credits/);
   assert.match(purchaseRoute, /session\.paymentStatus === "paid"/);
   assert.match(purchaseRoute, /getPackagePurchaseByToken\(tokenHash\)/);
-  assert.match(purchaseRoute, /\}, parsed\.data\.quantity, startsAt, tokenHash/);
+  assert.match(purchaseRoute, /createScheduledPackagePurchaseBundle/);
+  assert.match(purchaseRoute, /line_items: purchaseItems\.map/);
   assert.doesNotMatch(purchaseRoute, /Date\.parse\(session\.startsAt\).*48/);
   const store = readFileSync(new URL("../src/lib/booking/supabase-store.ts", import.meta.url), "utf8");
   assert.match(store, /p_quantity: packageQuantity/);
@@ -183,6 +190,11 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(manageRoute, /const canAddPackage = activePaidSessions\.length > 0/);
   assert.match(manageRoute, /addOnOptions/);
   assert.match(manageRoute, /activePaidSessions\[0\]/);
+  const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
+  assert.match(finder, /We verified this email, but couldn’t find a booking or package purchase linked to it/);
+  assert.match(finder, /Back to verification/);
+  assert.doesNotMatch(finder, /Back to home/);
+  assert.doesNotMatch(manage, /Back to home/);
 });
 
 test("90-minute lessons and 45-minute road tests reserve 120-minute instructor blocks", () => {

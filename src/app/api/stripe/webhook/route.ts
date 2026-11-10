@@ -43,7 +43,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const session = event.data.object as Stripe.Checkout.Session;
   const isUpgrade = session.metadata?.checkout_kind === "package_upgrade";
-  const isPackagePurchase = session.metadata?.checkout_kind === "package_purchase";
+  const isPackagePurchase = session.metadata?.checkout_kind === "package_purchase" || session.metadata?.checkout_kind === "package_purchase_bundle";
+  const purchaseIds = (session.metadata?.purchase_ids ?? session.metadata?.purchase_id ?? "").split(",").filter(Boolean);
   const bookingId = session.metadata?.booking_id;
   const purchaseId = session.metadata?.purchase_id;
   if ((isPackagePurchase && !purchaseId) || (!isPackagePurchase && !bookingId)) return NextResponse.json({ received: true });
@@ -61,12 +62,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       else await recordPaidCheckoutSession(session, event.id);
     } else {
       if (isPackagePurchase) {
-        await store.handleStripePackagePurchaseEvent({
-          eventId: event.id,
-          eventType: "expired",
-          purchaseId: purchaseId!,
-          sessionId: session.id,
-        });
+        for (const [index, id] of purchaseIds.entries()) {
+          const purchase = await store.getPackagePurchaseById(id);
+          if (purchase?.paymentStatus !== "pending") continue;
+          await store.handleStripePackagePurchaseEvent({
+            eventId: purchaseIds.length === 1 ? event.id : `${event.id}:${index + 1}`,
+            eventType: "expired",
+            purchaseId: id,
+            sessionId: session.id,
+          });
+        }
         return NextResponse.json({ received: true });
       }
       if (!bookingId) return NextResponse.json({ received: true });

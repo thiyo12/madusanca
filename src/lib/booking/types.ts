@@ -430,8 +430,15 @@ export interface BookingStore {
     checkoutSessionId: string,
     checkoutExpiresAt: string,
   ): Promise<StoreResult<PackagePurchaseRecord>>;
+  createScheduledPackagePurchaseBundle(
+    purchases: Array<{ input: CreatePackagePurchaseInput & { id: string }; packageQuantity: number; startsAt: string[] }>,
+    manageTokenHash: string,
+    checkoutSessionId: string,
+    checkoutExpiresAt: string,
+  ): Promise<StoreResult<PackagePurchaseRecord[]>>;
   setStripePackagePurchaseCheckout(purchaseId: string, sessionId: string, expiresAt: string): Promise<void>;
   getPackagePurchaseByCheckoutSession(sessionId: string): Promise<PackagePurchaseRecord | null>;
+  getPackagePurchasesByCheckoutSession(sessionId: string): Promise<PackagePurchaseRecord[]>;
   findPackagePurchasesByEmail(email: string): Promise<PackagePurchaseRecord[]>;
   /** Admin: recent purchase snapshots with ledger-derived credit balances. */
   listPackagePurchases(limit?: number): Promise<PackagePurchaseRecord[]>;

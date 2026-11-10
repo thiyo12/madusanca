@@ -67,14 +67,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     if (!anchorBooking) return NextResponse.json({ ok: false, error: "You can add packages from My Booking when you have an active paid lesson." }, { status: 409 });
 
-    const lesson = (await store.getLessons()).find((item) => item.id === parsed.data.lessonId && item.category === "package");
-    if (!lesson) return NextResponse.json({ ok: false, error: "That package is no longer available." }, { status: 404 });
-    const creditsPurchased = lesson.sessionCount * parsed.data.quantity;
-    if (creditsPurchased > 20) return NextResponse.json({ ok: false, error: "A checkout can include up to 20 scheduled lessons. Reduce the package quantity and try again." }, { status: 400 });
-    if (parsed.data.startsAt.length !== creditsPurchased) {
-      return NextResponse.json({ ok: false, error: `Choose a date and time for each of the ${creditsPurchased} lessons.` }, { status: 400 });
+    const lessons = await store.getLessons();
+    const scheduleItems = [] as Array<{ lesson: (typeof lessons)[number]; quantity: number; startsAt: string[] }>;
+    let totalCredits = 0;
+    for (const selection of parsed.data.packages) {
+      const lesson = lessons.find((item) => item.id === selection.lessonId && item.category === "package");
+      if (!lesson) return NextResponse.json({ ok: false, error: "One of those packages is no longer available." }, { status: 404 });
+      const credits = lesson.sessionCount * selection.quantity;
+      totalCredits += credits;
+      if (selection.startsAt.length !== credits) return NextResponse.json({ ok: false, error: `Choose a date and time for each of the ${credits} ${lesson.name} lessons.` }, { status: 400 });
+      scheduleItems.push({ lesson, quantity: selection.quantity, startsAt: selection.startsAt.map((value) => new Date(value).toISOString()) });
     }
-    const startsAt = parsed.data.startsAt.map((value) => new Date(value).toISOString()).sort((a, b) => Date.parse(a) - Date.parse(b));
+    if (totalCredits > 20) return NextResponse.json({ ok: false, error: "A checkout can include up to 20 scheduled lessons. Reduce the package quantities and try again." }, { status: 400 });
+    const startsAt = scheduleItems.flatMap((item) => item.startsAt).sort((a, b) => Date.parse(a) - Date.parse(b));
     if (new Set(startsAt).size !== startsAt.length) return NextResponse.json({ ok: false, error: "Choose a different time for every lesson." }, { status: 400 });
     const now = new Date();
     const firstDay = dayKeyOf(startsAt[0]);
@@ -89,11 +94,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       store.getDateOverrides(firstDay, lastAllowedDay),
     ]);
     const selectedBusy: Array<{ startsAt: string; endsAt: string }> = [];
-    for (const start of startsAt) {
+    for (const item of scheduleItems) for (const start of item.startsAt) {
       const startMs = Date.parse(start);
       const busy = await store.getBusy(new Date(startMs - 24 * 60 * 60_000).toISOString(), new Date(startMs + 48 * 60 * 60_000).toISOString());
       const result = validateSlot(start, {
-        lessonDurationMin: lesson.durationMin,
+        lessonDurationMin: item.lesson.durationMin,
         busy: [...busy, ...selectedBusy],
         blackouts,
         rules,
@@ -101,9 +106,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         now,
       });
       if (!result.valid) return NextResponse.json({ ok: false, error: result.reason === "occupied" ? "One of those times was just taken. Choose another time." : "One of those times is no longer available. Review your selections." }, { status: 409 });
-      selectedBusy.push({ startsAt: start, endsAt: new Date(startMs + occupiedDurationMin(lesson.durationMin) * 60_000).toISOString() });
+      selectedBusy.push({ startsAt: start, endsAt: new Date(startMs + occupiedDurationMin(item.lesson.durationMin) * 60_000).toISOString() });
     }
-    const amountCad = Math.round(lesson.priceCad * parsed.data.quantity * 100) / 100;
+    const amountCad = Math.round(scheduleItems.reduce((sum, item) => sum + item.lesson.priceCad * item.quantity, 0) * 100) / 100;
     if (!Number.isFinite(amountCad) || amountCad <= 0 || amountCad > 999_999.99) {
       return NextResponse.json({ ok: false, error: "The selected package total is outside the checkout limit." }, { status: 400 });
     }
@@ -113,8 +118,17 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: "Stripe Tax is not ready for checkout. Please try again later." }, { status: 503 });
     }
 
-    const purchaseId = randomUUID();
-    const reference = `WDA-A-${Array.from(randomBytes(6), (byte) => (byte % 36).toString(36)).join("").toUpperCase()}`;
+    const purchaseItems = scheduleItems.map((item) => ({
+      lesson: item.lesson,
+      quantity: item.quantity,
+      startsAt: item.startsAt,
+      id: randomUUID(),
+      reference: `WDA-A-${Array.from(randomBytes(6), (byte) => (byte % 36).toString(36)).join("").toUpperCase()}`,
+      creditsPurchased: item.lesson.sessionCount * item.quantity,
+      amountCad: Math.round(item.lesson.priceCad * item.quantity * 100) / 100,
+    }));
+    const purchaseId = purchaseItems[0]!.id;
+    const reference = purchaseItems[0]!.reference;
     const expiresAt = new Date(Date.now() + 31 * 60_000).toISOString();
 
     const session = await stripe.checkout.sessions.create({
@@ -129,31 +143,30 @@ export async function POST(request: Request): Promise<NextResponse> {
       invoice_creation: {
         enabled: true,
         invoice_data: {
-          description: `${lesson.name} × ${parsed.data.quantity} · ${reference}`,
-          metadata: { checkout_kind: "package_purchase", purchase_id: purchaseId, purchase_reference: reference },
+        description: `Add-on packages × ${purchaseItems.length} · ${reference}`,
+        metadata: { checkout_kind: "package_purchase_bundle", purchase_id: purchaseId, purchase_reference: reference },
         },
       },
-      line_items: [{
-        quantity: parsed.data.quantity,
+      line_items: purchaseItems.map((item) => ({
+        quantity: item.quantity,
         price_data: {
           currency: "cad",
-          unit_amount: Math.round(lesson.priceCad * 100),
+          unit_amount: Math.round(item.lesson.priceCad * 100),
           tax_behavior: "exclusive",
           product_data: {
-            name: lesson.name,
-            description: `${creditsPurchased} scheduled lessons; times selected in My Booking. GST calculated by Stripe Tax.`,
+            name: item.lesson.name,
+            description: `${item.creditsPurchased} scheduled lessons; times selected in My Booking. GST calculated by Stripe Tax.`,
             tax_code: stripeTaxCode(),
-            metadata: { lesson_id: lesson.id, purchase_reference: reference },
+            metadata: { lesson_id: item.lesson.id, purchase_reference: item.reference },
           },
         },
-      }],
+      })),
       client_reference_id: reference,
       metadata: {
-        checkout_kind: "package_purchase",
+        checkout_kind: "package_purchase_bundle",
         purchase_id: purchaseId,
         purchase_reference: reference,
-        lesson_id: lesson.id,
-        lesson_name: lesson.name,
+        purchase_ids: purchaseItems.map((item) => item.id).join(","),
       },
       success_url: `${siteBase()}/booking/manage?payment=success&purchase=added`,
       cancel_url: `${siteBase()}/booking/manage?payment=cancelled&purchase=added`,
@@ -164,21 +177,25 @@ export async function POST(request: Request): Promise<NextResponse> {
       await stripe.checkout.sessions.expire(session.id).catch((error: unknown) => logSafeError("[stripe/package-purchase] checkout URL missing", error));
       return NextResponse.json({ ok: false, error: "Stripe did not return a Checkout URL. Please try again." }, { status: 502 });
     }
-    let created: Awaited<ReturnType<typeof store.createScheduledPackagePurchase>>;
+    let created: Awaited<ReturnType<typeof store.createScheduledPackagePurchaseBundle>>;
     try {
-      created = await store.createScheduledPackagePurchase({
-        id: purchaseId,
-        reference,
-        studentName: anchorBooking.studentName,
-        email: anchorBooking.email,
-        phone: anchorBooking.phone,
-        notes: `Added from My Booking ${anchorBooking.reference}`,
-        lessonId: lesson.id,
-        lessonName: lesson.name,
-        durationMin: lesson.durationMin,
-        creditsPurchased,
-        amountCad,
-      }, parsed.data.quantity, startsAt, tokenHash, session.id, new Date(session.expires_at * 1000).toISOString());
+      created = await store.createScheduledPackagePurchaseBundle(purchaseItems.map((item) => ({
+        input: {
+          id: item.id,
+          reference: item.reference,
+          studentName: anchorBooking.studentName,
+          email: anchorBooking.email,
+          phone: anchorBooking.phone,
+          notes: `Added from My Booking ${anchorBooking.reference}`,
+          lessonId: item.lesson.id,
+          lessonName: item.lesson.name,
+          durationMin: item.lesson.durationMin,
+          creditsPurchased: item.creditsPurchased,
+          amountCad: item.amountCad,
+        },
+        packageQuantity: item.quantity,
+        startsAt: item.startsAt,
+      })), tokenHash, session.id, new Date(session.expires_at * 1000).toISOString());
     } catch (error) {
       await stripe.checkout.sessions.expire(session.id).catch((expireError: unknown) => logSafeError("[stripe/package-purchase] orphan checkout expiry failed", expireError));
       throw error;

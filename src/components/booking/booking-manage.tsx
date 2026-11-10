@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { BookingFind } from "@/components/booking/booking-find";
-import { LessonStep } from "@/components/booking/lesson-step";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
@@ -94,10 +93,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
-  const [addOnLessonId, setAddOnLessonId] = useState("");
-  const [addOnQuantity, setAddOnQuantity] = useState(1);
-  const [addOnSchedule, setAddOnSchedule] = useState<string[]>([]);
-  const [addOnSessionIndex, setAddOnSessionIndex] = useState(0);
+  const [addOnPlans, setAddOnPlans] = useState<Record<string, { quantity: number; startsAt: string[]; sessionIndex: number }>>({});
   const [creditStart, setCreditStart] = useState<string | null>(null);
   const sessionAuthorizedRef = useRef(false);
 
@@ -141,8 +137,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   }, []);
 
   async function leaveToHome() {
+    setActionError(null);
     await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
-    router.replace("/");
+    router.replace("/booking/manage");
   }
 
   const callManage = useCallback(
@@ -400,7 +397,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           <a className="font-bold underline" href="mailto:info@wisdomdrivingacademy.com">info@wisdomdrivingacademy.com</a>
         </p>
         <button type="button" onClick={() => void leaveToHome()} className="mt-6 inline-flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
-          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to home
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to My Booking lookup
         </button>
       </div>
     );
@@ -496,69 +493,89 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         </div>
       )}
       {booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
-        const option = booking.addOnOptions!.find((item) => item.id === addOnLessonId);
-        const sessionTotal = option ? option.sessionCount * addOnQuantity : 0;
-        const addOnWindowEnd = addOnSchedule[0] ? addMonthsToKey(dayKeyOf(addOnSchedule[0]), 6) : undefined;
-        const addOnBlocked = addOnSchedule.flatMap((startsAt, index) => startsAt && index !== addOnSessionIndex && option
-          ? [{ startsAt, durationMin: option.durationMin }]
-          : []);
+        const totalLessons = booking.addOnOptions!.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
+        const selectedOptions = booking.addOnOptions!.filter((option) => addOnPlans[option.id]);
+        const allScheduled = selectedOptions.flatMap((option) => {
+          const plan = addOnPlans[option.id]!;
+          return plan.startsAt.length === option.sessionCount * plan.quantity ? [{ lessonId: option.id, quantity: plan.quantity, startsAt: plan.startsAt }] : [];
+        });
+        const scheduledCount = allScheduled.reduce((sum, item) => sum + item.startsAt.length, 0);
         return <section className="mt-5 rounded-[14px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Add lessons to this booking</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose an additional package and quantity, select a date and time for every added lesson, then pay securely. Your existing package and appointments stay unchanged.</p>
-          <div className="mt-4">
-            <p className="mb-2 text-xs font-bold text-ink">Choose an additional package</p>
-            <LessonStep
-              lessons={booking.addOnOptions!}
-              selectedId={addOnLessonId || null}
-              onSelect={(selected) => {
-                setAddOnLessonId(selected.id);
-                setAddOnQuantity((quantity) => Math.min(quantity, Math.floor(20 / selected.sessionCount)));
-                setAddOnSchedule([]);
-                setAddOnSessionIndex(0);
-              }}
-            />
-          </div>
-          {option && <>
-            <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
-              <input type="number" min="1" max={Math.floor(20 / option.sessionCount)} step="1" inputMode="numeric" value={addOnQuantity} onChange={(event) => { setAddOnQuantity(Math.max(1, Math.min(Math.floor(20 / option.sessionCount), Math.floor(Number(event.target.value) || 1)))); setAddOnSchedule([]); setAddOnSessionIndex(0); }} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />
-            </label>
-            <p className="mt-3 text-[12px] font-bold text-ink">Select a date and time for each of the {sessionTotal} lessons:</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Select one or more package types, schedule every lesson, then pay once. Your existing package and appointments stay unchanged.</p>
+          <div className="mt-4 grid gap-3">
+            {booking.addOnOptions!.map((option) => {
+              const plan = addOnPlans[option.id];
+              const sessionTotal = plan ? option.sessionCount * plan.quantity : 0;
+              const addOnWindowEnd = plan?.startsAt[0] ? addMonthsToKey(dayKeyOf(plan.startsAt[0]), 6) : undefined;
+              const addOnBlocked = plan?.startsAt.flatMap((startsAt, index) => startsAt && index !== plan.sessionIndex
+                ? [{ startsAt, durationMin: option.durationMin }]
+                : []) ?? [];
+              return <div key={option.id} className="rounded-xl border border-line p-3">
+                <label className="flex cursor-pointer items-center gap-3 text-sm font-extrabold text-ink">
+                  <input type="checkbox" checked={Boolean(plan)} onChange={(event) => setAddOnPlans((current) => {
+                    if (!event.target.checked) {
+                      const next = { ...current };
+                      delete next[option.id];
+                      return next;
+                    }
+                    const currentTotal = Object.entries(current).reduce((sum, [id, value]) => sum + (booking.addOnOptions!.find((item) => item.id === id)?.sessionCount ?? 0) * value.quantity, 0);
+                    if (currentTotal + option.sessionCount > 20) return current;
+                    return { ...current, [option.id]: { quantity: 1, startsAt: [], sessionIndex: 0 } };
+                  })} />
+                  {option.name} · {option.durationMin} min · ${option.priceCad} CAD/package
+                </label>
+                {plan && <>
+                  <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
+                        <input type="number" min="1" max={Math.min(Math.floor(20 / option.sessionCount), plan.quantity + Math.floor((20 - totalLessons) / option.sessionCount))} step="1" inputMode="numeric" value={plan.quantity} onChange={(event) => {
+                          const otherLessons = totalLessons - option.sessionCount * plan.quantity;
+                          const maxQuantity = Math.floor((20 - otherLessons) / option.sessionCount);
+                          const quantity = Math.max(1, Math.min(maxQuantity, Math.floor(Number(event.target.value) || 1)));
+                      setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, quantity, startsAt: [], sessionIndex: 0 } }));
+                    }} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />
+                  </label>
+                  <p className="mt-3 text-[12px] font-bold text-ink">Select a date and time for each of the {sessionTotal} lessons:</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {Array.from({ length: sessionTotal }, (_, index) => (
-                <button key={index} type="button" disabled={index > 0 && !addOnSchedule[index - 1]} onClick={() => setAddOnSessionIndex(index)} aria-pressed={addOnSessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${addOnSessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>
-                  Lesson {index + 1}{addOnSchedule[index] ? " ✓" : ""}
+                <button key={index} type="button" disabled={index > 0 && !plan.startsAt[index - 1]} onClick={() => setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, sessionIndex: index } }))} aria-pressed={plan.sessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${plan.sessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>
+                  Lesson {index + 1}{plan.startsAt[index] ? " ✓" : ""}
                 </button>
               ))}
             </div>
             <ol className="mt-3 grid gap-1 rounded-xl bg-[#f7f7f3] p-3 text-[12px] text-soft">
               {Array.from({ length: sessionTotal }, (_, index) => (
-                <li key={index}><span className="font-bold text-ink">Lesson {index + 1}:</span> {addOnSchedule[index] ? `${formatSlotFull(addOnSchedule[index])} Pacific` : "Choose a date and time"}</li>
+                <li key={index}><span className="font-bold text-ink">Lesson {index + 1}:</span> {plan.startsAt[index] ? `${formatSlotFull(plan.startsAt[index])} Pacific` : "Choose a date and time"}</li>
               ))}
             </ol>
             <div className="mt-3">
               <DateTimeStep
-                key={`${addOnLessonId}-${sessionTotal}-${addOnSessionIndex}-${availabilityRevision}`}
+                key={`${option.id}-${sessionTotal}-${plan.sessionIndex}-${availabilityRevision}`}
                 lessonId={option.id}
-                selectedStart={addOnSchedule[addOnSessionIndex] ?? null}
-                minDate={addOnSessionIndex > 0 && addOnSchedule[addOnSessionIndex - 1] ? dayKeyOf(addOnSchedule[addOnSessionIndex - 1]) : undefined}
+                selectedStart={plan.startsAt[plan.sessionIndex] ?? null}
+                minDate={plan.sessionIndex > 0 && plan.startsAt[plan.sessionIndex - 1] ? dayKeyOf(plan.startsAt[plan.sessionIndex - 1]) : undefined}
                 maxDate={addOnWindowEnd}
                 horizonDays={185}
                 blockedStartsAt={addOnBlocked}
                 onSelect={(slot) => {
-                  setAddOnSchedule((current) => {
-                    if (current[addOnSessionIndex] === slot) return current;
-                    const next = current.slice(0, addOnSessionIndex);
-                    next[addOnSessionIndex] = slot;
-                    return next;
+                  setAddOnPlans((current) => {
+                    const selectedPlan = current[option.id]!;
+                    const next = selectedPlan.startsAt.slice(0, selectedPlan.sessionIndex);
+                    next[selectedPlan.sessionIndex] = slot;
+                    return { ...current, [option.id]: { ...selectedPlan, startsAt: next, sessionIndex: Math.min(selectedPlan.sessionIndex + 1, sessionTotal - 1) } };
                   });
-                  setAddOnSessionIndex((index) => Math.min(index + 1, sessionTotal - 1));
                   setActionError(null);
                 }}
-                onUnavailableSelection={() => setAddOnSchedule((current) => current.slice(0, addOnSessionIndex))}
+                onUnavailableSelection={() => setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, startsAt: current[option.id]!.startsAt.slice(0, current[option.id]!.sessionIndex) } }))}
               />
             </div>
-            <p className="mt-3 text-[12px] font-bold text-soft">Total: ${(option.priceCad * addOnQuantity).toFixed(2)} CAD + applicable taxes</p>
-            <div className="mt-3"><StripePackagePurchaseButton lessonId={option.id} quantity={addOnQuantity} startsAt={addOnSchedule} disabled={busy || addOnSchedule.length !== sessionTotal || addOnSchedule.some((slot) => !slot)} /></div>
+                  <p className="mt-3 text-[12px] font-bold text-soft">Subtotal: ${(option.priceCad * plan.quantity).toFixed(2)} CAD</p>
+                </>}
+              </div>;
+            })}
+          </div>
+          {selectedOptions.length > 0 && <>
+            <p className="mt-3 text-[12px] font-bold text-soft">Checkout total: ${selectedOptions.reduce((sum, option) => sum + option.priceCad * addOnPlans[option.id]!.quantity, 0).toFixed(2)} CAD + applicable taxes</p>
+            <div className="mt-3"><StripePackagePurchaseButton packages={allScheduled} disabled={busy || scheduledCount !== totalLessons || totalLessons === 0} /></div>
           </>}
         </section>;
       })()}
@@ -686,7 +703,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       )}
       <div className="mt-7 border-t border-line pt-5">
         <button type="button" onClick={() => void leaveToHome()} className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
-          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to home
+              <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to My Booking lookup
         </button>
       </div>
     </div>

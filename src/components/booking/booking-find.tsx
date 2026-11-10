@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { formatSlotFull } from "@/lib/booking/format";
 import { markManageSessionVerified } from "@/lib/booking/manage-session-client";
 
@@ -330,9 +329,9 @@ export function BookingFind() {
               Welcome back, {studentName}!
             </h3>
           )}
-          {bookings.length === 0 && purchases.length === 0 ? (
+      {bookings.length === 0 && purchases.length === 0 ? (
             <p className="rounded-[10px] bg-mist px-3.5 py-2.5 text-[13px] font-bold text-soft">
-              No bookings or package purchases were found for {email}.
+              We verified this email, but couldn’t find a booking or package purchase linked to it. Check that you entered the same email used at checkout, or contact the school and we’ll help locate it.
             </p>
           ) : bookings.length > 0 && (
             bookings.map((booking) => (
@@ -443,10 +442,17 @@ export function BookingFind() {
           </p>
         )
       )}
-      <Link href="/" className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
-        <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span>
-        Back to home
-      </Link>
+      {step === "email" ? (
+        <button type="button" onClick={() => router.back()} className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span>
+          Back
+        </button>
+      ) : (
+        <button type="button" onClick={() => { setError(null); setMessage(null); setStep(step === "list" ? "code" : "email"); }} className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span>
+          {step === "list" ? "Back to verification" : "Back to email"}
+        </button>
+      )}
     </div>
   );
 }

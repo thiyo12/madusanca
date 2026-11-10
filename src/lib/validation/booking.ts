@@ -78,6 +78,17 @@ export const manageSchema = z.object({
 }).strict();
 
 export const packagePurchaseSchema = z.object({
+  packages: z.array(z.object({
+    lessonId: z.string().trim().min(1).max(64),
+    quantity: z.number().int().safe().min(1).max(20),
+    startsAt: z.array(isoDateTimeSchema).min(1).max(20),
+  }).strict()).min(1).max(10).refine(
+    (packages) => new Set(packages.map((item) => item.lessonId)).size === packages.length,
+    "Choose each package type once and adjust its quantity.",
+  ),
+}).strict();
+
+export const singlePackagePurchaseSchema = z.object({
   lessonId: z.string().trim().min(1).max(64),
   quantity: z.number().int().safe().min(1).max(20),
   startsAt: z.array(isoDateTimeSchema).min(1).max(20),

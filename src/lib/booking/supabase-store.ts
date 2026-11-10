@@ -435,7 +435,7 @@ export const supabaseStore: BookingStore = {
     });
     if (error) throw new Error(`Failed to reschedule booking: ${error.message}`);
     const envelope = data as RpcEnvelope<BookingRow>;
-    if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };
+    if (!envelope.ok) return { ok: false, error: mapError(envelope.error ?? "conflict") };
     if (!envelope.record) return { ok: false, error: "not_found" };
     return { ok: true, value: toRecord(envelope.record) };
   },
@@ -951,6 +951,27 @@ export const supabaseStore: BookingStore = {
     return { ok: true, value: toPackagePurchase(envelope.record) };
   },
 
+  async createScheduledPackagePurchaseBundle(purchases, manageTokenHash, checkoutSessionId, checkoutExpiresAt) {
+    const { data, error } = await adminClient().rpc("create_scheduled_package_purchase_bundle", {
+      p_purchases: purchases.map(({ input, packageQuantity, startsAt }) => ({
+        id: input.id,
+        reference: input.reference,
+        lesson_id: input.lessonId,
+        quantity: packageQuantity,
+        amount_cad: input.amountCad,
+        starts_at: startsAt,
+        notes: input.notes,
+      })),
+      p_manage_token_hash: manageTokenHash,
+      p_session_id: checkoutSessionId,
+      p_expires_at: checkoutExpiresAt,
+    });
+    if (error) throw new Error(`Failed to reserve package lesson times: ${error.message}`);
+    const envelope = data as { ok: boolean; error?: string; records?: PackagePurchaseRow[] };
+    if (!envelope.ok) return { ok: false, error: mapError(envelope.error ?? "conflict") };
+    return { ok: true, value: (envelope.records ?? []).map((row) => toPackagePurchase(row)) };
+  },
+
   async setStripePackagePurchaseCheckout(purchaseId: string, sessionId: string, expiresAt: string): Promise<void> {
     const { data, error } = await adminClient().from("package_purchases")
       .update({ payment_status: "pending", stripe_checkout_session_id: sessionId, stripe_checkout_expires_at: expiresAt, updated_at: new Date().toISOString() })
@@ -966,6 +987,13 @@ export const supabaseStore: BookingStore = {
       .eq("stripe_checkout_session_id", sessionId).maybeSingle();
     if (error) throw new Error(`Failed to load package purchase: ${error.message}`);
     return data ? toPackagePurchase(data as PackagePurchaseRow) : null;
+  },
+
+  async getPackagePurchasesByCheckoutSession(sessionId: string): Promise<PackagePurchaseRecord[]> {
+    const { data, error } = await adminClient().from("package_purchases").select("*")
+      .eq("stripe_checkout_session_id", sessionId).order("created_at", { ascending: true });
+    if (error) throw new Error(`Failed to load package purchases by Checkout Session: ${error.message}`);
+    return (data ?? []).map((row) => toPackagePurchase(row as PackagePurchaseRow));
   },
 
   async findPackagePurchasesByEmail(email: string): Promise<PackagePurchaseRecord[]> {
