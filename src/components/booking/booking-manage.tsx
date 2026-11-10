@@ -354,7 +354,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </section>
         )}
         {actionError && <p role="alert" className="mt-4 rounded-lg bg-[#fff0ed] px-4 py-3 text-[13px] font-semibold text-[#bc4633]">{actionError}</p>}
-        <Button href="/lessons" variant="dark" className="mt-5">Add More Lessons</Button>
+        <p className="mt-5 rounded-xl bg-mist px-4 py-3 text-[12.5px] leading-relaxed text-soft">
+          To add another package, open an active paid lesson in My Booking. You can choose a time for every added lesson and pay securely without restarting your booking.
+        </p>
         <Button href="/contact" variant="outline" className="mt-5">Contact the school</Button>
       </div>
     );
@@ -438,7 +440,6 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       />
 
       {creditPanel}
-      {purchase && <Button href="/lessons" variant="dark" className="mt-5">Add More Lessons</Button>}
 
       {sessions.length > 1 && (
         <section className="mt-5 rounded-[16px] border border-line p-4">
@@ -498,8 +499,8 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           ? [{ startsAt, durationMin: option.durationMin }]
           : []);
         return <section className="mt-5 rounded-[14px] border border-line p-4">
-          <h3 className="text-sm font-extrabold text-ink">Add another package</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a package and quantity, then schedule every lesson before paying. Your existing package and appointments stay unchanged.</p>
+          <h3 className="text-sm font-extrabold text-ink">Add lessons to this booking</h3>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose an additional package and quantity, select a date and time for every added lesson, then pay securely. Your existing package and appointments stay unchanged.</p>
           <label className="mt-3 grid gap-1.5 text-xs font-bold text-ink">Package to add
             <select value={addOnLessonId} onChange={(event) => { const selected = booking.addOnOptions?.find((item) => item.id === event.target.value); setAddOnLessonId(event.target.value); if (selected) setAddOnQuantity((quantity) => Math.min(quantity, Math.floor(20 / selected.sessionCount))); setAddOnSchedule([]); setAddOnSessionIndex(0); }} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
               <option value="">Select a package</option>
@@ -618,23 +619,38 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
 
       {mode === "reschedule" && (
         <div className="mt-6 border-t border-line pt-5">
-          <p className="mb-4 text-[13.5px] leading-relaxed text-soft">
+          <div className="mb-4">
+            <h3 className="text-sm font-extrabold text-ink">Choose a new date and time</h3>
+            <p className="mt-1 text-[13px] leading-relaxed text-soft">
             Currently booked for{" "}
               <strong className="text-ink">{formatSlotFull(selectedSession.startsAt)}</strong>.
-            Choose a new time below — your current slot stays held until you confirm.
-          </p>
-          <DateTimeStep
-            key={`${selectedSession.id}-${availabilityRevision}`}
-            lessonId={selectedSession.lessonId}
-            selectedStart={pendingStart}
-            minDate={selectedSession.packageWindowStart}
-            maxDate={addMonthsToKey(selectedSession.packageWindowStart, 6)}
-            horizonDays={370}
-            onSelect={(slot) => {
-              setPendingStart(slot);
-              setActionError(null);
-            }}
-          />
+            Choose a new time below; your current appointment remains in place until you confirm.
+            </p>
+          </div>
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
+            <section aria-label="Choose a new appointment time" className="min-w-0 rounded-2xl border border-line bg-white p-3 sm:p-4">
+              <DateTimeStep
+                key={`${selectedSession.id}-${availabilityRevision}`}
+                lessonId={selectedSession.lessonId}
+                selectedStart={pendingStart}
+                minDate={selectedSession.packageWindowStart}
+                maxDate={addMonthsToKey(selectedSession.packageWindowStart, 6)}
+                horizonDays={370}
+                onSelect={(slot) => {
+                  setPendingStart(slot);
+                  setActionError(null);
+                }}
+              />
+            </section>
+            <aside className="h-fit rounded-2xl border border-line bg-[#fbfcf9] p-4 sm:p-5">
+              <h4 className="text-xs font-extrabold uppercase tracking-[0.12em] text-soft">Appointment change</h4>
+              <dl className="mt-3 grid gap-3 text-[12.5px]">
+                <div><dt className="text-soft">Current time</dt><dd className="mt-0.5 font-bold text-ink">{formatSlotFull(selectedSession.startsAt)} Pacific</dd></div>
+                <div><dt className="text-soft">New time</dt><dd className="mt-0.5 font-bold text-ink">{pendingStart ? `${formatSlotFull(pendingStart)} Pacific` : "Choose a time on the calendar"}</dd></div>
+              </dl>
+              <p className="mt-4 text-[11px] leading-relaxed text-soft">Online changes are available more than 48 hours before the lesson. Confirming uses your one online reschedule for this lesson.</p>
+            </aside>
+          </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <Button onClick={rescheduleBooking} disabled={!pendingStart || busy}>
               {busy ? "Updating…" : "Confirm new time"}

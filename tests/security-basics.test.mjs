@@ -93,6 +93,21 @@ test("the 48-hour reschedule cutoff applies independently to each package sessio
   assert.deepEqual(sessions.map((startsAt) => isInsideSelfServiceWindow(startsAt, now)), [true, false, false]);
 });
 
+test("My Booking adds packages inline and reuses the booking calendar for eligible reschedules", () => {
+  const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
+  const manage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
+  assert.match(finder, /Add lessons to my booking/);
+  assert.match(finder, /openBooking\(addOnBooking\.reference\)/);
+  assert.doesNotMatch(finder, /href="\/lessons"/);
+  assert.match(otpRoute, /paymentStatus: booking\.paymentStatus/);
+  assert.match(manage, /Add lessons to this booking/);
+  assert.match(manage, /StripePackagePurchaseButton/);
+  assert.match(manage, /<DateTimeStep/);
+  assert.match(manage, /withinCancellationWindow/);
+  assert.match(manage, /Confirming uses your one online reschedule/);
+});
+
 test("each scheduled lesson has exactly one student reschedule", () => {
   assert.equal(MAX_STUDENT_RESCHEDULES_PER_SESSION, 1);
   const migration = readFileSync(new URL("../supabase/migrations/0039_mybooking_addon_eligibility_and_reschedule_limit.sql", import.meta.url), "utf8");

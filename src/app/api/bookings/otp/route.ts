@@ -181,6 +181,7 @@ function safeListItem(booking: BookingRecord): {
   priceCad: number;
   startsAt: string;
   status: BookingRecord["status"];
+  paymentStatus: BookingRecord["paymentStatus"];
   canOpen: boolean;
 } {
   return {
@@ -191,6 +192,7 @@ function safeListItem(booking: BookingRecord): {
     priceCad: booking.priceCad,
     startsAt: booking.startsAt,
     status: booking.status,
+    paymentStatus: booking.paymentStatus ?? "due",
     canOpen: booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
   };
 }

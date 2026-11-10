@@ -16,6 +16,7 @@ interface FoundBooking {
   priceCad: number;
   startsAt: string;
   status: "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
+  paymentStatus: "due" | "paid" | "refunded" | "waived";
   canOpen: boolean;
 }
 
@@ -199,6 +200,8 @@ export function BookingFind() {
     setStudentName("");
   }
 
+  const addOnBooking = bookings.find((booking) => booking.canOpen && booking.paymentStatus === "paid");
+
   return (
     <div className="grid gap-3.5">
       <div>
@@ -379,9 +382,16 @@ export function BookingFind() {
               ))}
             </div>
           )}
-          <Link href="/lessons" className="inline-flex min-h-10 w-fit items-center rounded-full bg-ink px-5 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37]">
-            Add More Lessons
-          </Link>
+          {addOnBooking && (
+            <button
+              type="button"
+              onClick={() => void openBooking(addOnBooking.reference)}
+              disabled={pending}
+              className="inline-flex min-h-10 w-fit items-center rounded-full bg-ink px-5 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60"
+            >
+              {pending ? "Opening My Booking…" : "Add lessons to my booking"}
+            </button>
+          )}
           <div>
             <button
               type="button"
