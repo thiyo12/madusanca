@@ -162,7 +162,7 @@ export interface CreateBookingBundleInput {
   email: string;
   phone: string;
   dateOfBirth: string;
-  gender: "woman" | "man" | "non_binary" | "another_identity" | "prefer_not_to_say";
+  gender: "woman" | "man" | "prefer_not_to_say";
   licenseNumber: string;
   notes: string;
 }

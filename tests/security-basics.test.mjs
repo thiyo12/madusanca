@@ -617,6 +617,10 @@ test("public booking and contact schemas reject unexpected input fields", () => 
   assert.equal(manageSchema.safeParse({ action: "get", token: "should-not-be-accepted" }).success, false);
   assert.equal(createBookingSchema.safeParse({ lessonId: "lesson-1", surprise: true }).success, false);
   assert.equal(contactSchema.safeParse({ name: "Student Name", email: "student@example.com", message: "Please call me back", consent: true, surprise: true }).success, false);
+  const bookingValidation = readFileSync(new URL("../src/lib/validation/booking.ts", import.meta.url), "utf8");
+  const detailsStep = readFileSync(new URL("../src/components/booking/details-step.tsx", import.meta.url), "utf8");
+  assert.match(bookingValidation, /gender: z\.enum\(\["woman", "man", "prefer_not_to_say"\]\)/);
+  assert.doesNotMatch(detailsStep, /non_binary|another_identity|Non-binary|Another gender identity/);
 });
 
 test("admin student PDF contains session details and safely escapes PDF text", () => {
@@ -653,12 +657,25 @@ test("admin student PDF contains session details and safely escapes PDF text", (
   assert.match(text, /Driver's licence number: BC123456/);
 });
 
-test("completed bookings are hidden from customer access but retained for admin records", () => {
+test("verified customers can view completed booking history but cannot modify it", () => {
   assert.equal(customerCanAccessBooking("confirmed"), true);
   assert.equal(customerCanAccessBooking("rescheduled"), true);
   assert.equal(customerCanAccessBooking("pending_payment"), true);
   assert.equal(customerCanAccessBooking("cancelled"), true);
-  assert.equal(customerCanAccessBooking("completed"), false);
+  assert.equal(customerCanAccessBooking("completed"), true);
+  assert.equal(customerCanAccessBooking("no_show"), true);
+  const manageApi = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
+  const manageUi = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  assert.match(manageApi, /Date\.parse\(targetBooking\.startsAt\) <= Date\.now\(\)/);
+  assert.match(manageUi, /This lesson has expired\. Please contact your tutor for help\./);
+});
+
+test("unconfirmed booking requests do not trigger email; payment events have confirmation mail handlers", () => {
+  const bookingRoute = readFileSync(new URL("../src/app/api/bookings/route.ts", import.meta.url), "utf8");
+  const fulfillment = readFileSync(new URL("../src/lib/stripe/fulfill.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(bookingRoute, /sendBookingPaymentPendingEmail/);
+  assert.match(fulfillment, /sendBookingPaymentReceivedEmail/);
+  assert.match(fulfillment, /sendPackagePurchasePaidEmail/);
 });
 
 test("package scheduling uses calendar-month windows and package fields are validated", () => {
@@ -710,6 +727,9 @@ test("passwordless admin bypass is limited to loopback hosts in development", ()
   const adminGate = readFileSync(new URL("../src/lib/auth/require-admin.ts", import.meta.url), "utf8");
   assert.match(proxy, /isLocalAdminBypassEnabled\(process\.env\.NODE_ENV, request\.nextUrl\.hostname\)/);
   assert.match(adminGate, /isLocalAdminBypassEnabled\(process\.env\.NODE_ENV, requestHeaders\.get\("host"\)/);
+  assert.match(adminGate, /supabase\.auth\.getUser\(\)/);
+  assert.match(adminGate, /redirect\(`\/admin\/login/);
+  assert.match(adminGate, /process\.env\.NODE_ENV === "production"/);
 });
 
 test("cash payment and expired-hold validation apply only to the selected lesson", () => {

@@ -82,6 +82,7 @@ export function BookingFind() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [now, setNow] = useState<number | null>(null);
   const [retryAfter, setRetryAfter] = useState(0);
   const [otpExpiresAt, setOtpExpiresAt] = useState<number | null>(null);
   const [requestAvailableAt, setRequestAvailableAt] = useState<number | null>(null);
@@ -90,6 +91,7 @@ export function BookingFind() {
   useEffect(() => {
     const update = () => {
       const currentTime = Date.now();
+      setNow(currentTime);
       const codeRemaining = otpExpiresAt === null ? 0 : Math.max(0, Math.ceil((otpExpiresAt - currentTime) / 1000));
       const requestRemaining = requestAvailableAt === null ? 0 : Math.max(0, Math.ceil((requestAvailableAt - currentTime) / 1000));
       setRetryAfter(requestRemaining);
@@ -100,7 +102,7 @@ export function BookingFind() {
       if (requestAvailableAt !== null && requestRemaining === 0) setRequestAvailableAt(null);
     };
     update();
-    const timer = window.setInterval(update, 250);
+    const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
   }, [otpExpiresAt, requestAvailableAt]);
 
@@ -343,28 +345,28 @@ export function BookingFind() {
                     {booking.lessonName}
                     <span
                       className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${
-                        booking.status === "cancelled" || booking.status === "completed"
+                        booking.status === "cancelled" || booking.status === "completed" || booking.status === "no_show" || (now !== null && Date.parse(booking.startsAt) <= now)
                           ? "bg-mist text-soft"
                           : booking.status === "rescheduled"
                             ? "bg-[#eaf5df] text-[#426a2c]"
                             : "bg-[#e6f6ec] text-[#1f7a45]"
                       }`}
                     >
-                      {STATUS_LABEL[booking.status] ?? booking.status}
+                      {booking.status === "no_show" || (now !== null && Date.parse(booking.startsAt) <= now) ? "Expired" : STATUS_LABEL[booking.status] ?? booking.status}
                     </span>
                   </p>
                   <p className="mt-0.5 text-[12.5px] text-soft">
                     {formatSlotFull(booking.startsAt)} · {booking.reference}
                   </p>
                 </div>
-                {booking.canOpen || booking.status === "cancelled" || booking.status === "completed" ? (
+                {booking.canOpen || booking.status === "cancelled" || booking.status === "completed" || booking.status === "no_show" ? (
                   <button
                     type="button"
                     onClick={() => openBooking(booking.reference)}
                     disabled={pending}
                     className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60"
                   >
-                    Manage
+                    {booking.status === "no_show" || (now !== null && Date.parse(booking.startsAt) <= now) ? "View lesson" : "Manage"}
                   </button>
                 ) : (
                   <div className="text-right">

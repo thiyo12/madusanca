@@ -5,8 +5,6 @@ import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { createBookingSchema } from "@/lib/validation/booking";
 import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-limit";
-import { sendBookingPaymentPendingEmail } from "@/lib/email/booking-emails";
-import { manageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { MANAGE_COOKIE_NAME } from "@/lib/booking/manage-cookie";
@@ -195,18 +193,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const booking = result.value[0];
-    const url = manageUrl();
-    const emailSent = await sendBookingPaymentPendingEmail({
-      reference: booking.reference,
-      lessonName: booking.lessonName,
-      durationMin: booking.durationMin,
-      startsAt: booking.startsAt,
-      studentName: booking.studentName,
-      studentEmail: booking.email,
-      manageUrl: url,
-      sessionStartsAt: result.value.map((session) => session.startsAt),
-    });
-
     const response = NextResponse.json({
       ok: true,
       booking: {
@@ -221,7 +207,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         sessionCount: result.value.length,
       },
       manageToken: token,
-      emailSent,
       addOns: addOns.map(({ lesson: item, quantity }) => ({
         id: item!.id,
         name: item!.name,

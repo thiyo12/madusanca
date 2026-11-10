@@ -95,11 +95,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       failureStage = "eligible_booking_lookup";
       const found = await store.findBookingsByEmail(email);
       const purchases = await store.findPackagePurchasesByEmail(email);
-      const eligible = found.filter(
-        (booking) =>
-          booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
-      );
-      const target = eligible[0];
+      // Email ownership also grants access to historical bookings, so a past
+      // or closed lesson can still be shown as expired with tutor contact info.
+      const target = found[0];
       const purchaseTarget = purchases[0];
       if (target || purchaseTarget) {
         failureStage = "otp_hash_generation";

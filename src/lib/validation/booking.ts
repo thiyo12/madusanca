@@ -52,7 +52,7 @@ export const createBookingSchema = z.object({
     .min(7, "Please enter a phone number we can reach you at.")
     .max(25),
   dateOfBirth: dateOnlySchema.refine((value) => value <= new Date().toISOString().slice(0, 10), "Date of birth cannot be in the future."),
-  gender: z.enum(["woman", "man", "non_binary", "another_identity", "prefer_not_to_say"]),
+  gender: z.enum(["woman", "man", "prefer_not_to_say"]),
   licenseNumber: z.string().trim().min(4, "Enter your driver’s licence number.").max(32),
   holdToken: z.string().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/),
   notes: z.string().trim().max(500).optional().or(z.literal("")),

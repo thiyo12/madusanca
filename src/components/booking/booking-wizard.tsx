@@ -55,7 +55,7 @@ interface SuccessData {
   studentName: string;
   email: string;
   priceCad: number;
-  emailSent: boolean;
+  emailSent?: boolean;
   addOnPackages: PackageQuantitySelection[];
   addOns: Array<{ id: string; name: string; priceCad: number; sessionCount: number; quantity: number }>;
   sessions: Array<{ lessonName: string; startsAt: string }>;
@@ -73,7 +73,7 @@ function isSuccessData(value: unknown): value is SuccessData {
     typeof item.lessonName === "string" && typeof item.durationMin === "number" &&
     typeof item.startsAt === "string" && typeof item.studentName === "string" &&
     typeof item.email === "string" && typeof item.priceCad === "number" &&
-    typeof item.emailSent === "boolean" && Array.isArray(item.addOnPackages) &&
+    (item.emailSent === undefined || typeof item.emailSent === "boolean") && Array.isArray(item.addOnPackages) &&
     item.addOnPackages.every((entry) => entry && typeof entry.lessonId === "string" && typeof entry.quantity === "number") &&
     Array.isArray(item.addOns) && item.addOns.every((entry) => entry && typeof entry.id === "string" && typeof entry.name === "string" && typeof entry.priceCad === "number" && typeof entry.sessionCount === "number" && typeof entry.quantity === "number") &&
     Array.isArray(item.sessions) && item.sessions.every((entry) => entry && typeof entry.lessonName === "string" && typeof entry.startsAt === "string");
@@ -460,7 +460,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
         studentName: result.booking.studentName,
         email: details.email.trim(),
         priceCad: result.booking.priceCad ?? lesson.priceCad,
-        emailSent: result.emailSent === true,
+        emailSent: typeof result.emailSent === "boolean" ? result.emailSent : undefined,
         addOnPackages: (result.addOns ?? []).map((item) => ({ lessonId: item.id, quantity: item.quantity })),
         addOns: result.addOns ?? [],
         sessions: appointments.map((item) => ({ lessonName: item.lessonName, startsAt: scheduledStarts[item.key] })).filter((item): item is { lessonName: string; startsAt: string } => Boolean(item.startsAt)),
@@ -495,14 +495,18 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
             Payment wasn&rsquo;t completed. Your saved booking details are still here; you can return to secure checkout when ready.
           </p>
         )}
-        {success.emailSent ? (
+        {success.emailSent === true ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
             Booking and payment details were sent to <strong>{details.email.trim()}</strong>. Payment is required to confirm the booking. Your selected time is held for 20 minutes.
           </p>
-        ) : (
+        ) : success.emailSent === false ? (
           <p role="alert" className="mt-2 rounded-[12px] bg-[#eaf5df] px-3.5 py-2.5 text-[13px] leading-relaxed text-[#31543a]">
             Your booking request is saved, but we couldn&rsquo;t deliver the booking details to{" "}
             <strong>{details.email.trim()}</strong>. Save your reference below and use My Booking with your email and verification code, or call Shan at +1 236-234-3229 for help.
+          </p>
+        ) : (
+          <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
+            Your booking request is saved. We’ll email you when payment confirms your lesson; no email is sent for an unconfirmed request.
           </p>
         )}
         <BookingSummary

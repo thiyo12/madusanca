@@ -126,8 +126,6 @@ export function DetailsStep({ value, onChange, error }: DetailsStepProps) {
             <option value="">Select an option</option>
             <option value="woman">Woman</option>
             <option value="man">Man</option>
-            <option value="non_binary">Non-binary</option>
-            <option value="another_identity">Another gender identity</option>
             <option value="prefer_not_to_say">Prefer not to say</option>
           </select>
         </label>

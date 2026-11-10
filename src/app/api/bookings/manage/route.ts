@@ -183,7 +183,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (purchase) {
           const purchaseBookings = await getStore().findBookingsByPurchaseId(purchase.id);
           const activePaidSessions = purchaseBookings.filter((session) =>
-            ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid",
+            ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" && Date.parse(session.startsAt) > Date.now(),
           );
           const addOnOptions = activePaidSessions.length > 0
             ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package")
@@ -202,7 +202,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
       const purchaseId = found.sessions.find((session) => session.purchaseId)?.purchaseId;
       const purchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
-      const activePaidSessions = found.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid");
+      const activePaidSessions = found.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" && Date.parse(session.startsAt) > Date.now());
       // Add-ons reserve their own future lesson times, so do not hide the
       // option just because an existing lesson is inside the 48-hour cutoff.
       const canAddPackage = activePaidSessions.length > 0;
@@ -233,8 +233,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     const targetBooking = found.sessions.find((session) => session.id === sessionId) ?? found.booking;
     const paymentBooking = found.sessions.find((session) => session.stripeCheckoutSessionId) ?? found.booking;
-    if (targetBooking.status === "cancelled" || targetBooking.status === "completed") {
-      return errorResponse("not_modifiable", "This booking can no longer be changed.");
+    if (["cancelled", "completed", "no_show"].includes(targetBooking.status) || Date.parse(targetBooking.startsAt) <= Date.now()) {
+      return errorResponse("not_modifiable", "This lesson has expired or is closed. Please contact your tutor for help.");
     }
     try {
       if (await expireUpgradeCheckout(paymentBooking)) {

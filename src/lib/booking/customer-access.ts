@@ -1,6 +1,7 @@
 import type { BookingStatus } from "@/lib/booking/types";
 
-/** Completed bookings are retained for administrators but hidden from customers. */
-export function customerCanAccessBooking(status: BookingStatus): boolean {
-  return status !== "completed";
+/** Customers may view booking history; server mutation rules still block closed lessons. */
+export function customerCanAccessBooking(_status: BookingStatus): boolean {
+  void _status;
+  return true;
 }

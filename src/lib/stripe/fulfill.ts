@@ -3,6 +3,8 @@ import "server-only";
 import type Stripe from "stripe";
 import { getStore } from "@/lib/booking/store";
 import { getStripe } from "@/lib/stripe/server";
+import { manageUrl } from "@/lib/booking/urls";
+import { sendBookingPaymentReceivedEmail, sendPackagePurchasePaidEmail } from "@/lib/email/booking-emails";
 import {
   matchesInitialBookingPayment,
   matchesPackagePurchasePayment,
@@ -45,6 +47,7 @@ export async function recordPaidCheckoutSession(
     }
   }
 
+  const shouldNotifyPayment = booking.paymentStatus !== "paid";
   await store.handleStripeCheckoutEvent({
     eventId,
     eventType: "paid",
@@ -61,6 +64,35 @@ export async function recordPaidCheckoutSession(
     totalCents: session.amount_total ?? undefined,
     currency: session.currency ?? undefined,
   });
+  if (shouldNotifyPayment) {
+    try {
+      await sendBookingPaymentReceivedEmail({
+        reference: booking.reference,
+        lessonName: booking.lessonName,
+        durationMin: booking.durationMin,
+        startsAt: booking.startsAt,
+        studentName: booking.studentName,
+        studentEmail: booking.email,
+        manageUrl: manageUrl(),
+        invoiceUrl,
+      });
+      for (const addon of addons) {
+        if (addon.paymentStatus !== "pending") continue;
+        await sendPackagePurchasePaidEmail({
+          reference: addon.reference,
+          lessonName: addon.lessonName,
+          creditsPurchased: addon.creditsPurchased,
+          amountCad: addon.amountCad,
+          studentName: addon.studentName,
+          studentEmail: addon.email,
+          manageUrl: manageUrl(),
+          invoiceUrl,
+        });
+      }
+    } catch (error) {
+      console.error("[stripe] payment confirmation email failed", error instanceof Error ? error.name : "UnknownError");
+    }
+  }
 }
 
 export async function recordPaidUpgradeCheckoutSession(session: Stripe.Checkout.Session, eventId: string): Promise<void> {
@@ -114,6 +146,7 @@ export async function recordPaidPackagePurchaseCheckoutSession(
     catch (error) { console.error("[stripe] package purchase invoice lookup failed", error instanceof Error ? error.name : "unknown error"); }
   }
 
+  const shouldNotifyPayment = purchase.paymentStatus !== "paid";
   await getStore().handleStripePackagePurchaseEvent({
     eventId,
     eventType: "paid",
@@ -128,4 +161,20 @@ export async function recordPaidPackagePurchaseCheckoutSession(
     currency: session.currency ?? undefined,
     paidAt: paidAt.toISOString(),
   });
+  if (shouldNotifyPayment) {
+    try {
+      await sendPackagePurchasePaidEmail({
+        reference: purchase.reference,
+        lessonName: purchase.lessonName,
+        creditsPurchased: purchase.creditsPurchased,
+        amountCad: purchase.amountCad,
+        studentName: purchase.studentName,
+        studentEmail: purchase.email,
+        manageUrl: manageUrl(),
+        invoiceUrl,
+      });
+    } catch (error) {
+      console.error("[stripe] package payment confirmation email failed", error instanceof Error ? error.name : "UnknownError");
+    }
+  }
 }

@@ -76,6 +76,7 @@ const STATUS_LABEL: Record<string, string> = {
   rescheduled: "Rescheduled",
   cancelled: "Cancelled",
   completed: "Completed",
+  no_show: "No-show",
 };
 
 export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: BookingManageProps) {
@@ -181,7 +182,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         const loadedAt = Date.now();
         const loadedSessions = result.sessions ?? (result.booking ? [result.booking] : []);
         const firstEligibleSession = loadedSessions.find((session) =>
-          !["cancelled", "completed"].includes(session.status) && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
+          !["cancelled", "completed", "no_show"].includes(session.status) && Date.parse(session.startsAt) > loadedAt && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
         );
         setPurchase(result.purchase ?? null);
         setBooking(result.booking ?? null);
@@ -366,12 +367,13 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
 
   if (!booking) return null;
 
-  const closed = sessions.every((session) => session.status === "completed") ||
+  const isExpired = (session: BookingView) => session.status === "completed" || session.status === "no_show" || (now !== null && Date.parse(session.startsAt) <= now);
+  const closed = sessions.every((session) => ["cancelled", "completed", "no_show"].includes(session.status) || isExpired(session)) ||
     (sessions.length === 1 && booking.status === "cancelled");
   const selectedSession = sessions.find((session) => session.id === activeSessionId) ?? booking;
-  const selectedSessionOpen = !["cancelled", "completed"].includes(selectedSession.status);
+  const selectedSessionOpen = !["cancelled", "completed", "no_show"].includes(selectedSession.status) && !isExpired(selectedSession);
   const rescheduleLimitReached = selectedSession.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION;
-  const withinCancellationWindow = now !== null && isInsideSelfServiceWindow(selectedSession.startsAt, now);
+  const withinCancellationWindow = now !== null && Date.parse(selectedSession.startsAt) > now && isInsideSelfServiceWindow(selectedSession.startsAt, now);
 
   if (paymentReturn === "success" && packagePurchaseAdded) {
     return (
@@ -453,9 +455,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
                   Session {session.sessionIndex}: {formatSlotFull(session.startsAt)}
                 </button>
                 <span className="text-right text-soft">
-                  {STATUS_LABEL[session.status] ?? session.status}
+                  {isExpired(session) ? "Expired" : STATUS_LABEL[session.status] ?? session.status}
                   {activeSessionId === session.id ? " · selected" : ""}
-                  {session.status !== "cancelled" && session.status !== "completed" && now !== null && (
+                  {!isExpired(session) && session.status !== "cancelled" && now !== null && (
                     <span className="block font-semibold">{session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION ? "Reschedule used" : isInsideSelfServiceWindow(session.startsAt, now) ? "Within 48 hours · contact tutor" : "1 reschedule available"}</span>
                   )}
                 </span>
@@ -617,12 +619,16 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       )}
 
       {mode === "view" && !closed && !selectedSessionOpen && sessions.length > 1 && (
-        <p className="mt-5 border-t border-line pt-4 text-[13px] text-soft">This session is {STATUS_LABEL[selectedSession.status]?.toLowerCase() ?? "closed"}. Select another session above to manage its time.</p>
+        <p className="mt-5 border-t border-line pt-4 text-[13px] text-soft">{isExpired(selectedSession) ? "This lesson has expired. Please contact your tutor for help." : `This session is ${STATUS_LABEL[selectedSession.status]?.toLowerCase() ?? "closed"}.`} Select another remaining session above to manage its time. <a href="tel:+12362343229" className="font-bold underline">Call +1 236-234-3229</a>.</p>
       )}
 
       {mode === "view" && closed && (
         <div className="mt-6 border-t border-line pt-5">
-          <Button href="/booking">Book another lesson</Button>
+          <p className="mb-4 text-[13px] leading-relaxed text-soft">This lesson has expired or is closed. Please contact your tutor if you need help.</p>
+          <div className="flex flex-wrap gap-3">
+            <Button href="tel:+12362343229" variant="outline">Contact tutor</Button>
+            <Button href="/booking">Book another lesson</Button>
+          </div>
         </div>
       )}
 

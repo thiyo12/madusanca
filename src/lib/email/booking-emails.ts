@@ -24,33 +24,6 @@ const manageButton = (url: string): string => `
   </p>
   <p style="font-size:12px;color:#6b7280;margin:12px 0 0">Or paste this link: ${escapeHtml(url)}</p>`;
 
-export async function sendBookingPaymentPendingEmail(args: BookingArgs): Promise<boolean> {
-  const schedule = args.sessionStartsAt && args.sessionStartsAt.length > 1
-    ? `<p><strong>Scheduled sessions</strong></p><ol>${args.sessionStartsAt.map((startsAt) => `<li>${escapeHtml(formatSlotFull(startsAt))} Pacific</li>`).join("")}</ol>`
-    : "";
-  const html = bookingShell(
-    "Complete payment to confirm your lesson",
-     `<p>Hi ${escapeHtml(args.studentName)}, we’ve saved your requested lesson time for 20 minutes. It is not confirmed until payment is completed. Start secure card checkout within those 20 minutes to keep the time held while checkout is open. If you do not start checkout in time, the hold expires and someone else may book that time; your booking request will remain saved, but you may need to choose another time.</p>
-     ${bookingDetailsTable(args)}${schedule}
-     ${manageButton(args.manageUrl)}
-     <p style="font-size:13px;color:#4b525e;margin:16px 0 0">Use the secure payment button on your booking page to pay by card. Your paid invoice will be available there after checkout.</p>`,
-  );
-  const sent = await sendEmail({
-    to: args.studentEmail,
-    subject: `Complete payment for lesson — ${args.reference}`,
-    html,
-  });
-  await notifySchool(
-    `Booking awaiting payment — ${args.reference}`,
-    bookingShell(
-      "Booking awaiting payment",
-       `<p>${args.sessionStartsAt && args.sessionStartsAt.length > 1 ? `${args.sessionStartsAt.length} lesson sessions were reserved` : "A lesson time was reserved"} and is awaiting payment confirmation.</p>${bookingDetailsTable(args)}${schedule}
-       <p style="font-size:13px">Student email: ${escapeHtml(args.studentEmail)}</p>`,
-    ),
-  );
-  return sent;
-}
-
 export async function sendBookingConfirmedEmail(args: BookingArgs): Promise<boolean> {
   const html = bookingShell(
     "Your lesson is booked",
@@ -73,6 +46,41 @@ export async function sendBookingConfirmedEmail(args: BookingArgs): Promise<bool
        <p style="font-size:13px">Student email: ${escapeHtml(args.studentEmail)}</p>`,
     ),
   );
+  return sent;
+}
+
+export async function sendBookingPaymentReceivedEmail(args: BookingArgs & { invoiceUrl?: string }): Promise<boolean> {
+  const invoice = args.invoiceUrl
+    ? `<p><a href="${escapeHtml(args.invoiceUrl)}" style="color:#31543a;font-weight:800">View your paid invoice</a></p>`
+    : "";
+  const html = bookingShell(
+    "Payment received — your lesson is confirmed",
+    `<p>Hi ${escapeHtml(args.studentName)}, we received your payment and confirmed your lesson.</p>${bookingDetailsTable(args)}${invoice}${manageButton(args.manageUrl)}`,
+  );
+  const sent = await sendEmail({ to: args.studentEmail, subject: `Payment confirmed — ${args.reference}`, html });
+  await notifySchool(`Lesson payment confirmed — ${args.reference}`, bookingShell("Lesson payment confirmed", bookingDetailsTable(args)));
+  return sent;
+}
+
+export async function sendPackagePurchasePaidEmail(args: {
+  reference: string;
+  lessonName: string;
+  creditsPurchased: number;
+  amountCad: number;
+  studentName: string;
+  studentEmail: string;
+  manageUrl: string;
+  invoiceUrl?: string;
+}): Promise<boolean> {
+  const invoice = args.invoiceUrl
+    ? `<p><a href="${escapeHtml(args.invoiceUrl)}" style="color:#31543a;font-weight:800">View your paid invoice</a></p>`
+    : "";
+  const html = bookingShell(
+    "Additional lesson package paid",
+    `<p>Hi ${escapeHtml(args.studentName)}, your payment was received. Your additional lesson package is ready to manage.</p><p><strong>${escapeHtml(args.lessonName)}</strong> · ${args.creditsPurchased} lessons · $${args.amountCad.toFixed(2)} CAD</p><p>Reference: <strong>${escapeHtml(args.reference)}</strong></p>${invoice}${manageButton(args.manageUrl)}`,
+  );
+  const sent = await sendEmail({ to: args.studentEmail, subject: `Package payment confirmed — ${args.reference}`, html });
+  await notifySchool(`Additional package paid — ${args.reference}`, html);
   return sent;
 }
 

@@ -12,6 +12,8 @@ import { manageUrl, siteBase } from "@/lib/booking/urls";
 import { getStripe } from "@/lib/stripe/server";
 import {
   sendBookingCancelledEmail,
+  sendBookingConfirmedEmail,
+  sendBookingPaymentReceivedEmail,
   sendBookingRescheduledEmail,
 } from "@/lib/email/booking-emails";
 import { logSafeError } from "@/lib/server/safe-log";
@@ -94,6 +96,22 @@ export async function setBookingStatusAction(
     }
   }
 
+  if (status === "confirmed" && booking.status !== "confirmed" && booking.paymentStatus === "waived") {
+    try {
+      await sendBookingConfirmedEmail({
+        reference: booking.reference,
+        lessonName: booking.lessonName,
+        durationMin: booking.durationMin,
+        startsAt: booking.startsAt,
+        studentName: booking.studentName,
+        studentEmail: booking.email,
+        manageUrl: manageUrl(),
+      });
+    } catch (error) {
+      logSafeError("[admin] confirmation email failed", error);
+    }
+  }
+
   revalidateAdmin();
 }
 
@@ -139,9 +157,26 @@ export async function setBookingPaymentAction(
 
   const result = await store.updatePaymentStatus(bookingId, paymentStatus);
   if (!result.ok) {
-    paymentFail(result.error === "not_found"
+    return paymentFail(result.error === "not_found"
       ? "Booking not found."
       : "This lesson’s unpaid hold expired and its time is no longer available. Reschedule this lesson first, then mark it paid.");
+  }
+
+  if (booking.paymentStatus !== "paid") {
+    try {
+      await sendBookingPaymentReceivedEmail({
+        reference: result.value.reference,
+        lessonName: result.value.lessonName,
+        durationMin: result.value.durationMin,
+        startsAt: result.value.startsAt,
+        studentName: result.value.studentName,
+        studentEmail: result.value.email,
+        manageUrl: manageUrl(),
+        invoiceUrl: result.value.stripeInvoiceUrl,
+      });
+    } catch (error) {
+      logSafeError("[admin] payment confirmation email failed", error);
+    }
   }
 
   revalidateAdmin();
