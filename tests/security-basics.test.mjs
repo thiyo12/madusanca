@@ -74,10 +74,16 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   const resendMigration = readFileSync(new URL("../supabase/migrations/0038_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
   const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
+  const dailyLimitMigration = readFileSync(new URL("../supabase/migrations/0045_otp_daily_send_limit_fifteen.sql", import.meta.url), "utf8");
   assert.match(otpRoute, /expiresAt,/);
   assert.match(otpRoute, /verifyOtp\(email, hashOtp\(email, code \?\? ""\)\)/);
   assert.doesNotMatch(otpRoute, /action === "token"\);/);
   assert.match(fileStore, /cooldownMs = OTP_TTL_MIN \* 60 \* 1000/);
+  assert.match(fileStore, /limit\.sends >= 15/);
+  assert.match(dailyLimitMigration, /v_limit\.send_count >= 15/);
+  assert.match(otpRoute, /sendLimitReason: "daily_limit"/);
+  assert.match(bookingFind, /result\.sendLimitReason === "daily_limit"/);
+  assert.match(bookingFind, /expiry - Date\.now\(\) > OTP_TTL_MS/);
   assert.match(bookingFind, /localStorage\.setItem\(PENDING_OTP_KEY, JSON\.stringify\(\{ email: email\.trim\(\)\.toLowerCase\(\), expiresAt:/);
   assert.match(resendMigration, /last_sent_at \+ interval '10 minutes'/);
   assert.doesNotMatch(resendMigration, /interval '2 minutes'/);
@@ -103,6 +109,8 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(otpRoute, /paymentStatus: booking\.paymentStatus/);
   assert.match(manage, /Add lessons to this booking/);
   assert.match(manage, /StripePackagePurchaseButton/);
+  assert.match(manage, /<LessonStep/);
+  assert.doesNotMatch(manage, /<select value=\{addOnLessonId\}/);
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);

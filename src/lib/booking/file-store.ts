@@ -975,7 +975,7 @@ export const fileStore: BookingStore = {
         data.otpSendLimits.push(limit);
       }
 
-      if (limit.sends >= 3) {
+      if (limit.sends >= 15) {
         const retryAfterSeconds = Math.max(
           1,
           Math.ceil((Date.parse(limit.windowStartedAt) + dayMs - now) / 1000),

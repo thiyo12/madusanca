@@ -187,7 +187,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           );
           const addOnOptions = activePaidSessions.length > 0
             ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package")
-              .map(({ id, name, priceCad, durationMin, sessionCount }) => ({ id, name, priceCad, durationMin, sessionCount }))
+              .map(({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }) => ({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }))
             : [];
           const sessions = purchaseBookings.map(safeView);
           const activeBookingRecord = activePaidSessions[0] ?? purchaseBookings.find((session) => !["cancelled", "completed"].includes(session.status));
@@ -211,7 +211,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         ok: true,
         booking: {
           ...safeView(found.booking),
-          addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, durationMin, sessionCount }) => ({ id, name, priceCad, durationMin, sessionCount })) : [],
+          addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }) => ({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category })) : [],
         },
         sessions: found.sessions.map(safeView),
         ...(purchase ? { purchase: safePurchaseView(purchase) } : {}),

@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { BookingFind } from "@/components/booking/booking-find";
+import { LessonStep } from "@/components/booking/lesson-step";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
+import type { Lesson } from "@/lib/data/lessons";
 import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
@@ -37,7 +39,7 @@ interface BookingView {
   packagePriceCad: number;
   packageWindowStart: string;
   isAdditionalPackage: boolean;
-  addOnOptions?: Array<{ id: string; name: string; priceCad: number; durationMin: number; sessionCount: number }>;
+  addOnOptions?: Lesson[];
 }
 
 interface ManageResponse {
@@ -501,12 +503,19 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         return <section className="mt-5 rounded-[14px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Add lessons to this booking</h3>
           <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose an additional package and quantity, select a date and time for every added lesson, then pay securely. Your existing package and appointments stay unchanged.</p>
-          <label className="mt-3 grid gap-1.5 text-xs font-bold text-ink">Package to add
-            <select value={addOnLessonId} onChange={(event) => { const selected = booking.addOnOptions?.find((item) => item.id === event.target.value); setAddOnLessonId(event.target.value); if (selected) setAddOnQuantity((quantity) => Math.min(quantity, Math.floor(20 / selected.sessionCount))); setAddOnSchedule([]); setAddOnSessionIndex(0); }} className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-sm">
-              <option value="">Select a package</option>
-              {booking.addOnOptions!.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.sessionCount} lesson{item.sessionCount === 1 ? "" : "s"} · ${item.priceCad.toFixed(2)} CAD</option>)}
-            </select>
-          </label>
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-bold text-ink">Choose an additional package</p>
+            <LessonStep
+              lessons={booking.addOnOptions!}
+              selectedId={addOnLessonId || null}
+              onSelect={(selected) => {
+                setAddOnLessonId(selected.id);
+                setAddOnQuantity((quantity) => Math.min(quantity, Math.floor(20 / selected.sessionCount)));
+                setAddOnSchedule([]);
+                setAddOnSessionIndex(0);
+              }}
+            />
+          </div>
           {option && <>
             <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
               <input type="number" min="1" max={Math.floor(20 / option.sessionCount)} step="1" inputMode="numeric" value={addOnQuantity} onChange={(event) => { setAddOnQuantity(Math.max(1, Math.min(Math.floor(20 / option.sessionCount), Math.floor(Number(event.target.value) || 1)))); setAddOnSchedule([]); setAddOnSessionIndex(0); }} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />

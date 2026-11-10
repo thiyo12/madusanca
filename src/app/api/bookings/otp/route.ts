@@ -63,17 +63,33 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 429 },
     );
   }
-  const genericSend = (expiresAt: string) => ({
+  const genericSend = (options: { expiresAt?: string; retryAfterSeconds: number; sendLimitReason?: "cooldown" | "daily_limit" }) => ({
     ok: true,
-    message: `If a booking or package purchase exists for that email, a 6-digit code has been sent or is still active. Codes are valid for ${OTP_TTL_MIN} minutes; use the current code until it expires.`,
-    retryAfterSeconds: Math.max(0, Math.ceil((Date.parse(expiresAt) - Date.now()) / 1000)),
-    expiresAt,
+    message: `If a booking or package purchase exists for that email, a code has been sent or may still be active. A code is valid for ${OTP_TTL_MIN} minutes.`,
+    retryAfterSeconds: options.retryAfterSeconds,
+    ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
+    ...(options.sendLimitReason ? { sendLimitReason: options.sendLimitReason } : {}),
   });
 
   try {
     const store = getStore();
 
     if (action === "send") {
+      // Apply the same per-address quota before checking eligibility so the
+      // response cannot disclose whether that email has a booking.
+      const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
+      if (!quota.allowed) {
+        console.info("[otp] verification request was suppressed by the send quota");
+        const retryAfterSeconds = quota.retryAfterSeconds;
+        if (quota.reason === "daily_limit") {
+          // The daily limit is only reachable after the prior ten-minute code
+          // has expired. Do not present the daily wait as OTP validity.
+          return NextResponse.json(genericSend({ retryAfterSeconds, sendLimitReason: "daily_limit" }));
+        }
+        const expiresAt = new Date(Date.now() + retryAfterSeconds * 1000).toISOString();
+        return NextResponse.json(genericSend({ expiresAt, retryAfterSeconds, sendLimitReason: "cooldown" }));
+      }
+
       const found = await store.findBookingsByEmail(email);
       const purchases = await store.findPackagePurchasesByEmail(email);
       const eligible = found.filter(
@@ -83,11 +99,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       const target = eligible[0];
       const purchaseTarget = purchases[0];
       if (target || purchaseTarget) {
-        const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
-        if (!quota.allowed) {
-          console.info("[otp] verification request was suppressed by the send quota");
-          return NextResponse.json(genericSend(new Date(Date.now() + quota.retryAfterSeconds * 1000).toISOString()));
-        }
         const otp = generateOtpCode();
         const expiresAt = otpExpiry();
         await store.putOtp(email, hashOtp(email, otp), expiresAt);
@@ -101,11 +112,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         } else {
           console.info("[otp] verification email accepted by the configured provider");
         }
-        return NextResponse.json(genericSend(expiresAt));
+        return NextResponse.json(genericSend({ expiresAt, retryAfterSeconds: OTP_TTL_MIN * 60 }));
       } else {
         console.info("[otp] verification request had no eligible booking or package purchase");
       }
-      return NextResponse.json(genericSend(otpExpiry()));
+      return NextResponse.json(genericSend({ expiresAt: otpExpiry(), retryAfterSeconds: OTP_TTL_MIN * 60 }));
     }
 
     // verify / token both require the code.

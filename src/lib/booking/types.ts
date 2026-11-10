@@ -398,7 +398,7 @@ export interface BookingStore {
   ): Promise<{ ok: true } | { ok: false; reason: "mismatch" | "expired" | "locked" }>;
   /** Removes an expired or administratively invalidated code. */
   deleteOtp(email: string): Promise<void>;
-  /** Atomically allows at most 3 sends/email/day and enforces the 10-minute OTP lifetime. */
+  /** Atomically allows at most 15 sends/email/day and enforces the 10-minute OTP lifetime. */
   consumeOtpSendQuota(email: string, nowIso: string): Promise<OtpSendPermit>;
   setStripeCheckoutSession(
     bookingId: string,
