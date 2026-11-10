@@ -71,12 +71,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     ...(options.sendLimitReason ? { sendLimitReason: options.sendLimitReason } : {}),
   });
 
+  let failureStage = "store_initialization";
   try {
     const store = getStore();
 
     if (action === "send") {
       // Apply the same per-address quota before checking eligibility so the
       // response cannot disclose whether that email has a booking.
+      failureStage = "send_quota";
       const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
       if (!quota.allowed) {
         console.info("[otp] verification request was suppressed by the send quota");
@@ -90,6 +92,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         return NextResponse.json(genericSend({ expiresAt, retryAfterSeconds, sendLimitReason: "cooldown" }));
       }
 
+      failureStage = "eligible_booking_lookup";
       const found = await store.findBookingsByEmail(email);
       const purchases = await store.findPackagePurchasesByEmail(email);
       const eligible = found.filter(
@@ -99,9 +102,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       const target = eligible[0];
       const purchaseTarget = purchases[0];
       if (target || purchaseTarget) {
+        failureStage = "otp_hash_generation";
         const otp = generateOtpCode();
         const expiresAt = otpExpiry();
-        await store.putOtp(email, hashOtp(email, otp), expiresAt);
+        const otpHash = hashOtp(email, otp);
+        failureStage = "otp_storage";
+        await store.putOtp(email, otpHash, expiresAt);
+        failureStage = "email_delivery";
         const sent = await sendBookingOtpEmail({
           studentName: target?.studentName ?? purchaseTarget!.studentName,
           studentEmail: target?.email ?? purchaseTarget!.email,
@@ -122,6 +129,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // verify / token both require the code.
     // OTP verification proves inbox ownership, but does not consume the code:
     // returning users can reuse it for the rest of its 10-minute lifetime.
+    failureStage = "otp_verification";
     const verification = await store.verifyOtp(email, hashOtp(email, code ?? ""));
     if (!verification.ok) {
       const message =
@@ -133,6 +141,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: message }, { status: 400 });
     }
 
+    failureStage = "verified_booking_lookup";
     const found = await store.findBookingsByEmail(email);
     const purchases = await store.findPackagePurchasesByEmail(email);
 
@@ -146,6 +155,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     // action === "token"
+    failureStage = "manage_token_issue";
     const wanted = reference?.toUpperCase();
     let target = wanted
       ? found.find((b) => b.reference === wanted)
@@ -176,6 +186,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     response.cookies.set(MANAGE_COOKIE_NAME, token, manageCookieOptions);
     return response;
   } catch (error) {
+    console.error("[otp] failed at stage", failureStage);
     logSafeError("[otp] failed", error);
     return NextResponse.json(
       { ok: false, error: "Could not process the request. Please try again." },
