@@ -262,10 +262,10 @@ export function BookingFind() {
           <div>
             <button
               type="submit"
-              disabled={pending || retryAfter > 0}
+              disabled={pending || (retryAfter > 0 && !readPendingOtp(email))}
               className="btn-gold inline-flex h-11 items-center rounded-full px-6 text-[13px] font-extrabold disabled:opacity-60"
             >
-              {pending ? "Sending…" : retryAfter > 0 ? `New code available in ${formatRemaining(retryAfter)}` : readPendingOtp(email) ? "Continue with my active code" : "Send my code"}
+              {pending ? "Sending…" : readPendingOtp(email) ? "Enter current code" : retryAfter > 0 ? `New code available in ${formatRemaining(retryAfter)}` : "Send my code"}
             </button>
           </div>
         </form>

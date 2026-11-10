@@ -86,6 +86,8 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   assert.match(otpRoute, /sendLimitReason: "daily_limit"/);
   assert.match(bookingFind, /result\.sendLimitReason === "daily_limit"/);
   assert.match(bookingFind, /expiry - Date\.now\(\) > OTP_TTL_MS/);
+  assert.match(bookingFind, /retryAfter > 0 && !readPendingOtp\(email\)/);
+  assert.match(bookingFind, /readPendingOtp\(email\) \? "Enter current code"/);
   assert.match(bookingFind, /localStorage\.setItem\(PENDING_OTP_KEY, JSON\.stringify\(\{ email: email\.trim\(\)\.toLowerCase\(\), expiresAt:/);
   assert.match(resendMigration, /last_sent_at \+ interval '10 minutes'/);
   assert.doesNotMatch(resendMigration, /interval '2 minutes'/);
