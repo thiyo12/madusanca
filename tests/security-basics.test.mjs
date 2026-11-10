@@ -83,6 +83,9 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   assert.match(fileStore, /limit\.sends >= 15/);
   assert.match(dailyLimitMigration, /v_limit\.send_count >= 15/);
   assert.match(dailyLimitConstraintMigration, /check \(send_count between 0 and 15\)/);
+  assert.match(otpRoute, /studentName: target\?\.studentName \?\? purchaseTarget\?\.studentName \?\? "there"/);
+  assert.match(otpRoute, /studentEmail: target\?\.email \?\? purchaseTarget\?\.email \?\? email/);
+  assert.match(otpRoute, /regardless of booking eligibility/);
   assert.match(otpRoute, /sendLimitReason: "daily_limit"/);
   assert.match(bookingFind, /result\.sendLimitReason === "daily_limit"/);
   assert.match(bookingFind, /expiry - Date\.now\(\) > OTP_TTL_MS/);

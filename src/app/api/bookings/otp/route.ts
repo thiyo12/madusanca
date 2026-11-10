@@ -99,29 +99,27 @@ export async function POST(request: Request): Promise<NextResponse> {
       // or closed lesson can still be shown as expired with tutor contact info.
       const target = found[0];
       const purchaseTarget = purchases[0];
-      if (target || purchaseTarget) {
-        failureStage = "otp_hash_generation";
-        const otp = generateOtpCode();
-        const expiresAt = otpExpiry();
-        const otpHash = hashOtp(email, otp);
-        failureStage = "otp_storage";
-        await store.putOtp(email, otpHash, expiresAt);
-        failureStage = "email_delivery";
-        const sent = await sendBookingOtpEmail({
-          studentName: target?.studentName ?? purchaseTarget!.studentName,
-          studentEmail: target?.email ?? purchaseTarget!.email,
-          code: otp,
-        });
-        if (!sent) {
-          console.error("[otp] verification email was not delivered; check Resend sender/domain settings");
-        } else {
-          console.info("[otp] verification email accepted by the configured provider");
-        }
-        return NextResponse.json(genericSend({ expiresAt, retryAfterSeconds: OTP_TTL_MIN * 60 }));
+      failureStage = "otp_hash_generation";
+      const otp = generateOtpCode();
+      const expiresAt = otpExpiry();
+      const otpHash = hashOtp(email, otp);
+      failureStage = "otp_storage";
+      await store.putOtp(email, otpHash, expiresAt);
+      failureStage = "email_delivery";
+      const sent = await sendBookingOtpEmail({
+        studentName: target?.studentName ?? purchaseTarget?.studentName ?? "there",
+        studentEmail: target?.email ?? purchaseTarget?.email ?? email,
+        code: otp,
+      });
+      if (!sent) {
+        console.error("[otp] verification email was not delivered; check Resend sender/domain settings");
       } else {
-        console.info("[otp] verification request had no eligible booking or package purchase");
+        console.info("[otp] verification email accepted by the configured provider");
       }
-      return NextResponse.json(genericSend({ expiresAt: otpExpiry(), retryAfterSeconds: OTP_TTL_MIN * 60 }));
+      // Sending on explicit request to any valid address lets inbox owners
+      // distinguish a mistyped/unbooked email only after verification. The
+      // send response remains identical regardless of booking eligibility.
+      return NextResponse.json(genericSend({ expiresAt, retryAfterSeconds: OTP_TTL_MIN * 60 }));
     }
 
     // verify / token both require the code.
