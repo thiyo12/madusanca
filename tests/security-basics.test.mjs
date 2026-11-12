@@ -317,6 +317,13 @@ test("add-on SQL accepts the full six-month local calendar day shown by the pick
   assert.match(migration, /v_old_limit/);
 });
 
+test("add-on checkout allows a date override when no weekly availability row exists", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0055_addon_overrides_without_weekly_rule.sql", import.meta.url), "utf8");
+  assert.ok(migration.indexOf("select * into v_override") < migration.indexOf("if v_rule.weekday is null"));
+  assert.match(migration, /if found then[\s\S]*v_start_min := v_override\.start_min/);
+  assert.match(migration, /else[\s\S]*if v_rule\.weekday is null then/);
+});
+
 test("Pacific booking times remain UTC-7 after British Columbia's final clock change", () => {
   const nineAm = zonedToUtc(2027, 1, 2, 9 * 60);
   assert.equal(nineAm.toISOString(), "2027-01-02T16:00:00.000Z");
