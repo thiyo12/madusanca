@@ -20,11 +20,11 @@ export function StripePackagePurchaseButton({ packages, disabled = false, onAvai
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ packages }),
       });
-      const result = await response.json() as { ok?: boolean; url?: string; error?: string };
+      const result = await response.json() as { ok?: boolean; url?: string; error?: string; failure?: string };
       if (!response.ok || !result.ok || !result.url) {
-        if (response.status === 409 && result.error?.includes("times was just taken")) {
+        if (response.status === 409 && ["availability_conflict", "reservation_conflict"].includes(result.failure ?? "")) {
           onAvailabilityConflict?.();
-          setError("One of those times is no longer available. The calendar has been refreshed; choose another time.");
+          setError(result.error ?? "One of the selected times is no longer available. The calendar has been refreshed; choose another time.");
         } else {
           setError(result.error ?? "Could not open secure checkout. Please try again.");
         }

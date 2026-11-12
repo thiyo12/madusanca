@@ -12,7 +12,7 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { packagePurchaseSchema } from "@/lib/validation/booking";
 import { occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
-import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
+import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +105,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         dateOverrides,
         now,
       });
-      if (!result.valid) return NextResponse.json({ ok: false, error: result.reason === "occupied" ? "One of those times was just taken. Choose another time." : "One of those times is no longer available. Review your selections." }, { status: 409 });
+      if (!result.valid) return NextResponse.json({
+        ok: false,
+        failure: result.reason === "occupied" ? "availability_conflict" : "availability_invalid",
+        error: result.reason === "occupied"
+          ? `The selected time ${formatSlotFull(start)} conflicts with a current booking or temporary hold.`
+          : `The selected time ${formatSlotFull(start)} no longer meets the booking rules (${result.reason}).`,
+      }, { status: 409 });
       selectedBusy.push({ startsAt: start, endsAt: new Date(startMs + occupiedDurationMin(item.lesson.durationMin) * 60_000).toISOString() });
     }
     const amountCad = Math.round(scheduleItems.reduce((sum, item) => sum + item.lesson.priceCad * item.quantity, 0) * 100) / 100;
@@ -204,7 +210,18 @@ export async function POST(request: Request): Promise<NextResponse> {
       await stripe.checkout.sessions.expire(session.id).catch((error: unknown) => logSafeError("[stripe/package-purchase] expired checkout after unavailable schedule", error));
       const conflict = created.error === "conflict";
       const notModifiable = created.error === "not_modifiable";
-      return NextResponse.json({ ok: false, error: conflict ? "One of those times was just taken. Choose another time." : notModifiable ? "Add-on packages are available when you have an active paid lesson." : "We couldn’t reserve those lesson times. Refresh My Booking and choose available times again." }, { status: 409 });
+      const invalidSchedule = created.error === "not_found";
+      return NextResponse.json({
+        ok: false,
+        failure: conflict ? "reservation_conflict" : invalidSchedule ? "reservation_invalid" : undefined,
+        error: conflict
+          ? "The selected times passed the availability check, but the final reservation found a conflict. Please send support the dates and times you selected."
+          : notModifiable
+            ? "Add-on packages are available when you have an active paid lesson."
+            : invalidSchedule
+              ? "The database rejected one of the selected times as outside the current booking window or schedule."
+              : "We couldn’t reserve those lesson times. Refresh My Booking and choose available times again.",
+      }, { status: 409 });
     }
     return NextResponse.json({ ok: true, url: session.url });
   } catch (error) {

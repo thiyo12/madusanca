@@ -197,6 +197,9 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(purchaseRoute, /session\.paymentStatus === "paid"/);
   assert.match(purchaseRoute, /getPackagePurchaseByToken\(tokenHash\)/);
   assert.match(purchaseRoute, /createScheduledPackagePurchaseBundle/);
+  assert.match(purchaseRoute, /availability_conflict/);
+  assert.match(purchaseRoute, /reservation_conflict/);
+  assert.match(purchaseButton, /result\.failure/);
   assert.match(purchaseRoute, /line_items: purchaseItems\.map/);
   assert.doesNotMatch(purchaseRoute, /Date\.parse\(session\.startsAt\).*48/);
   const store = readFileSync(new URL("../src/lib/booking/supabase-store.ts", import.meta.url), "utf8");
@@ -205,6 +208,9 @@ test("My Booking lets users add packages only after selecting all lesson times a
   const fileStore = readFileSync(new URL("../src/lib/booking/file-store.ts", import.meta.url), "utf8");
   assert.match(fileStore, /lesson\.sessionCount \* packageQuantity !== input\.creditsPurchased/);
   assert.match(purchaseRoute, /We couldn’t reserve those lesson times/);
+  const reservationMigration = readFileSync(new URL("../supabase/migrations/0054_preserve_addon_reservation_errors.sql", import.meta.url), "utf8");
+  assert.match(reservationMigration, /v_child_error := v_result->>'error'/);
+  assert.match(reservationMigration, /'conflict', 'not_found', 'not_modifiable'/);
   const manageRoute = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
   assert.match(manageRoute, /const canAddPackage = activePaidSessions\.length > 0/);
   assert.match(manageRoute, /addOnOptions/);
