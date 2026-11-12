@@ -196,7 +196,11 @@ export function BookingFind() {
       const result = await callOtp({ action: "token", code, reference });
       if (result.ok) {
         markManageSessionVerified();
-        router.push(`/booking/manage?selected=${encodeURIComponent(reference)}`);
+        // A full navigation makes the verification cookie available before the
+        // private manage page renders; the App Router cache can otherwise keep
+        // the pre-verification manage screen until a manual refresh.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.assign(`/booking/manage?selected=${encodeURIComponent(reference)}`);
         return;
       }
       setError(result.error ?? "Could not open that booking.");

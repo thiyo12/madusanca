@@ -114,6 +114,8 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
   assert.match(finder, /Add lessons to my booking/);
   assert.match(finder, /openBooking\(addOnBooking\.reference\)/);
+  assert.match(finder, /window\.location\.assign\(`\/booking\/manage\?selected=/);
+  assert.doesNotMatch(finder, /router\.push\(`\/booking\/manage/);
   assert.doesNotMatch(finder, /href="\/lessons"/);
   assert.match(otpRoute, /paymentStatus: booking\.paymentStatus/);
   assert.match(manage, /Add lessons to this booking/);
