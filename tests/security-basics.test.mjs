@@ -305,6 +305,12 @@ test("database booking guards accept the same date-specific windows and cadence 
   assert.doesNotMatch(migration, /not found or v_minute < v_rule\.start_min/);
 });
 
+test("add-on SQL accepts the full six-month local calendar day shown by the picker", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0053_addon_six_month_date_limit.sql", import.meta.url), "utf8");
+  assert.ok(migration.includes("(v_first at time zone ''America/Vancouver'')::date > ((v_now at time zone ''America/Vancouver'')::date + interval ''6 months'')::date"));
+  assert.match(migration, /v_old_limit/);
+});
+
 test("Pacific booking times remain UTC-7 after British Columbia's final clock change", () => {
   const nineAm = zonedToUtc(2027, 1, 2, 9 * 60);
   assert.equal(nineAm.toISOString(), "2027-01-02T16:00:00.000Z");
