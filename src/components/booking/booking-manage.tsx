@@ -8,7 +8,7 @@ import { BookingFind } from "@/components/booking/booking-find";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
-import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
+import { addMonthsToKey, dayKeyOf, formatSlotFull, todayKey } from "@/lib/booking/format";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import type { Lesson } from "@/lib/data/lessons";
 import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
@@ -652,7 +652,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
             {booking.addOnOptions!.map((option) => {
               const plan = addOnPlans[option.id];
               const sessionTotal = plan ? option.sessionCount * plan.quantity : 0;
-              const addOnWindowEnd = plan?.startsAt[0] ? addMonthsToKey(dayKeyOf(plan.startsAt[0]), 6) : undefined;
+              const addOnWindowEnd = plan?.startsAt[0]
+                ? addMonthsToKey(dayKeyOf(plan.startsAt[0]), 6)
+                : addMonthsToKey(todayKey(), 6);
               const addOnBlocked = plan?.startsAt.flatMap((startsAt, index) => startsAt && index !== plan.sessionIndex
                 ? [{ startsAt, durationMin: option.durationMin }]
                 : []) ?? [];
@@ -699,7 +701,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
                 selectedStart={plan.startsAt[plan.sessionIndex] ?? null}
                 minDate={plan.sessionIndex > 0 && plan.startsAt[plan.sessionIndex - 1] ? dayKeyOf(plan.startsAt[plan.sessionIndex - 1]) : undefined}
                 maxDate={addOnWindowEnd}
-                horizonDays={185}
+                horizonDays={370}
                 blockedStartsAt={addOnBlocked}
                 onSelect={(slot) => {
                   setAddOnPlans((current) => {

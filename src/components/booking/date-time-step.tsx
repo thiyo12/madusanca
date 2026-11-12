@@ -83,10 +83,15 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
         setStatus("ready");
         loaded = true;
         if (isInitialLoad) {
-          const firstDay = visibleSlots[0] ? dayKeyOf(visibleSlots[0]) : null;
-          if (firstDay) {
-            setVisibleMonth(firstDay.slice(0, 7));
-            setActiveDay(firstDay);
+          const selectedSlot = selectedStart ? new Date(selectedStart).toISOString() : null;
+          const initialDay = selectedSlot && visibleSlots.includes(selectedSlot)
+            ? dayKeyOf(selectedSlot)
+            : visibleSlots[0]
+              ? dayKeyOf(visibleSlots[0])
+              : null;
+          if (initialDay) {
+            setVisibleMonth(initialDay.slice(0, 7));
+            setActiveDay(initialDay);
           }
         }
       } catch {
@@ -115,7 +120,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [lessonId, maxDate, minDate, horizonDays]);
+  }, [lessonId, maxDate, minDate, horizonDays, selectedStart]);
 
   const availableSlots = useMemo(
     () => slots.filter((slot) => !blockedStartsAt.some((blocked) => {
@@ -144,10 +149,10 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
     const list: Array<{ key: string; count: number }> = [];
     for (let i = 0; i < horizonDays + 1; i += 1) {
       const key = addDaysToKey(start, i);
-      if ((!maxDate || key <= maxDate) && (!minDate || key >= minDate)) list.push({ key, count: counts.get(key) ?? 0 });
+      if (!maxDate || key <= maxDate) list.push({ key, count: counts.get(key) ?? 0 });
     }
     return list;
-  }, [availableSlots, maxDate, minDate, horizonDays]);
+  }, [availableSlots, maxDate, horizonDays]);
 
   const monthKeys = useMemo(() => Array.from(new Set(days.map((day) => day.key.slice(0, 7)))), [days]);
   const displayedMonth = monthKeys.includes(visibleMonth) ? visibleMonth : monthKeys[0] ?? visibleMonth;
