@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { preserveManageSessionForStripeReturn } from "@/lib/booking/manage-session-client";
 
-export function StripePackagePurchaseButton({ packages, disabled = false }: {
+export function StripePackagePurchaseButton({ packages, disabled = false, onAvailabilityConflict }: {
   packages: Array<{ lessonId: string; quantity: number; startsAt: string[] }>;
   disabled?: boolean;
+  onAvailabilityConflict?: () => void;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +22,12 @@ export function StripePackagePurchaseButton({ packages, disabled = false }: {
       });
       const result = await response.json() as { ok?: boolean; url?: string; error?: string };
       if (!response.ok || !result.ok || !result.url) {
-        setError(result.error ?? "Could not open secure checkout. Please try again.");
+        if (response.status === 409 && result.error?.includes("times was just taken")) {
+          onAvailabilityConflict?.();
+          setError("One of those times is no longer available. The calendar has been refreshed; choose another time.");
+        } else {
+          setError(result.error ?? "Could not open secure checkout. Please try again.");
+        }
         return;
       }
       preserveManageSessionForStripeReturn();

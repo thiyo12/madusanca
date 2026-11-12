@@ -722,7 +722,11 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </div>
           {selectedOptions.length > 0 && <>
             <p className="mt-3 text-[12px] font-bold text-soft">Checkout total: ${selectedOptions.reduce((sum, option) => sum + option.priceCad * addOnPlans[option.id]!.quantity, 0).toFixed(2)} CAD + applicable taxes</p>
-            <div className="mt-3"><StripePackagePurchaseButton packages={allScheduled} disabled={busy || scheduledCount !== totalLessons || totalLessons === 0} /></div>
+            <div className="mt-3"><StripePackagePurchaseButton
+              packages={allScheduled}
+              disabled={busy || scheduledCount !== totalLessons || totalLessons === 0}
+              onAvailabilityConflict={() => setAvailabilityRevision((revision) => revision + 1)}
+            /></div>
           </>}
         </section>;
       })()}
