@@ -10,6 +10,7 @@ interface LessonsEditorProps {
 
 export function LessonsEditor({ lessons }: LessonsEditorProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const section = (title: string, rows: Lesson[]) => (
     <section key={title} className="mt-6">
@@ -49,11 +50,28 @@ export function LessonsEditor({ lessons }: LessonsEditorProps) {
 
   return (
     <div>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-line bg-white p-4">
+        <div><h2 className="text-[14px] font-extrabold text-ink">Add a package or lesson</h2><p className="mt-1 text-[12px] text-soft">New catalogue options appear on the public lessons page and booking form after saving.</p></div>
+        <button type="button" onClick={() => { setAdding((value) => !value); setEditingId(null); }} className="btn-gold inline-flex h-10 items-center rounded-[10px] px-4 text-[12.5px] font-extrabold">{adding ? "Close form" : "+ Add package"}</button>
+      </div>
+      {adding && <div className="mt-3 rounded-[16px] border border-[#eadcb1] bg-[#fffdf7] p-4 sm:p-5"><h3 className="mb-4 text-[14px] font-extrabold text-ink">New catalogue option</h3><LessonForm lesson={newLesson} isNew onDone={() => setAdding(false)} /></div>}
       {section("Packages", packages)}
       {section("Skill modules", modules)}
     </div>
   );
 }
+
+const newLesson: Lesson = {
+  id: "",
+  name: "",
+  durationMin: 90,
+  sessionCount: 1,
+  priceCad: 0,
+  description: "",
+  features: [],
+  icon: "timer",
+  category: "package",
+};
 
 interface LessonRowProps {
   lesson: Lesson;

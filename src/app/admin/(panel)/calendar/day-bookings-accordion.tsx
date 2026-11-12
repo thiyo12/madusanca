@@ -1,28 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { StatusChip } from "@/components/admin/status-chip";
 import { BookingActions } from "../bookings/booking-actions";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
-import { adminStudentHref } from "@/lib/admin/urls";
-import { occupiedDurationMin } from "@/lib/booking/slots";
 import type { BookingStatus, PaymentStatus } from "@/lib/booking/types";
 import { saveTutorLessonReportAction } from "./actions";
-
-interface AppointmentHistory {
-  id: string;
-  lessonName: string;
-  startsAt: string;
-  status: BookingStatus;
-  sessionIndex?: number;
-  reference: string;
-}
+import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
+import type { TutorRubricScores, TutorSectionComments } from "@/lib/admin/tutor-report-rubric";
 
 interface BookingItem {
   id: string;
   reference: string;
-  lessonId: string;
   lessonName: string;
   durationMin: number;
   priceCad: number;
@@ -36,35 +25,32 @@ interface BookingItem {
   sessionIndex: number;
   sessionCount: number;
   packagePriceCad: number;
-  report: { assessment_date: string; vehicle_control: number | null; observation: number | null; intersections: number | null; lane_changes: number | null; speed_space: number | null; parking: number | null; hazard_awareness: number | null; notes: string; road_test_date: string | null; road_test_location: string | null; road_test_outcome: string | null } | null;
+  report: { assessment_date: string; vehicle_control: number | null; observation: number | null; intersections: number | null; lane_changes: number | null; speed_space: number | null; parking: number | null; hazard_awareness: number | null; notes: string; road_test_date: string | null; road_test_location: string | null; road_test_outcome: string | null; rubric_scores?: TutorRubricScores | null; section_comments?: TutorSectionComments | null } | null;
 }
 
 interface PackagePlan {
   lessonName: string;
-  reference: string;
   totalClasses: number;
+  completedClasses: number;
   remainingClasses: number;
-  paymentStatus: PaymentStatus;
-  sessions: AppointmentHistory[];
+  nextLessonAt: string | null;
 }
 
-interface AdditionalPackage {
-  id: string;
-  reference: string;
-  lessonName: string;
-  creditsPurchased: number;
-  creditsAvailable: number;
-  paymentStatus: string;
-  amountCad: number;
-  purchasedAt?: string;
-  sessions: AppointmentHistory[];
+interface StudentDetails {
+  dateOfBirth: string | null;
+  gender: string | null;
+  licenseNumber: string | null;
+  licenseClass: string;
+  street: string;
+  city: string;
+  province: string;
+  postalCode: string;
 }
 
 export interface DayBookingAccordionEntry {
   booking: BookingItem;
   packagePlan: PackagePlan;
-  additionalPackages: AdditionalPackage[];
-  bookingHistory: AppointmentHistory[];
+  studentDetails: StudentDetails | null;
 }
 
 export function DayBookingsAccordion({
@@ -72,11 +58,13 @@ export function DayBookingsAccordion({
   nowMs,
   initialOpenId = "",
   day,
+  view,
 }: {
   entries: DayBookingAccordionEntry[];
   nowMs: number;
   initialOpenId?: string;
   day: string;
+  view: "week" | "month";
 }) {
   const [openId, setOpenId] = useState(initialOpenId);
 
@@ -86,7 +74,7 @@ export function DayBookingsAccordion({
 
   return (
     <ul className="divide-y divide-line">
-      {entries.map(({ booking, packagePlan, additionalPackages, bookingHistory }) => {
+      {entries.map(({ booking, packagePlan, studentDetails }) => {
         const expanded = openId === booking.id;
         return (
           <li key={booking.id} id={`booking-${booking.id}`} className="scroll-mt-6 px-3 py-2 sm:px-4">
@@ -100,97 +88,78 @@ export function DayBookingsAccordion({
               <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
                 <span className="text-[14px] font-extrabold text-ink">{formatSlotTime(booking.startsAt)}</span>
                 <span className="truncate text-[14px] font-bold text-ink">{booking.studentName}</span>
-                <span className="text-[12px] text-soft">{booking.lessonName}</span>
+                <span className="text-[12px] text-soft">{booking.lessonName} · Class {booking.sessionIndex} of {booking.sessionCount}</span>
                 <StatusChip status={booking.status} />
               </span>
-              <span className="shrink-0 text-[12px] font-extrabold text-gold-deep">{expanded ? "Close −" : "Details +"}</span>
+              <span className="shrink-0 text-[12px] font-extrabold text-gold-deep">{expanded ? "Close −" : "Open details +"}</span>
             </button>
 
             {expanded && (
               <section id={`booking-details-${booking.id}`} className="grid gap-4 px-3 pb-4 pt-2 sm:px-4">
                 <div>
-                  <h3 className="text-[14px] font-extrabold text-ink">Class and student details</h3>
-                  <dl className="mt-2 grid gap-x-5 gap-y-2 text-[12.5px] sm:grid-cols-2 lg:grid-cols-3">
-                    <div><dt className="text-soft">Lesson</dt><dd className="font-bold text-ink">{booking.lessonName}</dd></div>
-                    <div><dt className="text-soft">Date and time</dt><dd className="font-bold text-ink">{formatSlotDay(booking.startsAt)} · {formatSlotTime(booking.startsAt)} Pacific</dd></div>
-                    <div><dt className="text-soft">Class / reserved time</dt><dd className="font-bold text-ink">{booking.durationMin} / {occupiedDurationMin(booking.durationMin)} minutes</dd></div>
-                    <div><dt className="text-soft">Payment</dt><dd className="font-bold text-ink">{booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : "Due"} · ${booking.priceCad.toFixed(2)} CAD</dd></div>
-                    <div><dt className="text-soft">Email</dt><dd className="break-all font-bold text-ink"><a href={`mailto:${booking.email}`} className="underline underline-offset-2">{booking.email}</a></dd></div>
-                    <div><dt className="text-soft">Phone</dt><dd className="font-bold text-ink">{booking.phone ? <a href={`tel:${booking.phone}`} className="underline underline-offset-2">{booking.phone}</a> : "Not recorded"}</dd></div>
-                    <div><dt className="text-soft">Reference</dt><dd className="font-bold text-ink">{booking.reference}</dd></div>
-                  </dl>
-                  {booking.notes && <details className="mt-3 text-[12px] text-soft"><summary className="cursor-pointer font-bold text-ink">Student notes / pickup details</summary><pre className="mt-2 whitespace-pre-wrap break-words font-sans leading-relaxed">{booking.notes}</pre></details>}
-                  <Link href={adminStudentHref(booking.id)} className="mt-3 inline-flex text-[12px] font-extrabold text-gold-deep underline underline-offset-2">Open full student record</Link>
+                  <div>
+                    <h3 className="text-[14px] font-extrabold text-ink">{booking.studentName} · {booking.lessonName}</h3>
+                    <p className="mt-1 text-[12px] font-semibold text-soft">{formatSlotDay(booking.startsAt)} at {formatSlotTime(booking.startsAt)} Pacific · {booking.durationMin} minutes</p>
+                    <p className="mt-1 text-[12px] text-soft"><a href={`mailto:${booking.email}`} className="underline underline-offset-2">{booking.email}</a>{booking.phone ? ` · ${booking.phone}` : ""}</p>
+                  </div>
+                  {studentDetails && <dl className="mt-3 grid gap-x-5 gap-y-2 rounded-lg bg-mist p-3 text-[11.5px] sm:grid-cols-2 lg:grid-cols-3">
+                    <div><dt className="text-soft">Date of birth</dt><dd className="font-semibold text-ink">{studentDetails.dateOfBirth || "Not recorded"}</dd></div>
+                    <div><dt className="text-soft">Gender</dt><dd className="font-semibold capitalize text-ink">{studentDetails.gender?.replaceAll("_", " ") || "Not recorded"}</dd></div>
+                    <div><dt className="text-soft">Driver’s licence</dt><dd className="font-semibold text-ink">{studentDetails.licenseNumber || "Not recorded"}{studentDetails.licenseClass ? ` · Class ${studentDetails.licenseClass}` : ""}</dd></div>
+                    <div><dt className="text-soft">Address</dt><dd className="font-semibold text-ink">{[studentDetails.street, studentDetails.city, studentDetails.postalCode].some(Boolean) ? [studentDetails.street, studentDetails.city, studentDetails.province, studentDetails.postalCode].filter(Boolean).join(", ") : "Not recorded"}</dd></div>
+                  </dl>}
                 </div>
+                {booking.notes && <details className="text-[12px] text-soft"><summary className="cursor-pointer font-bold text-ink">Notes</summary><pre className="mt-2 whitespace-pre-wrap break-words font-sans leading-relaxed">{booking.notes}</pre></details>}
 
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <section className="rounded-xl border border-line bg-white p-3 sm:p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div><h4 className="text-[13px] font-extrabold text-ink">Booked package</h4><p className="mt-0.5 text-[12px] text-soft">{packagePlan.lessonName} · Ref {packagePlan.reference}</p></div>
-                      <p className="rounded-full bg-gold-soft px-2.5 py-1 text-[11px] font-extrabold text-gold-deep">{packagePlan.remainingClasses} of {packagePlan.totalClasses} classes remaining</p>
-                    </div>
-                    <p className="mt-1 text-[11.5px] text-soft">Payment: {packagePlan.paymentStatus === "paid" ? "Paid" : packagePlan.paymentStatus === "refunded" ? "Refunded" : "Due"}</p>
-                    <ol className="mt-3 grid gap-1.5">
-                      {packagePlan.sessions.map((session) => (
-                        <li key={session.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-mist px-2.5 py-2 text-[11.5px]">
-                          <span className="font-bold text-ink">{session.sessionIndex ? `Class ${session.sessionIndex} · ` : ""}{formatSlotDay(session.startsAt)} · {formatSlotTime(session.startsAt)} · {session.lessonName}</span>
-                          <StatusChip status={session.status} />
-                        </li>
-                      ))}
-                    </ol>
-                  </section>
-
-                  <section className="rounded-xl border border-line bg-white p-3 sm:p-4">
-                    <h4 className="text-[13px] font-extrabold text-ink">Additional packages</h4>
-                    {additionalPackages.length === 0 ? <p className="mt-2 text-[12px] text-soft">No separate package purchases on this student account.</p> : (
-                      <ul className="mt-2 grid gap-2">
-                        {additionalPackages.map((purchase) => (
-                          <li key={purchase.id} className="rounded-lg bg-mist px-2.5 py-2">
-                            <p className="text-[12px] font-bold text-ink">{purchase.lessonName} · {purchase.creditsAvailable} of {purchase.creditsPurchased} credits left</p>
-                            <p className="mt-0.5 text-[11px] text-soft">{purchase.paymentStatus} · ${purchase.amountCad.toFixed(2)} CAD · {purchase.reference}{purchase.purchasedAt ? ` · bought ${formatSlotDay(purchase.purchasedAt)}` : ""}</p>
-                            {purchase.sessions.length > 0 ? <ol className="mt-2 grid gap-1">{purchase.sessions.map((session) => <li key={session.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-1.5 text-[11px]"><span className="font-semibold text-ink">{formatSlotDay(session.startsAt)} · {formatSlotTime(session.startsAt)} · {session.lessonName}</span><StatusChip status={session.status} /></li>)}</ol> : <p className="mt-1 text-[11px] text-soft">No lessons scheduled from this package yet.</p>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                </div>
-
-                <details className="rounded-xl border border-line bg-white px-3 py-2.5">
-                  <summary className="cursor-pointer text-[12px] font-extrabold text-ink">Booking history · {bookingHistory.length} class{bookingHistory.length === 1 ? "" : "es"}</summary>
-                  <ol className="mt-2 grid gap-1.5">
-                    {bookingHistory.map((session) => (
-                      <li key={session.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-mist px-2.5 py-2 text-[11.5px]">
-                        <span className="font-semibold text-ink">{session.lessonName} · {formatSlotDay(session.startsAt)} · {formatSlotTime(session.startsAt)} · Ref {session.reference}</span>
-                        <StatusChip status={session.status} />
-                      </li>
-                    ))}
-                  </ol>
-                  <p className="mt-2 text-[10.5px] text-soft">This lists recorded class dates and statuses. Earlier time changes are not stored in the booking record.</p>
-                </details>
+                <section className="rounded-xl border border-line bg-white p-3 sm:p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div><h4 className="text-[13px] font-extrabold text-ink">Selected package</h4><p className="mt-0.5 text-[12px] text-soft">{packagePlan.lessonName}</p></div>
+                    <p className="rounded-full bg-gold-soft px-2.5 py-1 text-[11px] font-extrabold text-gold-deep">{packagePlan.completedClasses} completed · {packagePlan.remainingClasses} remaining of {packagePlan.totalClasses}</p>
+                  </div>
+                  <p className="mt-2 text-[11.5px] text-soft"><strong className="text-ink">Next lesson:</strong> {packagePlan.nextLessonAt ? `${formatSlotDay(packagePlan.nextLessonAt)} · ${formatSlotTime(packagePlan.nextLessonAt)} Pacific` : "No next lesson scheduled"}</p>
+                </section>
 
                 <div className="border-t border-line pt-3">
-                  <p className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-soft">Tutor lesson report</p>
-                  <p className="mb-3 text-[11px] text-soft">School teaching assessment only—not an official ICBC score. Save a report before completing this lesson.</p>
-                  <form action={saveTutorLessonReportAction} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    <input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="day" value={day} />
-                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Report date<input required type="date" name="reportDate" defaultValue={booking.report?.assessment_date ?? day} className="rounded border p-2 text-ink" /></label>
-                    {([["vehicle","Vehicle control","vehicle_control"],["observation","Observation","observation"],["intersections","Intersections","intersections"],["laneChanges","Lane changes","lane_changes"],["speedSpace","Speed and space","speed_space"],["parking","Parking","parking"],["hazard","Hazard awareness","hazard_awareness"]] as const).map(([key,label,field]) => <label key={key} className="grid gap-1 text-[11px] font-semibold text-soft">{label}<select name={key} defaultValue={booking.report?.[field] ?? ""} className="rounded border bg-white p-2 text-ink"><option value="">Not rated</option>{[1,2,3,4,5].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>)}
-                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test date<input type="date" name="roadTestDate" defaultValue={booking.report?.road_test_date ?? ""} className="rounded border p-2 text-ink" /></label>
-                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Test location<input name="location" maxLength={120} defaultValue={booking.report?.road_test_location ?? ""} className="rounded border p-2 text-ink" /></label>
-                    <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test outcome<select name="outcome" defaultValue={booking.report?.road_test_outcome ?? ""} className="rounded border bg-white p-2 text-ink"><option value="">Not recorded</option><option value="passed">Passed</option><option value="not_passed">Not passed</option><option value="not_taken">Not taken</option></select></label>
-                    <label className="grid gap-1 text-[11px] font-semibold text-soft sm:col-span-2 lg:col-span-4">Tutor notes<textarea name="notes" maxLength={4000} rows={3} defaultValue={booking.report?.notes ?? ""} className="rounded border p-2 text-ink" /></label>
-                    <div className="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-4"><button className="btn-gold rounded-lg px-4 py-2 text-xs font-extrabold">{booking.report ? "Update saved report" : "Save lesson report"}</button>{booking.report && <span className="text-[11px] font-bold text-[#385a22]">Report saved · lesson can be completed</span>}</div>
-                  </form>
-                  <p className="mb-2 mt-4 text-[11px] font-extrabold uppercase tracking-wide text-soft">Manage this class</p>
-                  <BookingActions
+                   <details className="rounded-xl border border-line bg-white" open={booking.status === "completed" || Boolean(booking.report && !booking.report.rubric_scores)}>
+                     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 sm:px-4">
+                       <span><span className="block text-[12.5px] font-extrabold text-ink">Lesson report · Class {booking.sessionIndex} of {booking.sessionCount}</span><span className="mt-0.5 block text-[10.5px] text-soft">{booking.report?.rubric_scores ? "Saved" : "Not saved yet"}</span></span>
+                       <span className="text-[11px] font-bold text-gold-deep">Open / close</span>
+                     </summary>
+                     <div className="border-t border-line p-3 sm:p-4">
+                     <p className="mb-3 text-[11px] text-soft">Rate the skills practiced today from 1–10. Section comments and extra notes are optional. This is a school progress report, not an official road-test score.</p>
+                     {booking.report && !booking.report.rubric_scores && <p className="mb-3 rounded-lg bg-[#fff9e9] px-3 py-2 text-[11px] font-semibold text-[#735c1e]">This older report can be updated with skill ratings; its saved information will be kept.</p>}
+                     <form action={saveTutorLessonReportAction} className="grid gap-3">
+                     <input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="day" value={day} /><input type="hidden" name="view" value={view} />
+                     <label className="grid max-w-xs gap-1 text-[11px] font-semibold text-soft">Report date<input required type="date" name="reportDate" defaultValue={booking.report?.assessment_date ?? day} className="rounded border p-2 text-ink" /></label>
+                      {TUTOR_REPORT_RUBRIC.map((section) => (
+                        <details key={section.key} className="rounded-xl border border-line bg-white">
+                          <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-extrabold text-ink">{section.title} <span className="ml-1 text-[10px] font-normal text-soft">{section.items.length} skills</span></summary>
+                          <div className="border-t border-line p-3">
+                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                           {section.items.map((item) => <label key={item.key} className="grid gap-1 text-[11px] font-semibold text-soft">{item.label}<select required name={`score_${item.key}`} defaultValue={booking.report?.rubric_scores?.[item.key] ?? ""} className="min-h-10 rounded-lg border border-line bg-white px-2 text-ink"><option value="" disabled>Select 1–10</option>{Array.from({ length: 10 }, (_, index) => index + 1).map((score) => <option key={score} value={score}>{score}</option>)}</select></label>)}
+                         </div>
+                         <label className="mt-3 grid gap-1 text-[11px] font-semibold text-soft">Comment · {section.title}<textarea name={`comment_${section.key}`} maxLength={2000} rows={2} defaultValue={booking.report?.section_comments?.[section.key] ?? ""} placeholder={`Comment on ${section.title.toLowerCase()}…`} className="rounded-lg border border-line p-2 text-ink" /></label>
+                          </div>
+                        </details>
+                      ))}
+                     <div className="grid gap-2 sm:grid-cols-3">
+                       <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test date<input type="date" name="roadTestDate" defaultValue={booking.report?.road_test_date ?? ""} className="rounded border p-2 text-ink" /></label>
+                       <label className="grid gap-1 text-[11px] font-semibold text-soft">Test location<input name="location" maxLength={120} defaultValue={booking.report?.road_test_location ?? ""} className="rounded border p-2 text-ink" /></label>
+                       <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test outcome<select name="outcome" defaultValue={booking.report?.road_test_outcome ?? ""} className="rounded border bg-white p-2 text-ink"><option value="">Not recorded</option><option value="passed">Passed</option><option value="not_passed">Not passed</option><option value="not_taken">Not taken</option></select></label>
+                     </div>
+                     <label className="grid gap-1 text-[11px] font-semibold text-soft">Additional tutor notes<textarea name="notes" maxLength={4000} rows={3} defaultValue={booking.report?.notes ?? ""} className="rounded border p-2 text-ink" /></label>
+                      <div className="flex flex-wrap items-center gap-2"><button formNoValidate className="btn-gold rounded-lg px-4 py-2 text-xs font-extrabold">{booking.report ? "Save report" : "Save lesson report"}</button>{booking.report?.rubric_scores && <span className="text-[11px] font-bold text-[#385a22]">Saved · ready to mark complete</span>}</div>
+                    </form>
+                     </div>
+                   </details>
+                    <BookingActions
                     bookingId={booking.id}
-                    lessonId={booking.lessonId}
-                    status={booking.status}
-                    startsAt={booking.startsAt}
-                    paymentStatus={booking.paymentStatus}
+                     status={booking.status}
+                     startsAt={booking.startsAt}
+                     durationMin={booking.durationMin}
+                     paymentStatus={booking.paymentStatus}
                     nowMs={nowMs}
-                  />
+                   />
                 </div>
               </section>
             )}

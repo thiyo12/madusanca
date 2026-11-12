@@ -9,11 +9,12 @@ const uuid = z.uuid();
 const gender = z.enum(["woman","man","non_binary","another_identity","prefer_not_to_say"]).nullable();
 export async function saveStudentDetailsAction(form: FormData): Promise<void> {
   const admin = await requireAdmin("/admin/students");
-  const parsed = z.object({ studentId: uuid, bookingId: uuid, name: z.string().trim().min(1).max(160), email: z.email().max(160), phone: z.string().max(25), dob: z.iso.date().nullable(), gender, license: z.string().trim().min(4).max(32).nullable() }).safeParse({
+  const parsed = z.object({ studentId: uuid, bookingId: uuid, name: z.string().trim().min(1).max(160), email: z.email().max(160), phone: z.string().max(25), dob: z.iso.date().nullable(), gender, license: z.string().trim().min(4).max(32).nullable(), firstName: z.string().trim().max(30), lastName: z.string().trim().max(30), licenseClass: z.enum(["7L", "7N", "5", "Other"]).or(z.literal("")), street: z.string().trim().max(120), city: z.string().trim().max(60), province: z.literal("BC"), postalCode: z.string().trim().max(12) }).safeParse({
     studentId: form.get("studentId"), bookingId: form.get("bookingId"), name: form.get("name"), email: form.get("email"), phone: form.get("phone"), dob: String(form.get("dob") ?? "") || null, gender: String(form.get("gender") ?? "") || null, license: String(form.get("license") ?? "") || null,
+    firstName: form.get("firstName"), lastName: form.get("lastName"), licenseClass: form.get("licenseClass"), street: form.get("street"), city: form.get("city"), province: form.get("province"), postalCode: form.get("postalCode"),
   });
   if (!parsed.success) redirect(`/admin/students/${encodeURIComponent(String(form.get("bookingId") ?? ""))}?error=details`);
-  await updateStudentProfile(parsed.data.studentId, admin.userId, { full_name: parsed.data.name, email: parsed.data.email, phone: parsed.data.phone, date_of_birth: parsed.data.dob, gender: parsed.data.gender, license_number: parsed.data.license });
+  await updateStudentProfile(parsed.data.studentId, admin.userId, { full_name: parsed.data.name, email: parsed.data.email, phone: parsed.data.phone, date_of_birth: parsed.data.dob, gender: parsed.data.gender, license_number: parsed.data.license, first_name: parsed.data.firstName, last_name: parsed.data.lastName, license_class: parsed.data.licenseClass, street: parsed.data.street, city: parsed.data.city, province: parsed.data.province, postal_code: parsed.data.postalCode });
   revalidatePath("/admin/students"); revalidatePath(`/admin/students/${parsed.data.bookingId}`);
 }
 export async function linkStudentBookingAction(form: FormData): Promise<void> {

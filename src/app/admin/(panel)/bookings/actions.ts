@@ -7,7 +7,6 @@ import { requireAdmin } from "@/lib/auth/require-admin";
 import { getStore } from "@/lib/booking/store";
 import { dayKeyOf } from "@/lib/booking/format";
 import type { BookingRecord } from "@/lib/booking/types";
-import { validateSlot } from "@/lib/booking/slots";
 import { manageUrl, siteBase } from "@/lib/booking/urls";
 import { getStripe } from "@/lib/stripe/server";
 import {
@@ -55,6 +54,9 @@ export async function setBookingStatusAction(
   if (status === "no_show" && Date.parse(booking.startsAt) > Date.now()) {
     fail("A lesson can only be marked no-show after its scheduled start time.");
   }
+  if (status === "completed" && Date.parse(booking.startsAt) + booking.durationMin * 60_000 > Date.now()) {
+    redirect(`/admin/calendar?view=week&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}&error=${encodeURIComponent("A lesson can only be completed after its scheduled end time.")}`);
+  }
 
   if (status === "cancelled" || status === "completed") {
     const sameEmailBookings = await store.listBookings({ search: booking.email });
@@ -76,7 +78,7 @@ export async function setBookingStatusAction(
       : result.error === "not_modifiable"
         ? "This booking is closed and can no longer change."
         : "Could not update the booking.";
-    if (status === "completed") redirect(`/admin/calendar?view=day&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}&error=${encodeURIComponent(message)}`);
+    if (status === "completed") redirect(`/admin/calendar?view=week&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}&error=${encodeURIComponent(message)}`);
     fail(message);
   }
 
@@ -333,43 +335,24 @@ export async function rescheduleBookingAction(
   const endsAt = new Date(startMs + booking.durationMin * 60000).toISOString();
   const previousStartsAt = booking.startsAt;
 
-  const dayKey = dayKeyOf(startsAt);
-  const [rules, blackouts, busy, dateOverrides] = await Promise.all([
-    store.getRules(),
-    store.getBlackouts(),
-    store.getBusy(
-      new Date(startMs - 24 * 60 * 60 * 1000).toISOString(),
-      new Date(startMs + 48 * 60 * 60 * 1000).toISOString(),
-    ),
-    store.getDateOverrides(dayKey, dayKey),
-  ]);
-  const otherBusy = busy.filter(
-    (interval) => interval.startsAt !== booking.startsAt,
-  );
-  const validation = validateSlot(startsAt, {
-    lessonDurationMin: booking.durationMin,
-    busy: otherBusy,
-    blackouts,
-    rules,
-    dateOverrides,
-    now: new Date(),
-  });
-  if (!validation.valid) {
+  if (startMs <= Date.now()) return { error: "Choose a future date and time." };
+
+  let result;
+  try {
+    result = await store.adminRescheduleBooking(booking.id, startsAt, endsAt);
+  } catch (error) {
+    logSafeError("[admin/bookings] reschedule write failed", error);
     return {
-      error: validation.reason === "occupied"
-        ? "That time is already taken — pick another slot."
-        : "That time is no longer inside the available schedule. Choose another slot.",
+      error: "The database could not save this move. Confirm the latest Supabase calendar migration is applied, then try again.",
     };
   }
-
-  const result = await store.adminRescheduleBooking(booking.id, startsAt, endsAt);
   if (!result.ok) {
     return {
       error:
         result.error === "conflict"
-          ? "That time is already taken — pick another slot."
+          ? "That time overlaps another lesson. Choose a different time."
           : result.error === "not_modifiable"
-            ? "This booking is closed and can no longer change."
+            ? "The database rejected this time. Apply Supabase migration 0049_admin_flexible_calendar_times.sql to enable admin custom-time moves, and confirm the lesson is not completed or cancelled."
             : "Could not reschedule the booking.",
     };
   }

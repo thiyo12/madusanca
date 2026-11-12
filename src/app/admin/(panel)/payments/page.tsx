@@ -161,14 +161,22 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
             Test mode only: these are sandbox payments. Customers will not be charged real money.
           </p>
         )}
-        <div className="mt-4 flex flex-wrap gap-3">
-          <a href="/admin/payments/report?period=week" className="btn-gold inline-flex h-10 items-center rounded-[10px] px-4 text-[13px] font-extrabold">
-            Download this week (CSV)
-          </a>
-          <a href="/admin/payments/report?period=month" className="inline-flex h-10 items-center rounded-[10px] border border-line px-4 text-[13px] font-extrabold text-ink hover:bg-mist">
-            Download this month (CSV)
-          </a>
-        </div>
+        {mode === "unconfigured" || reportSessions === null ? (
+          <p className="mt-4 rounded-[10px] bg-mist px-3.5 py-3 text-[12px] leading-relaxed text-soft">
+            {mode === "unconfigured"
+              ? "Stripe is not configured in this environment, so online payment CSV downloads are unavailable. Booking, cash, and cheque records remain available below."
+              : "The Stripe payment report could not be reached, so CSV downloads are temporarily unavailable. Booking, cash, and cheque records remain available below; check the Stripe connection and try again."}
+          </p>
+        ) : (
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a href="/admin/payments/report?period=week" className="btn-gold inline-flex h-10 items-center rounded-[10px] px-4 text-[13px] font-extrabold">
+              Download this week (CSV)
+            </a>
+            <a href="/admin/payments/report?period=month" className="inline-flex h-10 items-center rounded-[10px] border border-line px-4 text-[13px] font-extrabold text-ink hover:bg-mist">
+              Download this month (CSV)
+            </a>
+          </div>
+        )}
       </section>
 
       <form method="GET" className="mt-6 flex flex-wrap items-end gap-3">

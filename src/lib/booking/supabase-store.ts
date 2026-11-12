@@ -328,6 +328,27 @@ export const supabaseStore: BookingStore = {
     return { ok: true, value: { ...toRecord(envelope.record), status: "pending_payment" } };
   },
 
+  async createAdminBooking(
+    input: CreateBookingInput,
+    token: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord>> {
+    const { data, error } = await adminClient().rpc("admin_create_calendar_booking", {
+      p_token_hash: token.hash,
+      p_token_expires_at: token.expiresAt,
+      p_lesson_id: input.lessonId,
+      p_starts_at: input.startsAt,
+      p_student_name: input.studentName,
+      p_email: input.email,
+      p_phone: input.phone,
+      p_notes: input.notes,
+    });
+    if (error) throw new Error(`Failed to create admin booking: ${error.message}`);
+    const envelope = data as RpcEnvelope<BookingRow>;
+    if (!envelope.ok) return { ok: false, error: envelope.error === "conflict" ? "conflict" : "not_found" };
+    if (!envelope.record) return { ok: false, error: "not_found" };
+    return { ok: true, value: toRecord(envelope.record) };
+  },
+
   async createBookingPackage(
     input: CreateBookingPackageInput,
     token: { hash: string; expiresAt: string },

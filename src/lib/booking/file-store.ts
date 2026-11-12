@@ -294,6 +294,33 @@ export const fileStore: BookingStore = {
     });
   },
 
+  createAdminBooking(
+    input: CreateBookingInput,
+    token: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord>> {
+    return withLock((): Promise<StoreResult<BookingRecord>> => {
+      const data = load();
+      const start = Date.parse(input.startsAt);
+      if (!Number.isFinite(start) || start <= Date.now() || !Number.isFinite(Date.parse(input.endsAt))) {
+        return Promise.resolve({ ok: false, error: "not_found" as const });
+      }
+      const end = occupiedEnd(input.startsAt, input.durationMin);
+      if (activeBookings(data).some((b) => overlaps(start, end, Date.parse(b.startsAt), occupiedEnd(b.startsAt, b.durationMin)))) {
+        return Promise.resolve({ ok: false, error: "conflict" as const });
+      }
+      const now = new Date().toISOString();
+      const booking: BookingRecord = {
+        id: randomUUID(), reference: makeReference(), packageId: randomUUID(), sessionIndex: 1, sessionCount: 1,
+        packagePriceCad: input.priceCad, packageWindowStart: dayKeyOf(input.startsAt), ...input,
+        status: "confirmed", paymentStatus: "due", stripeCheckoutAttempt: 0, createdAt: now, updatedAt: now,
+      };
+      data.bookings.push(booking);
+      data.tokens.push({ tokenHash: token.hash, bookingId: booking.id, expiresAt: token.expiresAt });
+      save(data);
+      return Promise.resolve({ ok: true, value: booking });
+    });
+  },
+
   createBookingPackage(
     input: CreateBookingPackageInput,
     token: { hash: string; expiresAt: string },

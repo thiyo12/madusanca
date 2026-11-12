@@ -32,6 +32,8 @@ import { generateSlots, HORIZON_DAYS, occupiedDurationMin, toVancouverDayKey, to
 import { manageUrl } from "../src/lib/booking/urls.ts";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "../src/lib/booking/manage-policy.ts";
 import { isLocalAdminBypassEnabled } from "../src/lib/auth/local-admin-bypass.ts";
+import { TUTOR_REPORT_ITEMS, TUTOR_REPORT_RUBRIC } from "../src/lib/admin/tutor-report-rubric.ts";
+import { studentSessionsComplete } from "../src/lib/admin/student-record-format.ts";
 
 test("manage tokens are random URL-safe values and only the hash should be persisted", () => {
   const token = generateToken();
@@ -609,6 +611,16 @@ test("admin student records require explicit booking links and protect licence s
   assert.match(migration, /student_assessments/);
 });
 
+test("overall student report unlocks only after every booked lesson is complete or cancelled", () => {
+  const lesson = (status) => ({ status });
+  assert.equal(studentSessionsComplete([]), false);
+  assert.equal(studentSessionsComplete([lesson("completed")]), true);
+  assert.equal(studentSessionsComplete([lesson("completed"), lesson("cancelled")]), true);
+  assert.equal(studentSessionsComplete([lesson("completed"), lesson("confirmed")]), false);
+  assert.equal(studentSessionsComplete([lesson("completed"), lesson("no_show")]), false);
+  assert.equal(studentSessionsComplete([lesson("cancelled")]), false);
+});
+
 test("payment actions return failures to Payments and keep cheque changes functional", () => {
   const actions = readFileSync(new URL("../src/app/admin/(panel)/bookings/actions.ts", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/app/admin/(panel)/payments/page.tsx", import.meta.url), "utf8");
@@ -670,8 +682,12 @@ test("admin student PDF contains session details and safely escapes PDF text", (
   assert.match(text, /123 Main St, Vancouver, BC/);
   assert.equal(text.includes("Driver \\(Training\\)"), true);
   assert.match(text, /CONFIDENTIAL - for authorized school administration only/);
-  assert.match(text, /Date of birth: 1990-01-01/);
-  assert.match(text, /Driver's licence number: BC123456/);
+  assert.match(text, /Date of birth/i);
+  assert.match(text, /1990-01-01/);
+  assert.match(text, /Driver's licence/i);
+  assert.match(text, /BC123456/);
+  assert.match(text, /\/Subtype \/Image/);
+  assert.doesNotMatch(text, /Licence class: 7L/);
 });
 
 test("verified customers can view completed booking history but cannot modify it", () => {
@@ -733,6 +749,43 @@ test("tutor reports gate lesson completion and course closure preserves unused s
   assert.match(migration, /where coalesce\(package_id,id\)=v_package_id and status not in \('cancelled','completed'\)/);
 });
 
+test("tutor lesson reports use the requested detailed 1–10 rubric and retain category comments in exports", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0048_detailed_tutor_report_rubric.sql", import.meta.url), "utf8");
+  const calendar = readFileSync(new URL("../src/app/admin/(panel)/calendar/day-bookings-accordion.tsx", import.meta.url), "utf8");
+  const scheduleGrid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
+  const action = readFileSync(new URL("../src/app/admin/(panel)/calendar/actions.ts", import.meta.url), "utf8");
+  const studentPage = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/page.tsx", import.meta.url), "utf8");
+  const csv = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/csv/route.ts", import.meta.url), "utf8");
+  const pdf = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/pdf/route.ts", import.meta.url), "utf8");
+  const calendarPage = readFileSync(new URL("../src/app/admin/(panel)/calendar/page.tsx", import.meta.url), "utf8");
+  assert.equal(TUTOR_REPORT_RUBRIC.length, 9);
+  assert.equal(TUTOR_REPORT_ITEMS.length, 32);
+  assert.equal(TUTOR_REPORT_RUBRIC[0].title, "Observation");
+  assert.equal(TUTOR_REPORT_RUBRIC.at(-1).title, "Choosing the Appropriate Pedal");
+  assert.match(calendar, /Rate the skills practiced today from 1–10/);
+  assert.match(calendar, /score_\$\{item\.key\}/);
+  assert.match(calendar, /comment_\$\{section\.key\}/);
+  assert.match(scheduleGrid, /block overflow-x-auto/);
+  assert.match(scheduleGrid, /pointer-events-auto relative border-t/);
+  assert.match(scheduleGrid, /minWidth: dayKeys\.length > 1 \? 900/);
+  assert.match(scheduleGrid, /className="hidden"/);
+  assert.match(scheduleGrid, /selectedRangeTop/);
+  assert.match(scheduleGrid, /selectedRange\.durationMin/);
+  assert.doesNotMatch(scheduleGrid, /Selected range:/);
+  assert.match(action, /z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(10\)/);
+  assert.match(migration, /rubric_scores jsonb/);
+  assert.match(migration, /section_comments jsonb/);
+  assert.match(studentPage, /report\.rubric_scores/);
+  assert.match(calendarPage, /nextLessonAt/);
+  assert.match(calendar, /Next lesson:/);
+  assert.doesNotMatch(calendar, /Student details<\/Link>/);
+  assert.match(studentPage, /studentSessionsComplete/);
+  assert.match(studentPage, /Download overall report PDF/);
+  assert.match(pdf, /studentSessionsComplete/);
+  assert.match(csv, /Skill ratings|rubricHeaders/);
+  assert.match(pdf, /assessment\.section_comments/);
+});
+
 test("passwordless admin bypass is limited to loopback hosts in development", () => {
   assert.equal(isLocalAdminBypassEnabled("development", "localhost:3010"), true);
   assert.equal(isLocalAdminBypassEnabled("development", "127.0.0.1:3010"), true);
@@ -758,4 +811,59 @@ test("cash payment and expired-hold validation apply only to the selected lesson
   assert.doesNotMatch(migration, /update public\.bookings[\s\S]{0,250}where coalesce\(package_id, id\)/);
   assert.match(fileStore, /paymentStatus === "paid"\s*\? \[booking\]/);
   assert.match(action, /This lesson’s unpaid hold expired and its time is no longer available/);
+});
+
+test("admin dashboard exposes manual booking and working payment and package management paths", () => {
+  const dashboard = readFileSync(new URL("../src/app/admin/(panel)/page.tsx", import.meta.url), "utf8");
+  const dashboardBooking = readFileSync(new URL("../src/app/admin/(panel)/dashboard-add-booking.tsx", import.meta.url), "utf8");
+  const bookingWizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
+  const adminBundleAction = readFileSync(new URL("../src/app/admin/(panel)/bookings/admin-bundle-action.ts", import.meta.url), "utf8");
+  const calendar = readFileSync(new URL("../src/app/admin/(panel)/calendar/page.tsx", import.meta.url), "utf8");
+  const lessonsEditor = readFileSync(new URL("../src/app/admin/(panel)/lessons/lessons-editor.tsx", import.meta.url), "utf8");
+  const lessonForm = readFileSync(new URL("../src/app/admin/(panel)/lessons/lesson-form.tsx", import.meta.url), "utf8");
+  const lessonAction = readFileSync(new URL("../src/app/admin/(panel)/lessons/actions.ts", import.meta.url), "utf8");
+  const stripeFulfillment = readFileSync(new URL("../src/lib/stripe/fulfill.ts", import.meta.url), "utf8");
+  const payments = readFileSync(new URL("../src/app/admin/(panel)/payments/page.tsx", import.meta.url), "utf8");
+  assert.match(dashboard, /<DashboardAddBooking lessons=/);
+  assert.match(dashboardBooking, /\+ Add booking/);
+  assert.match(dashboardBooking, /<BookingWizard lessons=\{lessons\} adminMode/);
+  assert.match(bookingWizard, /import \{ LessonStep \}/);
+  assert.match(bookingWizard, /import \{ DateTimeStep \}/);
+  assert.match(bookingWizard, /import \{ DetailsStep/);
+  assert.match(adminBundleAction, /store\.createBookingBundle\(/);
+  assert.match(adminBundleAction, /updateBookingStatus\(created\.value\[0\]\.id, "confirmed"\)/);
+  assert.match(dashboard, /href="\/admin\/payments" title="Payment reports"/);
+  assert.match(calendar, /DayBookingsAccordion entries=\{dayBookingEntries\}/);
+  assert.doesNotMatch(calendar, /Quick guide/);
+  assert.doesNotMatch(calendar, /\[\("week", "day", "month"\)/);
+  assert.match(dashboardBooking, /<BookingWizard lessons=\{lessons\} adminMode/);
+  assert.match(lessonsEditor, /\+ Add package/);
+  assert.match(lessonForm, /name="isNew"/);
+  assert.match(lessonAction, /store\.saveLesson\(/);
+  assert.match(stripeFulfillment, /handleStripeCheckoutEvent\(/);
+  assert.match(payments, /mode === "unconfigured"/);
+});
+
+test("admin calendar supports custom conflict-checked times and confirms moves before emailing", () => {
+  const calendarAction = readFileSync(new URL("../src/app/admin/(panel)/calendar/actions.ts", import.meta.url), "utf8");
+  const quickBook = readFileSync(new URL("../src/app/admin/(panel)/calendar/quick-book-dialog.tsx", import.meta.url), "utf8");
+  const scheduleGrid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
+  const monthGrid = readFileSync(new URL("../src/app/admin/(panel)/calendar/month-grid.tsx", import.meta.url), "utf8");
+  const bookingAction = readFileSync(new URL("../src/app/admin/(panel)/bookings/actions.ts", import.meta.url), "utf8");
+  const bookingActions = readFileSync(new URL("../src/app/admin/(panel)/bookings/booking-actions.tsx", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations/0049_admin_flexible_calendar_times.sql", import.meta.url), "utf8");
+  assert.match(calendarAction, /store\.createAdminBooking\(/);
+  assert.match(quickBook, /Choose any time you need/);
+  assert.match(scheduleGrid, /const SLOT_STEP_MIN = 10/);
+  assert.match(scheduleGrid, /Review change/);
+  assert.match(scheduleGrid, /Confirm move/);
+  assert.match(scheduleGrid, /Choose a future date and time/);
+  assert.match(scheduleGrid, /⚠ Past — mark complete or no-show/);
+  assert.match(monthGrid, /⚠ Needs update/);
+  assert.match(bookingAction, /That time overlaps another lesson/);
+  assert.match(bookingAction, /startMs <= Date\.now\(\)/);
+  assert.match(bookingActions, /min=\{dayKeyOf\(new Date\(currentNowMs\)/);
+  assert.match(bookingActions, /startsAt\.getTime\(\) > Date\.now\(\)/);
+  assert.match(migration, /public\.booking_overlaps\(p_starts_at, p_ends_at, v_target\.id\)/);
+  assert.match(migration, /set_config\('app\.admin_calendar_override', 'on', true\)/);
 });

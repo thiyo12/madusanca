@@ -48,7 +48,7 @@ export function QuickBookDialog({ dayKey, startMin, lessons, onClose }: QuickBoo
           <div>
             <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-gold-deep">Calendar booking</p>
             <h2 id="quick-book-title" className="mt-1.5 font-display text-xl font-extrabold text-ink">
-              Book {dayKey} at {time} Pacific
+              Add a lesson
             </h2>
           </div>
           <button
@@ -77,8 +77,10 @@ export function QuickBookDialog({ dayKey, startMin, lessons, onClose }: QuickBoo
           </div>
         ) : (
           <form action={formAction} className="mt-5 grid gap-3.5">
-            <input type="hidden" name="dayKey" value={dayKey} />
-            <input type="hidden" name="startMin" value={startMin} />
+            <div className="grid gap-3.5 sm:grid-cols-2">
+              <label className={labelClass}>Date<input type="date" name="dayKey" required defaultValue={dayKey} className={fieldClass} /></label>
+              <label className={labelClass}>Start time<input type="time" name="time" required defaultValue={time} step={60} className={fieldClass} /></label>
+            </div>
             <label className={labelClass}>
               Lesson package
               <select name="lessonId" required className={fieldClass} defaultValue={lessons[0]?.id ?? ""}>
@@ -108,7 +110,7 @@ export function QuickBookDialog({ dayKey, startMin, lessons, onClose }: QuickBoo
               </label>
             </div>
             <p className="text-[12px] leading-relaxed text-soft">
-              The server rechecks hours and conflicts before booking. A confirmation and private manage link are emailed to the student.
+              Choose any time you need. The calendar checks that it does not overlap another lesson. The student gets a confirmation email.
             </p>
             {state.message && (
               <p role="alert" className="rounded-[10px] bg-[#fff0ed] px-3 py-2.5 text-[12.5px] font-semibold text-[#bc4633]">

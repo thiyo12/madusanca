@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { saveLessonAction, type LessonFormState } from "./actions";
 import type { Lesson } from "@/lib/data/lessons";
 
@@ -11,9 +11,11 @@ const labelClass = "grid gap-1.5 text-[12px] font-bold text-[#282c33]";
 interface LessonFormProps {
   lesson: Lesson;
   onDone: () => void;
+  isNew?: boolean;
 }
 
-export function LessonForm({ lesson, onDone }: LessonFormProps) {
+export function LessonForm({ lesson, onDone, isNew = false }: LessonFormProps) {
+  const [lessonId, setLessonId] = useState(lesson.id);
   const [state, formAction, pending] = useActionState<LessonFormState, FormData>(
     saveLessonAction,
     null,
@@ -25,7 +27,8 @@ export function LessonForm({ lesson, onDone }: LessonFormProps) {
 
   return (
     <form action={formAction} className="grid gap-4">
-      <input type="hidden" name="id" value={lesson.id} />
+      <input type="hidden" name="id" value={isNew ? lessonId : lesson.id} />
+      {isNew && <input type="hidden" name="isNew" value="on" />}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className={`${labelClass} sm:col-span-2`}>
@@ -34,6 +37,7 @@ export function LessonForm({ lesson, onDone }: LessonFormProps) {
             type="text"
             name="name"
             defaultValue={lesson.name}
+            onChange={isNew ? (event) => setLessonId(event.currentTarget.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 64)) : undefined}
             required
             maxLength={80}
             className={inputClass}

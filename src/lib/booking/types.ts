@@ -320,6 +320,10 @@ export interface BookingStore {
     input: CreateBookingInput,
     token: { hash: string; expiresAt: string },
   ): Promise<StoreResult<BookingRecord>>;
+  createAdminBooking(
+    input: CreateBookingInput,
+    token: { hash: string; expiresAt: string },
+  ): Promise<StoreResult<BookingRecord>>;
   createBookingPackage(
     input: CreateBookingPackageInput,
     token: { hash: string; expiresAt: string },

@@ -109,3 +109,12 @@ h4 {
     transition-duration: 0.01ms !important;
   }
 }
+
+@keyframes calendar-focus-blink {
+  0%, 100% { background-color: #f1f3f5; box-shadow: 0 0 0 0 rgba(211, 164, 47, 0); }
+  50% { background-color: #fff3bd; box-shadow: 0 0 0 4px rgba(211, 164, 47, .48); }
+}
+
+.calendar-focus-blink {
+  animation: calendar-focus-blink .55s ease-in-out 3;
+}

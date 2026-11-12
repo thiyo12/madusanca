@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DateTimeStep } from "@/components/booking/date-time-step";
-import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
+import { dayKeyOf, formatSlotDay, formatSlotTime } from "@/lib/booking/format";
+import { toVancouverParts, zonedToUtc } from "@/lib/booking/slots";
 import type { BookingStatus } from "@/lib/booking/types";
 import {
   rescheduleBookingAction,
@@ -13,9 +13,9 @@ import {
 
 export interface BookingActionsProps {
   bookingId: string;
-  lessonId: string;
   status: BookingStatus;
   startsAt: string;
+  durationMin: number;
   paymentStatus: string;
   nowMs: number;
 }
@@ -23,16 +23,25 @@ export interface BookingActionsProps {
 const buttonBase =
   "inline-flex h-8 items-center rounded-[8px] px-3 text-[11.5px] font-extrabold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-50";
 
-export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }: BookingActionsProps) {
+export function BookingActions({ bookingId, status, startsAt, durationMin, nowMs }: BookingActionsProps) {
+  const [currentNowMs, setCurrentNowMs] = useState(nowMs);
   const [open, setOpen] = useState(false);
   const [pendingStart, setPendingStart] = useState<string | null>(null);
+  const [pendingLocal, setPendingLocal] = useState(() => vancouverDateTimeLocal(startsAt));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const closed = status === "cancelled" || status === "completed";
-  const canMarkNoShow = status !== "no_show" && Date.parse(startsAt) <= nowMs;
+  const canMarkNoShow = status !== "no_show" && Date.parse(startsAt) <= currentNowMs;
+  const canComplete = Date.parse(startsAt) + durationMin * 60_000 <= currentNowMs;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function submitReschedule() {
     if (!pendingStart) return;
+    if (!window.confirm(`Move this lesson to ${formatSlotDay(pendingStart)} at ${formatSlotTime(pendingStart)} Pacific Time? The student will receive an email.`)) return;
     setBusy(true);
     setError(null);
 
@@ -71,9 +80,11 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }:
       >
         <button
           type="submit"
-          className={`${buttonBase} border border-line bg-white text-ink hover:border-[#8fb8ff] hover:text-[#2f5590]`}
+          disabled={!canComplete}
+          title={canComplete ? "Mark this lesson complete" : "Available after the scheduled lesson ends"}
+          className={`${buttonBase} border border-line bg-white text-ink hover:border-[#8fb8ff] hover:text-[#2f5590] disabled:cursor-not-allowed disabled:opacity-50`}
         >
-          Complete
+          {canComplete ? "Mark complete" : "Complete after lesson"}
         </button>
       </form>}
       {canMarkNoShow && (
@@ -81,8 +92,8 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }:
           if (!confirm("Mark this student as a no-show? You can still reschedule the class afterward.")) return;
           await setBookingStatusAction(bookingId, "no_show");
         }}>
-          <button type="submit" className={`${buttonBase} border border-[#e6d2e8] bg-[#fbf4fc] text-[#7d3c85] hover:bg-[#f3e8f5]`}>
-            No-show
+          <button type="submit" title="Records a missed lesson; it does not charge or cancel the student." className={`${buttonBase} border border-[#e6d2e8] bg-[#fbf4fc] text-[#7d3c85] hover:bg-[#f3e8f5]`}>
+            Student didn’t attend
           </button>
         </form>
       )}
@@ -96,7 +107,7 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }:
           type="submit"
           className={`${buttonBase} border border-[#f3d1c9] bg-white text-[#bc4633] hover:bg-[#fff5f2]`}
         >
-          Cancel
+          Cancel lesson
         </button>
       </form>}
 
@@ -114,11 +125,12 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }:
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-gold-deep">
-                  Reschedule
+                  Move lesson
                 </p>
                 <h3 className="mt-1.5 font-display text-lg font-extrabold text-ink">
-                  Currently {formatSlotDay(startsAt)} at {formatSlotTime(startsAt)}
+                  Choose a new date and time
                 </h3>
+                <p className="mt-1 text-xs text-soft">Currently {formatSlotDay(startsAt)} at {formatSlotTime(startsAt)} Pacific</p>
               </div>
               <button
                 type="button"
@@ -134,13 +146,11 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }:
               </button>
             </div>
 
-            <div className="mt-4 max-h-[52vh] overflow-y-auto pr-1">
-              <DateTimeStep
-                lessonId={lessonId}
-                selectedStart={pendingStart}
-                onSelect={setPendingStart}
-              />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-[12px] font-bold text-ink">New date<input type="date" value={pendingLocal.slice(0, 10)} min={dayKeyOf(new Date(currentNowMs).toISOString())} onChange={(event) => updatePending(event.target.value, pendingLocal.slice(11, 16), setPendingLocal, setPendingStart)} className="h-10 rounded-lg border border-line bg-white px-3 text-sm" /></label>
+              <label className="grid gap-1.5 text-[12px] font-bold text-ink">New start time<input type="time" step={60} min={pendingLocal.slice(0, 10) === dayKeyOf(new Date(currentNowMs).toISOString()) ? minutesAsTime(toVancouverParts(new Date(currentNowMs + 60_000)).minutesOfDay) : undefined} value={pendingLocal.slice(11, 16)} onChange={(event) => updatePending(pendingLocal.slice(0, 10), event.target.value, setPendingLocal, setPendingStart)} className="h-10 rounded-lg border border-line bg-white px-3 text-sm" /></label>
             </div>
+            <p className="mt-2 text-[11px] text-soft">Choose a future date and time. Past times are unavailable; we’ll check for conflicts before saving.</p>
 
             {error && (
               <p role="alert" className="mt-4 rounded-lg bg-[#fff0ed] px-4 py-3 text-[13px] font-semibold text-[#bc4633]">
@@ -150,7 +160,7 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }:
 
             <div className="mt-5 flex flex-wrap gap-3 border-t border-line pt-4">
               <Button onClick={() => void submitReschedule()} disabled={!pendingStart || busy}>
-                {busy ? "Moving…" : "Move booking"}
+                {busy ? "Moving…" : "Confirm new time"}
               </Button>
               <Button
                 variant="ghost"
@@ -169,4 +179,26 @@ export function BookingActions({ bookingId, lessonId, status, startsAt, nowMs }:
       )}
     </div>
   );
+}
+
+function vancouverDateTimeLocal(iso: string): string {
+  const parts = toVancouverParts(new Date(iso));
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}T${minutesAsTime(parts.minutesOfDay)}`;
+}
+
+function updatePending(day: string, time: string, setLocal: (value: string) => void, setStart: (value: string | null) => void): void {
+  const [year, month, date] = day.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  if (!year || !month || !date || Number.isNaN(hour) || Number.isNaN(minute)) {
+    setLocal(`${day}T${time}`);
+    setStart(null);
+    return;
+  }
+  setLocal(`${day}T${time}`);
+  const startsAt = zonedToUtc(year, month, date, hour * 60 + minute);
+  setStart(startsAt.getTime() > Date.now() ? startsAt.toISOString() : null);
+}
+
+function minutesAsTime(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }

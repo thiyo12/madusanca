@@ -193,7 +193,7 @@ export default async function AdminBookingsPage({ searchParams }: BookingsPagePr
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      <Link href={`/admin/calendar?view=day&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}`} className="inline-flex rounded-lg border border-line px-3 py-2 text-[11px] font-extrabold text-ink hover:border-gold hover:text-gold-deep">Open in Calendar</Link>
+                      <Link href={`/admin/calendar?view=week&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}`} className="inline-flex rounded-lg border border-line px-3 py-2 text-[11px] font-extrabold text-ink hover:border-gold hover:text-gold-deep">Open in Calendar</Link>
                     </td>
                   </tr>
                 ))}

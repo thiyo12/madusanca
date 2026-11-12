@@ -10,11 +10,15 @@ import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-butto
 import { formatLessonPrice, type Lesson } from "@/lib/data/lessons";
 import { addMonthsToKey, dayKeyOf, formatSlotFull, formatSlotTime } from "@/lib/booking/format";
 import type { PackageQuantitySelection, ScheduledPackageSelection } from "@/lib/booking/types";
+import { createAdminBundleBooking } from "@/app/admin/(panel)/bookings/admin-bundle-action";
 
 export interface BookingWizardProps {
   lessons: Lesson[];
   initialLessonId?: string;
   paymentCancelled?: boolean;
+  adminMode?: boolean;
+  initialStartAt?: string;
+  onAdminDone?: () => void;
 }
 
 type StepKey = "lesson" | "when" | "preview" | "details" | "review";
@@ -79,13 +83,17 @@ function isSuccessData(value: unknown): value is SuccessData {
     Array.isArray(item.sessions) && item.sessions.every((entry) => entry && typeof entry.lessonName === "string" && typeof entry.startsAt === "string");
 }
 
-export function BookingWizard({ lessons, initialLessonId, paymentCancelled = false }: BookingWizardProps) {
+export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymentCancelled = false, adminMode = false, onAdminDone }: BookingWizardProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const [lesson, setLesson] = useState<Lesson | null>(() => {
     if (!initialLessonId) return null;
     return lessons.find((l) => l.id === initialLessonId) ?? null;
   });
-  const [scheduledStarts, setScheduledStarts] = useState<Record<string, string>>({});
+  const [scheduledStarts, setScheduledStarts] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    if (initialStartAt) initial["primary-0"] = initialStartAt;
+    return initial;
+  });
   const [packageQuantities, setPackageQuantities] = useState<Record<string, number>>({});
   const addOnPackages = useMemo(() => Object.entries(packageQuantities)
     .filter(([, quantity]) => quantity > 0)
@@ -101,7 +109,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
   const [holdExpiresAt, setHoldExpiresAt] = useState<string | null>(null);
   const [reservingTimes, setReservingTimes] = useState(false);
   const [success, setSuccess] = useState<SuccessData | null>(null);
-  const [draftReady, setDraftReady] = useState(false);
+  const [draftReady, setDraftReady] = useState(adminMode);
 
   const appointments = useMemo(() => {
     if (!lesson) return [];
@@ -144,6 +152,9 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
   const activeAppointmentIndex = Math.min(appointmentIndex, Math.max(appointments.length - 1, 0));
 
   useEffect(() => {
+    if (adminMode) {
+      return;
+    }
     const restore = window.setTimeout(() => {
       try {
         const savedReview = window.sessionStorage.getItem(BOOKING_REVIEW_KEY);
@@ -202,10 +213,10 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
       setDraftReady(true);
     }, 0);
     return () => window.clearTimeout(restore);
-  }, [lessons]);
+  }, [lessons, adminMode]);
 
   useEffect(() => {
-    if (!draftReady || success) return;
+    if (adminMode || !draftReady || success) return;
     const hasDraft = Boolean(lesson || Object.keys(packageQuantities).length || Object.keys(scheduledStarts).length ||
       details.firstName || details.lastName || details.studentName || details.dateOfBirth || details.gender || details.licenseNumber || details.email);
     if (!hasDraft) return;
@@ -244,7 +255,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
       setDetails(emptyDetails);
     }, BOOKING_DRAFT_TTL_MS);
     return () => window.clearTimeout(expiry);
-  }, [draftReady, success, stepIndex, lesson, packageQuantities, scheduledStarts, showAddOns, appointmentIndex, details, holdToken, holdExpiresAt]);
+  }, [adminMode, draftReady, success, stepIndex, lesson, packageQuantities, scheduledStarts, showAddOns, appointmentIndex, details, holdToken, holdExpiresAt]);
 
   const packageSchedules = useMemo<ScheduledPackageSelection[]>(() => {
     if (!lesson) return [];
@@ -291,6 +302,30 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
 
   async function goNext() {
     if (!canAdvance) return;
+    if (step === "lesson" && adminMode && initialStartAt && lesson?.sessionCount === 1 && appointments.length === 1) {
+      setReservingTimes(true);
+      setSubmitError(null);
+      try {
+        const response = await fetch("/api/bookings/hold", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packageSchedules }),
+        });
+        const result = await response.json() as { ok?: boolean; error?: string; holdToken?: string; expiresAt?: string };
+        if (!response.ok || !result.ok || !result.holdToken || !result.expiresAt) {
+          setSubmitError(result.error ?? "Could not reserve the selected time. Please try another time.");
+          return;
+        }
+        setHoldToken(result.holdToken);
+        setHoldExpiresAt(result.expiresAt);
+        setStepIndex(STEPS.findIndex((item) => item.key === "preview"));
+      } catch {
+        setSubmitError("Could not reserve the selected time. Check your connection and try again.");
+      } finally {
+        setReservingTimes(false);
+      }
+      return;
+    }
     if (step === "when") {
       setReservingTimes(true);
       setSubmitError(null);
@@ -391,6 +426,53 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
     setSubmitting(true);
     setSubmitError(null);
     try {
+      if (adminMode) {
+        const result = await createAdminBundleBooking({
+          packageSchedules,
+          holdToken,
+          studentName: details.studentName.trim(),
+          email: details.email.trim(),
+          phone: details.phone.trim(),
+          dateOfBirth: details.dateOfBirth,
+          gender: details.gender,
+          licenseNumber: details.licenseNumber.trim(),
+          firstName: details.firstName.trim(),
+          lastName: details.lastName.trim(),
+          licenseClass: details.licenseClass,
+          street: details.street.trim(),
+          city: details.city.trim(),
+          province: details.province,
+          postalCode: details.postalCode.trim(),
+          notes: details.notes.trim(),
+          consent: details.consent,
+        });
+        if (!result.ok || !result.booking || !result.manageToken) {
+          setSubmitError(result.error ?? "Could not create the booking. Please try again.");
+          return;
+        }
+        const adminSuccess: SuccessData = {
+          reference: result.booking.reference,
+          manageToken: result.manageToken,
+          lessonName: result.booking.lessonName,
+          durationMin: result.booking.durationMin,
+          startsAt: result.booking.startsAt,
+          studentName: result.booking.studentName,
+          email: result.booking.email,
+          priceCad: result.booking.priceCad,
+          emailSent: result.emailSent,
+          addOnPackages,
+          addOns: addOnPackages.flatMap((selection) => {
+            const selected = lessons.find((item) => item.id === selection.lessonId);
+            return selected ? [{ id: selected.id, name: selected.name, priceCad: selected.priceCad, sessionCount: selected.sessionCount, quantity: selection.quantity }] : [];
+          }),
+          sessions: appointments.map((item) => ({ lessonName: item.lessonName, startsAt: scheduledStarts[item.key] })).filter((item): item is { lessonName: string; startsAt: string } => Boolean(item.startsAt)),
+        };
+        setHoldToken(null);
+        setHoldExpiresAt(null);
+        setSuccess(adminSuccess);
+        return;
+      }
+
       const response = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -488,27 +570,29 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           ✓
         </span>
         <h2 className="mt-4 font-display text-2xl font-extrabold text-ink">
-          Booking request saved
+          {adminMode ? "Admin booking created" : "Booking request saved"}
         </h2>
-        {paymentCancelled && (
+        {adminMode ? (
+          <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">The lesson time is confirmed and payment is still due. Record the payment on the Admin Payments page when received.</p>
+        ) : paymentCancelled && (
           <p role="status" className="mt-2 rounded-[12px] bg-white px-3.5 py-2.5 text-[13px] font-semibold leading-relaxed text-[#31543a]">
             Payment wasn&rsquo;t completed. Your saved booking details are still here; you can return to secure checkout when ready.
           </p>
         )}
-        {success.emailSent === true ? (
+        {!adminMode && success.emailSent === true ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
             Booking and payment details were sent to <strong>{details.email.trim()}</strong>. Payment is required to confirm the booking. Your selected time is held for 20 minutes.
           </p>
-        ) : success.emailSent === false ? (
+        ) : !adminMode && success.emailSent === false ? (
           <p role="alert" className="mt-2 rounded-[12px] bg-[#eaf5df] px-3.5 py-2.5 text-[13px] leading-relaxed text-[#31543a]">
             Your booking request is saved, but we couldn&rsquo;t deliver the booking details to{" "}
             <strong>{details.email.trim()}</strong>. Save your reference below and use My Booking with your email and verification code, or call Shan at +1 236-234-3229 for help.
           </p>
-        ) : (
+        ) : !adminMode ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
             Your booking request is saved. We’ll email you when payment confirms your lesson; no email is sent for an unconfirmed request.
           </p>
-        )}
+        ) : null}
         <BookingSummary
           className="mt-5 bg-white"
           reference={success.reference}
@@ -535,19 +619,28 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
               {success.addOns.map((item) => <li key={item.id} className="flex justify-between gap-3"><span className="text-soft">{item.name} × {item.quantity} · {item.sessionCount * item.quantity} lessons</span><strong className="text-ink">${(item.priceCad * item.quantity).toFixed(2)} CAD</strong></li>)}
               <li className="flex justify-between gap-3 border-t border-line pt-2 font-extrabold"><span>Subtotal</span><span>${(success.priceCad + success.addOns.reduce((sum, item) => sum + item.priceCad * item.quantity, 0)).toFixed(2)} CAD</span></li>
             </ul>
-            <p className="mt-2 text-[11px] text-soft">Applicable tax will be calculated and shown by Stripe Checkout before payment.</p>
+            <p className="mt-2 text-[11px] text-soft">{adminMode ? "No card payment is taken for an admin-created booking. Record payment separately when received." : "Applicable tax will be calculated and shown by Stripe Checkout before payment."}</p>
           </section>
         )}
         <div className="mt-5 flex flex-wrap gap-3">
-          <StripeCheckoutButton manageToken={success.manageToken} addOnPackages={success.addOnPackages} />
-          <Button href="/lessons" variant="outline" onClick={() => {
-            try { window.sessionStorage.removeItem(BOOKING_REVIEW_KEY); } catch { /* Ignore disabled storage. */ }
-          }}>
-            Back to lessons
-          </Button>
+          {adminMode ? (
+            <>
+              <Button href="/admin/payments" variant="outline">Go to payments</Button>
+              <Button onClick={() => onAdminDone?.()}>Done</Button>
+            </>
+          ) : (
+            <>
+              <StripeCheckoutButton manageToken={success.manageToken} addOnPackages={success.addOnPackages} />
+              <Button href="/lessons" variant="outline" onClick={() => {
+                try { window.sessionStorage.removeItem(BOOKING_REVIEW_KEY); } catch { /* Ignore disabled storage. */ }
+              }}>
+                Back to lessons
+              </Button>
+            </>
+          )}
         </div>
           <p className="mt-4 text-[12.5px] leading-relaxed text-[#616872]">
-          Your selected time is held for 20 minutes. Start secure card checkout above before the hold expires; the time stays reserved while checkout is open. If you plan to pay cash, contact the tutor to confirm availability. To manage a paid booking, request an email code from My Booking. Please bring your valid driver&rsquo;s licence.
+          {adminMode ? "Payment is not taken here. Record cash, cheque, or another payment method in Admin Payments after it is received. Please bring the student’s valid driver’s licence." : "Your selected time is held for 20 minutes. Start secure card checkout above before the hold expires; the time stays reserved while checkout is open. If you plan to pay cash, contact the tutor to confirm availability. To manage a paid booking, request an email code from My Booking. Please bring your valid driver’s licence."}
         </p>
       </div>
     );
@@ -596,7 +689,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           <LessonStep lessons={lessons} selectedId={lesson?.id ?? null} onSelect={(selected) => {
             setLesson(selected);
             setPackageQuantities({});
-            setScheduledStarts({});
+            setScheduledStarts(initialStartAt ? { "primary-0": initialStartAt } : {});
             setAppointmentIndex(0);
           }} />
           {lesson && (
@@ -769,7 +862,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
                 })}
                 <li className="flex justify-between gap-3 border-t border-line pt-3 font-extrabold"><span>Estimated subtotal</span><span>{formatLessonPrice(lesson.priceCad + addOnPackages.reduce((sum, selection) => sum + (lessons.find((item) => item.id === selection.lessonId)?.priceCad ?? 0) * selection.quantity, 0))}</span></li>
               </ul>
-              <p className="mt-3 text-[11px] leading-relaxed text-soft">Applicable taxes are calculated and shown before payment. No payment is taken on this preview page.</p>
+              <p className="mt-3 text-[11px] leading-relaxed text-soft">{adminMode ? "No card payment is taken for an admin-created booking. Record payment separately when received." : "Applicable taxes are calculated and shown before payment. No payment is taken on this preview page."}</p>
             </section>
           </div>
 
@@ -832,8 +925,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           </section>
           <div className="mt-4 space-y-2 text-[13px] leading-relaxed text-soft">
             <p>
-              Your selected lesson times are temporarily held for 20 minutes. Confirm now to complete the booking. Your confirmation email links to My Booking,
-              where you must verify your email before viewing or changing bookings.
+              {adminMode ? "Your selected lesson times are temporarily held for 20 minutes. Confirm the booking now; payment stays due until received and recorded by the school." : "Your selected lesson times are temporarily held for 20 minutes. Confirm now to complete the booking. Your confirmation email links to My Booking, where you must verify your email before viewing or changing bookings."}
             </p>
             {appointments.length > 1 ? (
               <div>
@@ -856,7 +948,7 @@ export function BookingWizard({ lessons, initialLessonId, paymentCancelled = fal
           )}
           <div className="mt-6 flex flex-wrap gap-3">
             <Button onClick={confirmBooking} disabled={submitting} className="w-full sm:w-auto">
-              {submitting ? "Confirming…" : "Confirm booking"}
+              {submitting ? "Confirming…" : adminMode ? "Confirm admin booking" : "Confirm booking"}
             </Button>
             <Button variant="outline" onClick={async () => { await releaseCurrentHold(); setSubmitError(null); setStepIndex(1); setAppointmentIndex(0); }} disabled={submitting}>
               Change date / time

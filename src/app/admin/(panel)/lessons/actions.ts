@@ -39,19 +39,25 @@ export async function saveLessonAction(
 
   try {
     const store = getStore();
-    const existing = (await store.getLessons()).find((l) => l.id === parsed.data.id);
-    if (!existing) {
-      return { ok: false, message: "Lesson not found — catalogue changed, reload the page." };
+    const lessons = await store.getLessons();
+    const existing = lessons.find((lesson) => lesson.id === parsed.data.id);
+    const creating = formData.get("isNew") === "on";
+    if (creating && existing) {
+      return { ok: false, message: "That package ID is already in use. Change the name and try again." };
     }
+    if (!creating && !existing) return { ok: false, message: "Lesson not found — catalogue changed, reload the page." };
 
-    await store.saveLesson({ ...existing, ...parsed.data });
+    await store.saveLesson({
+      ...(existing ?? { icon: "timer" as const }),
+      ...parsed.data,
+    });
 
     revalidatePath("/admin/lessons");
     revalidatePath("/");
     revalidatePath("/lessons");
     return {
       ok: true,
-      message: `${parsed.data.name} saved — homepage, lessons page and booking wizard now show it.`,
+      message: `${parsed.data.name} ${creating ? "added" : "saved"} — homepage, lessons page and booking wizard now show it.`,
     };
   } catch (error) {
     logSafeError("[admin/lessons] save failed", error);

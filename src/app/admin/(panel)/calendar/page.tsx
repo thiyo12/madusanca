@@ -6,19 +6,18 @@ import {
   addDaysToKey,
   dayKeyOf,
   monthLabel,
-  weekdayLabel,
 } from "@/lib/booking/format";
 import { CHIP_TONES, MonthGrid, href, type CalendarFilters } from "./month-grid";
 import { ScheduleGrid } from "./schedule-grid";
 import { DayBookingsAccordion, type DayBookingAccordionEntry } from "./day-bookings-accordion";
 import { searchStudentByLicenseAction } from "./actions";
-import { assessmentForBooking } from "@/lib/admin/student-profiles";
+import { assessmentForBooking, studentForBooking } from "@/lib/admin/student-profiles";
 
 export const metadata: Metadata = {
   title: "Calendar — Wisdom Driving Academy Admin",
 };
 
-type View = "month" | "week" | "day";
+type View = "month" | "week";
 
 interface CalendarPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -27,12 +26,7 @@ interface CalendarPageProps {
 function todayAndTimestamp(): { dayKey: string; nowMs: number } {
   const now = new Date();
   return {
-    dayKey: new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Vancouver",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    }).format(now),
+    dayKey: dayKeyOf(now.toISOString()),
     nowMs: now.getTime(),
   };
 }
@@ -75,11 +69,11 @@ function isoSpan(fromDay: string, toDay: string): { fromIso: string; toIso: stri
 }
 
 const LEGEND = [
-  { tone: CHIP_TONES.confirmed, label: "Confirmed" },
-  { tone: CHIP_TONES.rescheduled, label: "Rescheduled" },
-  { tone: CHIP_TONES.no_show, label: "No-show" },
-  { tone: CHIP_TONES.completed, label: "Completed" },
-  { tone: CHIP_TONES.cancelled, label: "Cancelled" },
+  { tone: CHIP_TONES.confirmed, label: "Booked", title: "Lesson is scheduled" },
+  { tone: CHIP_TONES.rescheduled, label: "Moved", title: "Lesson time was changed" },
+  { tone: CHIP_TONES.no_show, label: "Student missed", title: "Records that the student did not attend" },
+  { tone: CHIP_TONES.completed, label: "Completed", title: "Lesson took place" },
+  { tone: CHIP_TONES.cancelled, label: "Cancelled", title: "Booking was cancelled" },
 ];
 
 export default async function AdminCalendarPage({ searchParams }: CalendarPageProps) {
@@ -87,7 +81,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
 
   const { dayKey: today, nowMs } = todayAndTimestamp();
   const viewParam = typeof params.view === "string" ? params.view : "week";
-  const view: View = viewParam === "month" || viewParam === "day" ? viewParam : "week";
+  const view: View = viewParam === "month" ? "month" : "week";
   const dateParam = typeof params.date === "string" ? params.date : "";
   const anchor = isValidKey(dateParam) ? dateParam : today;
   const query = typeof params.q === "string" ? params.q.trim() : "";
@@ -101,15 +95,12 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
     : undefined;
   const filters: CalendarFilters = { q: query || undefined, status };
 
-  const bounds =
-    view === "month"
-      ? monthBounds(anchor)
-      : view === "week"
-        ? (() => {
-            const from = startOfWeek(anchor);
-            return { from, to: addDaysToKey(from, 6) };
-          })()
-        : { from: anchor, to: anchor };
+  const bounds = view === "month"
+    ? monthBounds(anchor)
+    : (() => {
+        const from = startOfWeek(anchor);
+        return { from, to: addDaysToKey(from, 6) };
+      })();
 
   const { fromIso, toIso } = isoSpan(bounds.from, bounds.to);
   const store = getStore();
@@ -132,99 +123,35 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
   }
   const bookingsByDay = Object.fromEntries(byDay.entries());
 
-  // Grid hours follow the configured opening hours (Vancouver wall clock).
-  const startHour = rules.length > 0 ? Math.floor(Math.min(...rules.map((r) => r.startMin)) / 60) : 9;
-  const endHour = rules.length > 0 ? Math.ceil(Math.max(...rules.map((r) => r.endMin)) / 60) : 18;
+  // Extend beyond normal hours so custom admin start times are visible.
+  const startHour = rules.length > 0 ? Math.max(0, Math.floor(Math.min(...rules.map((r) => r.startMin)) / 60) - 2) : 7;
+  const endHour = rules.length > 0 ? Math.min(24, Math.ceil((Math.max(...rules.map((r) => r.endMin)) + 120) / 60)) : 20;
 
-  const shift =
-    view === "month"
-      ? addMonths(anchor, -1)
-      : view === "week"
-        ? addDaysToKey(anchor, -7)
-        : addDaysToKey(anchor, -1);
-  const next =
-    view === "month"
-      ? addMonths(anchor, 1)
-      : view === "week"
-        ? addDaysToKey(anchor, 7)
-        : addDaysToKey(anchor, 1);
+  const shift = view === "month" ? addMonths(anchor, -1) : addDaysToKey(anchor, -7);
+  const next = view === "month" ? addMonths(anchor, 1) : addDaysToKey(anchor, 7);
 
-  const title =
-    view === "month"
-      ? monthLabel(`${anchor.slice(0, 7)}-01`)
-      : view === "week"
-        ? `Schedule · week of ${monthLabel(bounds.from)}`
-        : monthLabel(anchor);
+  const title = view === "month" ? monthLabel(`${anchor.slice(0, 7)}-01`) : `Schedule · week of ${monthLabel(bounds.from)}`;
 
-  const dayBookings = byDay.get(anchor) ?? [];
   const weekKeys = Array.from({ length: 7 }, (_, index) => addDaysToKey(bounds.from, index));
   const dayBookingEntries: DayBookingAccordionEntry[] = [];
-  if (view === "day" && dayBookings.length > 0) {
-    const historyByEmail = new Map<string, Promise<{ bookings: BookingRecord[]; purchases: Awaited<ReturnType<typeof store.findPackagePurchasesByEmail>> }>>();
-    for (const booking of dayBookings) {
-      const email = booking.email.trim().toLowerCase();
-      if (!historyByEmail.has(email)) {
-        historyByEmail.set(email, Promise.all([
-          store.listBookings({ search: email }),
-          store.findPackagePurchasesByEmail(email),
-        ]).then(([studentBookings, purchases]) => ({
-          bookings: studentBookings.filter((item) => item.email.trim().toLowerCase() === email),
-          purchases,
-        })));
-      }
-    }
-    const loadedHistory = new Map(await Promise.all([...historyByEmail].map(async ([email, result]) => [email, await result] as const)));
-    const purchaseBookings = new Map<string, Promise<BookingRecord[]>>();
-    const loadPurchaseBookings = (purchaseId: string) => {
-      let result = purchaseBookings.get(purchaseId);
-      if (!result) {
-        result = store.findBookingsByPurchaseId(purchaseId);
-        purchaseBookings.set(purchaseId, result);
-      }
-      return result;
-    };
-    for (const booking of dayBookings) {
-      const email = booking.email.trim().toLowerCase();
-      const studentData = loadedHistory.get(email)!;
-      const bookingHistory = studentData.bookings.map((item) => ({
-        id: item.id,
-        lessonName: item.lessonName,
-        startsAt: item.startsAt,
-        status: item.status,
-        sessionIndex: item.sessionIndex,
-        reference: item.reference,
-      })).sort((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt));
-      const packageId = booking.packageId ?? booking.id;
-      const packageSessions = studentData.bookings
-        .filter((item) => (item.packageId ?? item.id) === packageId && item.lessonId === booking.lessonId)
-        .sort((a, b) => (a.sessionIndex ?? 1) - (b.sessionIndex ?? 1));
-      const packageAnchor = packageSessions[0] ?? booking;
-      const paymentStatus = packageAnchor.paymentStatus ?? "due";
-      const appointmentHistoryFor = (items: BookingRecord[]) => items.map((item) => ({
-        id: item.id,
-        lessonName: item.lessonName,
-        startsAt: item.startsAt,
-        status: item.status,
-        sessionIndex: item.sessionIndex,
-        reference: item.reference,
-      })).sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
-      const additionalPackages = await Promise.all(studentData.purchases.map(async (purchase) => ({
-        id: purchase.id,
-        reference: purchase.reference,
-        lessonName: purchase.lessonName,
-        creditsPurchased: purchase.creditsPurchased,
-        creditsAvailable: purchase.creditsAvailable,
-        paymentStatus: purchase.paymentStatus,
-        amountCad: purchase.amountCad,
-        purchasedAt: purchase.purchasedAt,
-        sessions: appointmentHistoryFor(await loadPurchaseBookings(purchase.id)),
-      })));
-
-      dayBookingEntries.push({
-        booking: {
+  const selectedBooking = selectedBookingId ? bookings.find((booking) => booking.id === selectedBookingId) : undefined;
+  if (selectedBooking) {
+    const email = selectedBooking.email.trim().toLowerCase();
+    const studentBookings = (await store.listBookings({ search: email }))
+      .filter((item) => item.email.trim().toLowerCase() === email);
+    const booking = selectedBooking;
+    const packageId = booking.packageId ?? booking.id;
+    const packageSessions = studentBookings
+      .filter((item) => (item.packageId ?? item.id) === packageId && item.lessonId === booking.lessonId);
+    const packageAnchor = packageSessions.find((item) => item.sessionIndex === 1) ?? booking;
+    const nextLesson = packageSessions
+      .filter((item) => item.startsAt > booking.startsAt && ["confirmed", "rescheduled", "pending_payment"].includes(item.status))
+      .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))[0];
+    const profile = await studentForBooking(booking.id);
+    dayBookingEntries.push({
+      booking: {
           id: booking.id,
           reference: booking.reference,
-          lessonId: booking.lessonId,
           lessonName: booking.lessonName,
           durationMin: booking.durationMin,
           priceCad: booking.priceCad,
@@ -239,19 +166,25 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
           sessionCount: booking.sessionCount ?? packageSessions.length,
           packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
           report: await assessmentForBooking(booking.id),
-        },
-        packagePlan: {
-          lessonName: packageAnchor.lessonName,
-          reference: packageAnchor.reference,
-          totalClasses: Math.max(packageAnchor.sessionCount ?? 1, packageSessions.length),
-          remainingClasses: packageSessions.filter((item) => !["completed", "cancelled"].includes(item.status)).length,
-          paymentStatus,
-          sessions: appointmentHistoryFor(packageSessions),
-        },
-        additionalPackages,
-        bookingHistory,
-      });
-    }
+      },
+      packagePlan: {
+        lessonName: packageAnchor.lessonName,
+        totalClasses: Math.max(packageAnchor.sessionCount ?? 1, packageSessions.length),
+        completedClasses: packageSessions.filter((item) => item.status === "completed").length,
+        remainingClasses: packageSessions.filter((item) => !["completed", "cancelled"].includes(item.status)).length,
+        nextLessonAt: nextLesson?.startsAt ?? null,
+      },
+      studentDetails: profile ? {
+        dateOfBirth: profile.date_of_birth,
+        gender: profile.gender,
+        licenseNumber: profile.license_number,
+        licenseClass: profile.license_class,
+        street: profile.street,
+        city: profile.city,
+        province: profile.province,
+        postalCode: profile.postal_code,
+      } : null,
+    });
   }
 
   return (
@@ -268,7 +201,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
 
         <div className="flex flex-wrap gap-3">
           <div className="flex rounded-[10px] border border-line bg-white p-1" role="group" aria-label="Calendar view">
-            {(["week", "day", "month"] as const).map((item) => (
+            {(["week", "month"] as const).map((item) => (
               <Link
                 key={item}
                 href={href({ view: item, date: anchor, ...filters })}
@@ -307,23 +240,27 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
         </div>
       </div>
 
-      <section aria-label="Calendar instructions" className="mt-4 rounded-[12px] border border-[#eadcb1] bg-[#fff9e9] px-4 py-3">
-        <p className="text-[12.5px] font-extrabold text-ink">Quick guide</p>
-        <p className="mt-1 text-[12px] leading-relaxed text-soft">
-          Choose a day to see its lesson list. Click a booked time to jump to that lesson’s details and actions. No-show is a status marker only (not an automatic charge), available after lesson start; you can still reschedule afterward. Use <strong className="text-ink">Open full student record</strong> for the student’s broader record.
-        </p>
-      </section>
-      {pageError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{pageError === "report" ? "Add at least one lesson skill rating and save the report." : pageError === "student" ? "This booking is not linked to a student record. Contact an administrator." : pageError}</p>}
+      {pageError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{pageError === "report" ? "Please rate each skill in the lesson report, then save it." : pageError === "student" ? "This student record needs to be linked before a report can be saved." : pageError}</p>}
 
-      <form method="get" action="/admin/calendar" className="mt-4 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
+      <form action={searchStudentByLicenseAction} className="mt-4 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
         <input type="hidden" name="view" value={view} />
         <input type="hidden" name="date" value={anchor} />
+        <label className="grid gap-1 text-[11px] font-bold text-soft">
+          Search for
+          <select name="mode" defaultValue="booking" className="h-9 rounded-[8px] border border-[#dce0e4] bg-white px-3 text-[13px] text-ink outline-none focus:border-gold">
+            <option value="booking">Bookings</option>
+            <option value="license">Student by licence</option>
+          </select>
+        </label>
         <label className="grid min-w-[220px] flex-1 gap-1 text-[11px] font-bold text-soft">
-          Search bookings
+          Search
           <input
-            name="q"
+            name="query"
             defaultValue={query}
-            placeholder="Student, email, phone or reference"
+            placeholder="Student, email, phone, reference or licence"
+            maxLength={160}
+            required
+            autoComplete="off"
             className="h-9 rounded-[8px] border border-[#dce0e4] px-3 text-[13px] text-ink outline-none focus:border-gold"
           />
         </label>
@@ -337,14 +274,14 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
             <option value="">All statuses</option>
             <option value="confirmed">Confirmed</option>
             <option value="pending_payment">Awaiting payment</option>
-            <option value="rescheduled">Rescheduled</option>
+            <option value="rescheduled">Moved</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
-            <option value="no_show">No-show</option>
+            <option value="no_show">Student missed</option>
           </select>
         </label>
         <button type="submit" className="btn-gold inline-flex h-9 items-center rounded-[8px] px-4 text-[12px] font-extrabold">
-          Filter
+          Search
         </button>
         {(query || status) && (
           <Link
@@ -354,12 +291,6 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
             Clear
           </Link>
         )}
-      </form>
-      <form action={searchStudentByLicenseAction} className="mt-3 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
-        <label className="grid min-w-[220px] flex-1 gap-1 text-[11px] font-bold text-soft">Find student by driver’s licence number
-          <input name="license" required minLength={4} maxLength={32} autoComplete="off" className="h-9 rounded-[8px] border border-[#dce0e4] px-3 text-[13px] text-ink outline-none focus:border-gold" />
-        </label>
-        <button className="btn-gold inline-flex h-9 items-center rounded-[8px] px-4 text-[12px] font-extrabold">Find student</button>
       </form>
       {licenseSearchState === "none" && <p role="status" className="mt-2 text-sm text-soft">No student matched that driver’s licence number.</p>}
       {licenseSearchState === "invalid" && <p role="alert" className="mt-2 text-sm text-[#bc4633]">Enter a valid driver’s licence number.</p>}
@@ -400,57 +331,36 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
             filters={filters}
             startHour={startHour}
             endHour={endHour}
+            selectedBookingId={selectedBookingId}
           />
         </div>
       )}
 
-      {view === "day" && (
-        <>
-          <div className="mt-6 overflow-hidden rounded-[18px] border border-line bg-white">
-            <ScheduleGrid
-              dayKeys={[anchor]}
-              byDay={bookingsByDay}
-              rules={rules}
-              blackouts={blackouts}
-              today={today}
-              lessons={lessons}
-              nowMs={nowMs}
-              filters={filters}
-              startHour={startHour}
-              endHour={endHour}
-            />
+      {selectedBooking && (
+        <div id="agenda" className="mt-5 rounded-[18px] border border-line bg-white">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3 sm:px-5">
+            <h2 className="text-[14px] font-extrabold text-ink">Lesson details</h2>
+            <Link href={href({ view, date: anchor, ...filters })} className="text-[11px] font-bold text-soft hover:text-ink">Close ×</Link>
           </div>
-
-          <div id="agenda" className="mt-6 rounded-[18px] border border-line bg-white">
-            <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <h2 className="text-[15px] font-extrabold text-ink">
-                {weekdayLabel(anchor)}, {monthLabel(anchor)}
-              </h2>
-              <span className="text-[12.5px] font-bold text-soft">
-                {dayBookings.length} {dayBookings.length === 1 ? "lesson" : "lessons"}
-              </span>
-            </div>
-
-            <DayBookingsAccordion entries={dayBookingEntries} nowMs={nowMs} initialOpenId={selectedBookingId} day={anchor} />
-          </div>
-        </>
+          <DayBookingsAccordion entries={dayBookingEntries} nowMs={nowMs} initialOpenId={selectedBooking.id} day={dayKeyOf(selectedBooking.startsAt)} view={view} />
+        </div>
       )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3.5">
           {LEGEND.map((item) => (
-            <span key={item.label} className="flex items-center gap-1.5 text-[11.5px] font-bold text-soft">
+            <span key={item.label} title={item.title} className="flex items-center gap-1.5 text-[11.5px] font-bold text-soft">
               <span className={`h-2.5 w-2.5 rounded-[3px] border-l-[3px] ${item.tone}`} />
               {item.label}
             </span>
           ))}
-          <span className="flex items-center gap-1.5 text-[11.5px] font-bold text-soft">
+          <span title="Usually unavailable to students. Admins can add a lesson here if it does not overlap." className="flex items-center gap-1.5 text-[11.5px] font-bold text-soft">
             <span className={CLOSED_SWATCH} />
-            Closed hours
+            Outside usual hours
           </span>
         </div>
         <p className="text-[12px] text-soft">
-          90-minute lessons reserve a full 120-minute tutor block. Use <strong className="text-ink">+ Book</strong> on an open time, or drag an active booking to move it. The server checks hours, conflicts and lead time.
+          Lessons block the tutor for their reserved time. Admins can choose a custom time; the calendar prevents overlaps.
         </p>
       </div>
     </div>

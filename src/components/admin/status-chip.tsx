@@ -17,10 +17,10 @@ const TONES: Record<BookingStatus, string> = {
 const LABELS: Record<BookingStatus, string> = {
   pending_payment: "Awaiting payment",
   confirmed: "Confirmed",
-  rescheduled: "Rescheduled",
+  rescheduled: "Moved",
   cancelled: "Cancelled",
   completed: "Completed",
-  no_show: "No-show",
+  no_show: "Student missed",
 };
 
 export function StatusChip({ status, className = "" }: StatusChipProps) {
