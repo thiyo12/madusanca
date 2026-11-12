@@ -877,6 +877,7 @@ test("admin package calendar holds allow selected future times but remain admin-
   assert.match(holdRoute, /x-admin-calendar-booking/);
   assert.match(holdRoute, /await requireAdmin\("\/admin\/calendar"\)/);
   assert.match(holdRoute, /if \(adminOverride\)/);
+  assert.match(holdRoute, /This lesson overlaps another booking or active hold at/);
   assert.match(wizard, /x-admin-calendar-booking/);
   assert.match(bundleAction, /holdHash, true\)/);
   assert.match(store, /adminOverride \? "admin_hold_booking_slots"/);

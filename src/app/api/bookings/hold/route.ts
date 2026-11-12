@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
-import { addMonthsToKey, dayKeyOf } from "@/lib/booking/format";
+import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
 import { occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken } from "@/lib/booking/tokens";
 import { bookingHoldSchema } from "@/lib/validation/booking";
@@ -75,11 +75,17 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (adminOverride) {
         const start = item.start;
         const end = start + occupiedDurationMin(item.lesson.durationMin) * 60_000;
-        const hasConflict = [...busy, ...chosen].some((interval) =>
+        const conflictingInterval = [...busy, ...chosen].find((interval) =>
           start < Date.parse(interval.endsAt) && Date.parse(interval.startsAt) < end,
         );
-        if (start <= now.getTime() || hasConflict) {
-          return NextResponse.json({ ok: false, error: "One of those times is no longer available. Please choose another slot." }, { status: 409 });
+        if (start <= now.getTime()) {
+          return NextResponse.json({ ok: false, error: "An admin-selected lesson time must be in the future." }, { status: 409 });
+        }
+        if (conflictingInterval) {
+          return NextResponse.json({
+            ok: false,
+            error: `This lesson overlaps another booking or active hold at ${formatSlotFull(conflictingInterval.startsAt)} Pacific time. Choose a different time.`,
+          }, { status: 409 });
         }
         chosen.push({ startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString() });
         continue;
