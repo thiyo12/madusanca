@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { AvailabilityRule, BlackoutDate, BookingRecord } from "@/lib/booking/types";
-import { dayKeyOf, dayNumber, formatSlotDay, formatSlotTime, weekdayLabel } from "@/lib/booking/format";
+import { dayKeyOf, dayNumber, formatSlotDay, formatSlotFull, formatSlotTime, weekdayLabel } from "@/lib/booking/format";
 import { occupiedDurationMin, toVancouverParts, zonedToUtc } from "@/lib/booking/slots";
 import type { Lesson } from "@/lib/data/lessons";
 import { rescheduleBookingAction } from "../bookings/actions";
@@ -525,7 +525,11 @@ export function ScheduleGrid({
             <p className="text-[10px] font-extrabold uppercase tracking-wide text-gold-deep">Review change</p>
             <h2 id="calendar-move-title" className="mt-1 text-lg font-extrabold text-ink">Move this lesson?</h2>
             <p className="mt-3 text-sm font-bold text-ink">{pendingMove.booking.studentName} · {pendingMove.booking.lessonName}</p>
-            <p className="mt-1 text-[12px] text-soft">From {formatSlotDay(pendingMove.booking.startsAt)} at {formatSlotTime(pendingMove.booking.startsAt)}<br />To {weekdayLabel(pendingMove.dayKey)} {dayNumber(pendingMove.dayKey)} at {String(Math.floor(pendingMove.startMin / 60)).padStart(2, "0")}:{String(pendingMove.startMin % 60).padStart(2, "0")} Pacific</p>
+            <div className="mt-3 grid gap-2 rounded-xl bg-mist p-3 text-[12px]">
+              <p className="text-soft">From <span className="font-bold text-ink">{formatSlotDay(pendingMove.booking.startsAt)} · {formatSlotTime(pendingMove.booking.startsAt)}</span></p>
+              <p className="border-t border-line pt-2 text-soft">Moving to</p>
+              <p className="text-base font-extrabold text-ink">{formatSlotFull(pendingMove.startsAt)} <span className="text-xs font-bold text-soft">Pacific Time</span></p>
+            </div>
             <p className="mt-3 text-[11px] text-soft">Drop only on an empty time row. Occupied times cannot be selected. We’ll confirm availability before saving and email the student after the move.</p>
             {dropError && <p role="alert" className="mt-3 rounded-lg bg-[#fff0ed] px-3 py-2 text-xs font-semibold text-[#bc4633]">{dropError}</p>}
             <div className="mt-4 flex justify-end gap-2"><button type="button" disabled={moving} onClick={() => setPendingMove(null)} className="rounded-lg border border-line px-3 py-2 text-xs font-bold text-ink">Keep current time</button><button type="button" disabled={moving} onClick={confirmMove} className="btn-gold rounded-lg px-4 py-2 text-xs font-extrabold">{moving ? "Moving…" : "Confirm move"}</button></div>

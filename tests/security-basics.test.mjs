@@ -867,3 +867,22 @@ test("admin calendar supports custom conflict-checked times and confirms moves b
   assert.match(migration, /public\.booking_overlaps\(p_starts_at, p_ends_at, v_target\.id\)/);
   assert.match(migration, /set_config\('app\.admin_calendar_override', 'on', true\)/);
 });
+
+test("admin package calendar holds allow selected future times but remain admin-gated and conflict checked", () => {
+  const holdRoute = readFileSync(new URL("../src/app/api/bookings/hold/route.ts", import.meta.url), "utf8");
+  const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
+  const bundleAction = readFileSync(new URL("../src/app/admin/(panel)/bookings/admin-bundle-action.ts", import.meta.url), "utf8");
+  const store = readFileSync(new URL("../src/lib/booking/supabase-store.ts", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations/0051_admin_calendar_package_holds.sql", import.meta.url), "utf8");
+  assert.match(holdRoute, /x-admin-calendar-booking/);
+  assert.match(holdRoute, /await requireAdmin\("\/admin\/calendar"\)/);
+  assert.match(holdRoute, /if \(adminOverride\)/);
+  assert.match(wizard, /x-admin-calendar-booking/);
+  assert.match(bundleAction, /holdHash, true\)/);
+  assert.match(store, /adminOverride \? "admin_hold_booking_slots"/);
+  assert.match(store, /adminOverride \? "admin_create_booking_bundle_with_student_details"/);
+  assert.match(migration, /public\.booking_overlaps\(/);
+  assert.match(migration, /set_config\('app\.admin_calendar_override', 'on', true\)/);
+  assert.match(migration, /admin_hold_booking_slots/);
+  assert.match(migration, /admin_create_booking_bundle_with_student_details/);
+});

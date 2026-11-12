@@ -74,7 +74,7 @@ export async function createAdminBundleBooking(input: unknown): Promise<AdminBun
       gender: data.gender,
       licenseNumber: data.licenseNumber,
       notes,
-    }, { hash: hashToken(rawManageToken), expiresAt: tokenExpiry() }, holdHash);
+    }, { hash: hashToken(rawManageToken), expiresAt: tokenExpiry() }, holdHash, true);
 
     if (!created.ok) {
       return { ok: false, error: created.error === "conflict" ? "One of those times is no longer available. Please choose the lesson times again." : "Could not create this booking. Please review the details and try again." };

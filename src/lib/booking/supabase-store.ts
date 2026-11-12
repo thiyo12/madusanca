@@ -279,8 +279,8 @@ export const supabaseStore: BookingStore = {
     return intervals;
   },
 
-  async createBookingHold(slots: BookingSlotHold[], holdTokenHash: string, expiresAt: string) {
-    const { data, error } = await adminClient().rpc("hold_booking_slots", {
+  async createBookingHold(slots: BookingSlotHold[], holdTokenHash: string, expiresAt: string, adminOverride = false) {
+    const { data, error } = await adminClient().rpc(adminOverride ? "admin_hold_booking_slots" : "hold_booking_slots", {
       p_token_hash: holdTokenHash,
       p_slots: slots,
       p_expires_at: expiresAt,
@@ -377,8 +377,9 @@ export const supabaseStore: BookingStore = {
     input: CreateBookingBundleInput,
     token: { hash: string; expiresAt: string },
     holdTokenHash: string,
+    adminOverride = false,
   ): Promise<StoreResult<BookingRecord[]>> {
-    const { data, error } = await adminClient().rpc("create_booking_bundle_with_student_details", {
+    const { data, error } = await adminClient().rpc(adminOverride ? "admin_create_booking_bundle_with_student_details" : "create_booking_bundle_with_student_details", {
       p_token_hash: token.hash,
       p_token_expires_at: token.expiresAt,
       p_packages: input.packages,

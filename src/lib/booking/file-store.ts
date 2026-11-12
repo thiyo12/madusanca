@@ -210,7 +210,7 @@ export const fileStore: BookingStore = {
     return [...booked, ...reserved, ...held];
   },
 
-  createBookingHold(slots: BookingSlotHold[], holdTokenHash: string, expiresAt: string) {
+  createBookingHold(slots: BookingSlotHold[], holdTokenHash: string, expiresAt: string, adminOverride = false) {
     return withLock((): Promise<StoreResult<{ expiresAt: string }>> => {
       const data = load();
       const now = Date.now();
@@ -227,6 +227,18 @@ export const fileStore: BookingStore = {
       ];
       const chosen: BusyInterval[] = [];
       for (const slot of slots) {
+        if (adminOverride) {
+          const start = Date.parse(slot.startsAt);
+          const end = start + occupiedDurationMin(slot.durationMin) * 60_000;
+          if (!Number.isFinite(start) || start <= now || [...otherBusy, ...chosen].some((busy) =>
+            start < Date.parse(busy.endsAt) && Date.parse(busy.startsAt) < end,
+          )) {
+            save(data);
+            return Promise.resolve({ ok: false, error: "conflict" as const });
+          }
+          chosen.push({ startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString() });
+          continue;
+        }
         const validation = validateSlot(slot.startsAt, {
           lessonDurationMin: slot.durationMin,
           busy: [...otherBusy, ...chosen],
@@ -395,6 +407,7 @@ export const fileStore: BookingStore = {
     input: CreateBookingBundleInput,
     token: { hash: string; expiresAt: string },
     holdTokenHash: string,
+    adminOverride = false,
   ): Promise<StoreResult<BookingRecord[]>> {
     return withLock((): Promise<StoreResult<BookingRecord[]>> => {
       const data = load();
@@ -419,7 +432,7 @@ export const fileStore: BookingStore = {
       }
 
       const anchorStart = Date.parse(input.packages[0].startsAt[0]);
-      if (!Number.isFinite(anchorStart) || anchorStart < Date.now() + 120 * 60_000 ||
+      if (!Number.isFinite(anchorStart) || anchorStart < Date.now() + (adminOverride ? 0 : 120 * 60_000) ||
           dayKeyOf(new Date(anchorStart).toISOString()) > addMonthsToKey(dayKeyOf(new Date().toISOString()), 6)) {
         return Promise.resolve({ ok: false, error: "not_found" as const });
       }
@@ -438,6 +451,17 @@ export const fileStore: BookingStore = {
 
       const busy = activeBookings(data).map((booking) => ({ startsAt: booking.startsAt, endsAt: new Date(occupiedEnd(booking.startsAt, booking.durationMin)).toISOString() }));
       for (const item of ordered) {
+        if (adminOverride) {
+          const end = item.start + occupiedDurationMin(item.lesson.durationMin) * 60_000;
+          const prior = ordered.slice(0, ordered.indexOf(item)).map((previous) => ({
+            startsAt: previous.startsAt,
+            endsAt: new Date(previous.start + occupiedDurationMin(previous.lesson.durationMin) * 60_000).toISOString(),
+          }));
+          if (busy.concat(prior).some((interval) => item.start < Date.parse(interval.endsAt) && Date.parse(interval.startsAt) < end)) {
+            return Promise.resolve({ ok: false, error: "conflict" as const });
+          }
+          continue;
+        }
         const validation = validateSlot(item.startsAt, {
           lessonDurationMin: item.lesson.durationMin,
           busy: [...busy, ...ordered.slice(0, ordered.indexOf(item)).map((previous) => ({

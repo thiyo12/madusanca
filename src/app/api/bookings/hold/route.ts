@@ -8,6 +8,7 @@ import { isIpRateLimitedShared } from "@/lib/server/rate-limit";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 import { logSafeError } from "@/lib/server/safe-log";
+import { requireAdmin } from "@/lib/auth/require-admin";
 
 export const dynamic = "force-dynamic";
 const HOLD_MS = 20 * 60_000;
@@ -19,6 +20,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (await isIpRateLimitedShared(request, "booking-holds", 20, 10 * 60_000)) {
     return NextResponse.json({ ok: false, error: "Too many booking attempts. Please try again shortly." }, { status: 429 });
   }
+  const adminOverride = request.headers.get("x-admin-calendar-booking") === "true";
+  if (adminOverride) await requireAdmin("/admin/calendar");
 
   try {
     const bounded = await readBoundedBody(request, 16_384);
@@ -50,16 +53,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     const now = new Date();
     const anchorStart = parsed.data.packageSchedules[0].startsAt[0];
     const anchorDay = dayKeyOf(anchorStart);
-    if (Date.parse(anchorStart) < now.getTime() + 120 * 60_000 ||
+    if (Date.parse(anchorStart) <= now.getTime() + (adminOverride ? 0 : 120 * 60_000) ||
         anchorDay > addMonthsToKey(dayKeyOf(now.toISOString()), 6)) {
-      return NextResponse.json({ ok: false, error: "The first lesson must be within the next six months and at least two hours from now." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: adminOverride ? "The first lesson must be in the future and within the next six months." : "The first lesson must be within the next six months and at least two hours from now." }, { status: 400 });
     }
     const latestPackageDay = addMonthsToKey(anchorDay, 6);
     if (ordered.some((item) => dayKeyOf(item.startsAt) < anchorDay || dayKeyOf(item.startsAt) > latestPackageDay)) {
       return NextResponse.json({ ok: false, error: "All package lessons must be within six months of the first lesson." }, { status: 400 });
     }
 
-    const [rules, blackouts, dateOverrides] = await Promise.all([
+    const [rules, blackouts, dateOverrides] = adminOverride ? [[], [], []] : await Promise.all([
       store.getRules(),
       store.getBlackouts(),
       store.getDateOverrides(dayKeyOf(ordered[0].startsAt), dayKeyOf(ordered.at(-1)!.startsAt)),
@@ -69,6 +72,18 @@ export async function POST(request: Request): Promise<NextResponse> {
     const busy = await store.getBusy(busyFrom, busyTo);
     const chosen: Array<{ startsAt: string; endsAt: string }> = [];
     for (const item of ordered) {
+      if (adminOverride) {
+        const start = item.start;
+        const end = start + occupiedDurationMin(item.lesson.durationMin) * 60_000;
+        const hasConflict = [...busy, ...chosen].some((interval) =>
+          start < Date.parse(interval.endsAt) && Date.parse(interval.startsAt) < end,
+        );
+        if (start <= now.getTime() || hasConflict) {
+          return NextResponse.json({ ok: false, error: "One of those times is no longer available. Please choose another slot." }, { status: 409 });
+        }
+        chosen.push({ startsAt: new Date(start).toISOString(), endsAt: new Date(end).toISOString() });
+        continue;
+      }
       const validation = validateSlot(item.startsAt, {
         lessonDurationMin: item.lesson.durationMin,
         busy: [...busy, ...chosen],
@@ -92,6 +107,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       ordered.map((item) => ({ startsAt: new Date(item.start).toISOString(), durationMin: item.lesson.durationMin })),
       hashToken(holdToken),
       expiresAt,
+      adminOverride,
     );
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: "Another customer just reserved one of those times. Please choose again." }, { status: 409 });

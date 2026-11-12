@@ -289,7 +289,7 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
       try {
         await fetch("/api/bookings/hold/release", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(adminMode ? { "x-admin-calendar-booking": "true" } : {}) },
           body: JSON.stringify({ holdToken }),
         });
       } catch {
@@ -308,7 +308,7 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
       try {
         const response = await fetch("/api/bookings/hold", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(adminMode ? { "x-admin-calendar-booking": "true" } : {}) },
           body: JSON.stringify({ packageSchedules }),
         });
         const result = await response.json() as { ok?: boolean; error?: string; holdToken?: string; expiresAt?: string };
@@ -325,6 +325,13 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
         setReservingTimes(false);
       }
       return;
+    }
+    if (step === "lesson" && adminMode && initialStartAt) {
+      // The calendar already supplies the first appointment's date and time.
+      // Start the picker at the next unscheduled appointment instead of asking
+      // the admin to revisit the slot they just selected on the calendar.
+      const firstUnscheduled = appointments.findIndex((item) => !scheduledStarts[item.key]);
+      if (firstUnscheduled >= 0) setAppointmentIndex(firstUnscheduled);
     }
     if (step === "when") {
       setReservingTimes(true);

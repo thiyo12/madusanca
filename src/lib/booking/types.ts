@@ -314,6 +314,7 @@ export interface BookingStore {
     slots: BookingSlotHold[],
     holdTokenHash: string,
     expiresAt: string,
+    adminOverride?: boolean,
   ): Promise<StoreResult<{ expiresAt: string }>>;
   releaseBookingHold(holdTokenHash: string): Promise<void>;
   createBooking(
@@ -332,6 +333,7 @@ export interface BookingStore {
     input: CreateBookingBundleInput,
     token: { hash: string; expiresAt: string },
     holdTokenHash: string,
+    adminOverride?: boolean,
   ): Promise<StoreResult<BookingRecord[]>>;
   /** Admin-only identity details; never attach these to public booking views. */
   getBookingStudentDetails(bookingId: string): Promise<BookingStudentDetails | null>;
