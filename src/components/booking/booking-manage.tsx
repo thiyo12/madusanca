@@ -94,6 +94,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const [busy, setBusy] = useState(false);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
   const [addOnPlans, setAddOnPlans] = useState<Record<string, { quantity: number; startsAt: string[]; sessionIndex: number }>>({});
+  const [showAddOns, setShowAddOns] = useState(false);
   const [creditStart, setCreditStart] = useState<string | null>(null);
   const sessionAuthorizedRef = useRef(false);
 
@@ -179,12 +180,15 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         const loadedAt = Date.now();
         const loadedSessions = result.sessions ?? (result.booking ? [result.booking] : []);
         const firstEligibleSession = loadedSessions.find((session) =>
-          !["cancelled", "completed", "no_show"].includes(session.status) && Date.parse(session.startsAt) > loadedAt && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
+          ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" &&
+          session.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION &&
+          Date.parse(session.startsAt) > loadedAt && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
         );
         setPurchase(result.purchase ?? null);
         setBooking(result.booking ?? null);
         setSessions(loadedSessions);
         setActiveSessionId(firstEligibleSession?.id ?? result.booking?.id ?? null);
+        setMode(firstEligibleSession ? "reschedule" : "view");
         setNow(loadedAt);
         setStatus("ready");
       })
@@ -614,7 +618,26 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </div>
         </div>
       )}
-      {mode === "view" && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
+      {booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (
+        <div className="mt-5 border-t border-line pt-5">
+          <button
+            type="button"
+            onClick={() => {
+              if (mode === "reschedule") {
+                setMode("view");
+                setPendingStart(null);
+              }
+              setShowAddOns((visible) => !visible);
+              setActionError(null);
+            }}
+            disabled={busy}
+            className="inline-flex min-h-11 items-center rounded-full border border-ink bg-white px-5 text-[13px] font-extrabold text-ink transition-colors hover:bg-ink hover:text-white disabled:opacity-60"
+          >
+            {showAddOns ? "Close add-on lessons" : "Add an add-on lesson"}
+          </button>
+        </div>
+      )}
+      {mode === "view" && showAddOns && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
         const totalLessons = booking.addOnOptions!.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
         const selectedOptions = booking.addOnOptions!.filter((option) => addOnPlans[option.id]);
         const allScheduled = selectedOptions.flatMap((option) => {

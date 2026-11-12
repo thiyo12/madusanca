@@ -124,6 +124,9 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);
+  assert.match(manage, /setMode\(firstEligibleSession \? "reschedule" : "view"\)/);
+  assert.match(manage, /Add an add-on lesson/);
+  assert.match(manage, /mode === "view" && showAddOns/);
 });
 
 test("each scheduled lesson has exactly one student reschedule", () => {
