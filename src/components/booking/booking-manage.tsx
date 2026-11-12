@@ -492,93 +492,6 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           <StripeCheckoutButton />
         </div>
       )}
-      {booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
-        const totalLessons = booking.addOnOptions!.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
-        const selectedOptions = booking.addOnOptions!.filter((option) => addOnPlans[option.id]);
-        const allScheduled = selectedOptions.flatMap((option) => {
-          const plan = addOnPlans[option.id]!;
-          return plan.startsAt.length === option.sessionCount * plan.quantity ? [{ lessonId: option.id, quantity: plan.quantity, startsAt: plan.startsAt }] : [];
-        });
-        const scheduledCount = allScheduled.reduce((sum, item) => sum + item.startsAt.length, 0);
-        return <section className="mt-5 rounded-[14px] border border-line p-4">
-          <h3 className="text-sm font-extrabold text-ink">Add lessons to this booking</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Select one or more package types, schedule every lesson, then pay once. Your existing package and appointments stay unchanged.</p>
-          <div className="mt-4 grid gap-3">
-            {booking.addOnOptions!.map((option) => {
-              const plan = addOnPlans[option.id];
-              const sessionTotal = plan ? option.sessionCount * plan.quantity : 0;
-              const addOnWindowEnd = plan?.startsAt[0] ? addMonthsToKey(dayKeyOf(plan.startsAt[0]), 6) : undefined;
-              const addOnBlocked = plan?.startsAt.flatMap((startsAt, index) => startsAt && index !== plan.sessionIndex
-                ? [{ startsAt, durationMin: option.durationMin }]
-                : []) ?? [];
-              return <div key={option.id} className="rounded-xl border border-line p-3">
-                <label className="flex cursor-pointer items-center gap-3 text-sm font-extrabold text-ink">
-                  <input type="checkbox" checked={Boolean(plan)} onChange={(event) => setAddOnPlans((current) => {
-                    if (!event.target.checked) {
-                      const next = { ...current };
-                      delete next[option.id];
-                      return next;
-                    }
-                    const currentTotal = Object.entries(current).reduce((sum, [id, value]) => sum + (booking.addOnOptions!.find((item) => item.id === id)?.sessionCount ?? 0) * value.quantity, 0);
-                    if (currentTotal + option.sessionCount > 20) return current;
-                    return { ...current, [option.id]: { quantity: 1, startsAt: [], sessionIndex: 0 } };
-                  })} />
-                  {option.name} · {option.durationMin} min · ${option.priceCad} CAD/package
-                </label>
-                {plan && <>
-                  <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
-                        <input type="number" min="1" max={Math.min(Math.floor(20 / option.sessionCount), plan.quantity + Math.floor((20 - totalLessons) / option.sessionCount))} step="1" inputMode="numeric" value={plan.quantity} onChange={(event) => {
-                          const otherLessons = totalLessons - option.sessionCount * plan.quantity;
-                          const maxQuantity = Math.floor((20 - otherLessons) / option.sessionCount);
-                          const quantity = Math.max(1, Math.min(maxQuantity, Math.floor(Number(event.target.value) || 1)));
-                      setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, quantity, startsAt: [], sessionIndex: 0 } }));
-                    }} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />
-                  </label>
-                  <p className="mt-3 text-[12px] font-bold text-ink">Select a date and time for each of the {sessionTotal} lessons:</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {Array.from({ length: sessionTotal }, (_, index) => (
-                <button key={index} type="button" disabled={index > 0 && !plan.startsAt[index - 1]} onClick={() => setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, sessionIndex: index } }))} aria-pressed={plan.sessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${plan.sessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>
-                  Lesson {index + 1}{plan.startsAt[index] ? " ✓" : ""}
-                </button>
-              ))}
-            </div>
-            <ol className="mt-3 grid gap-1 rounded-xl bg-[#f7f7f3] p-3 text-[12px] text-soft">
-              {Array.from({ length: sessionTotal }, (_, index) => (
-                <li key={index}><span className="font-bold text-ink">Lesson {index + 1}:</span> {plan.startsAt[index] ? `${formatSlotFull(plan.startsAt[index])} Pacific` : "Choose a date and time"}</li>
-              ))}
-            </ol>
-            <div className="mt-3">
-              <DateTimeStep
-                key={`${option.id}-${sessionTotal}-${plan.sessionIndex}-${availabilityRevision}`}
-                lessonId={option.id}
-                selectedStart={plan.startsAt[plan.sessionIndex] ?? null}
-                minDate={plan.sessionIndex > 0 && plan.startsAt[plan.sessionIndex - 1] ? dayKeyOf(plan.startsAt[plan.sessionIndex - 1]) : undefined}
-                maxDate={addOnWindowEnd}
-                horizonDays={185}
-                blockedStartsAt={addOnBlocked}
-                onSelect={(slot) => {
-                  setAddOnPlans((current) => {
-                    const selectedPlan = current[option.id]!;
-                    const next = selectedPlan.startsAt.slice(0, selectedPlan.sessionIndex);
-                    next[selectedPlan.sessionIndex] = slot;
-                    return { ...current, [option.id]: { ...selectedPlan, startsAt: next, sessionIndex: Math.min(selectedPlan.sessionIndex + 1, sessionTotal - 1) } };
-                  });
-                  setActionError(null);
-                }}
-                onUnavailableSelection={() => setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, startsAt: current[option.id]!.startsAt.slice(0, current[option.id]!.sessionIndex) } }))}
-              />
-            </div>
-                  <p className="mt-3 text-[12px] font-bold text-soft">Subtotal: ${(option.priceCad * plan.quantity).toFixed(2)} CAD</p>
-                </>}
-              </div>;
-            })}
-          </div>
-          {selectedOptions.length > 0 && <>
-            <p className="mt-3 text-[12px] font-bold text-soft">Checkout total: ${selectedOptions.reduce((sum, option) => sum + option.priceCad * addOnPlans[option.id]!.quantity, 0).toFixed(2)} CAD + applicable taxes</p>
-            <div className="mt-3"><StripePackagePurchaseButton packages={allScheduled} disabled={busy || scheduledCount !== totalLessons || totalLessons === 0} /></div>
-          </>}
-        </section>;
-      })()}
       {emailNotice && (
         <p className={`mt-4 rounded-lg px-4 py-3 text-[13px] leading-relaxed ${
           emailNotice.includes("could not be delivered")
@@ -701,6 +614,93 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </div>
         </div>
       )}
+      {mode === "view" && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
+        const totalLessons = booking.addOnOptions!.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
+        const selectedOptions = booking.addOnOptions!.filter((option) => addOnPlans[option.id]);
+        const allScheduled = selectedOptions.flatMap((option) => {
+          const plan = addOnPlans[option.id]!;
+          return plan.startsAt.length === option.sessionCount * plan.quantity ? [{ lessonId: option.id, quantity: plan.quantity, startsAt: plan.startsAt }] : [];
+        });
+        const scheduledCount = allScheduled.reduce((sum, item) => sum + item.startsAt.length, 0);
+        return <section className="mt-5 min-w-0 max-w-full rounded-[14px] border border-line p-4">
+          <h3 className="text-sm font-extrabold text-ink">Add lessons to this booking</h3>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose the package lessons you want, select a date and time for each, then pay for your selection. Your current booking stays unchanged.</p>
+          <div className="mt-4 grid min-w-0 gap-3">
+            {booking.addOnOptions!.map((option) => {
+              const plan = addOnPlans[option.id];
+              const sessionTotal = plan ? option.sessionCount * plan.quantity : 0;
+              const addOnWindowEnd = plan?.startsAt[0] ? addMonthsToKey(dayKeyOf(plan.startsAt[0]), 6) : undefined;
+              const addOnBlocked = plan?.startsAt.flatMap((startsAt, index) => startsAt && index !== plan.sessionIndex
+                ? [{ startsAt, durationMin: option.durationMin }]
+                : []) ?? [];
+              return <div key={option.id} className="min-w-0 rounded-xl border border-line p-3">
+                <label className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 text-sm font-extrabold text-ink">
+                  <input type="checkbox" checked={Boolean(plan)} onChange={(event) => setAddOnPlans((current) => {
+                    if (!event.target.checked) {
+                      const next = { ...current };
+                      delete next[option.id];
+                      return next;
+                    }
+                    const currentTotal = Object.entries(current).reduce((sum, [id, value]) => sum + (booking.addOnOptions!.find((item) => item.id === id)?.sessionCount ?? 0) * value.quantity, 0);
+                    if (currentTotal + option.sessionCount > 20) return current;
+                    return { ...current, [option.id]: { quantity: 1, startsAt: [], sessionIndex: 0 } };
+                  })} />
+                  <span className="min-w-0 break-words">{option.name} · {option.durationMin} min · ${option.priceCad} CAD/package</span>
+                </label>
+                {plan && <>
+                  <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
+                        <input type="number" min="1" max={Math.min(Math.floor(20 / option.sessionCount), plan.quantity + Math.floor((20 - totalLessons) / option.sessionCount))} step="1" inputMode="numeric" value={plan.quantity} onChange={(event) => {
+                          const otherLessons = totalLessons - option.sessionCount * plan.quantity;
+                          const maxQuantity = Math.floor((20 - otherLessons) / option.sessionCount);
+                          const quantity = Math.max(1, Math.min(maxQuantity, Math.floor(Number(event.target.value) || 1)));
+                      setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, quantity, startsAt: [], sessionIndex: 0 } }));
+                    }} className="min-h-11 rounded-xl border border-line bg-white px-3 text-sm" />
+                  </label>
+                  <p className="mt-3 text-[12px] font-bold text-ink">Select a date and time for each of the {sessionTotal} lessons:</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {Array.from({ length: sessionTotal }, (_, index) => (
+                <button key={index} type="button" disabled={index > 0 && !plan.startsAt[index - 1]} onClick={() => setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, sessionIndex: index } }))} aria-pressed={plan.sessionIndex === index} className={`rounded-full border px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${plan.sessionIndex === index ? "border-ink bg-ink text-white" : "border-line text-ink"}`}>
+                  Lesson {index + 1}{plan.startsAt[index] ? " ✓" : ""}
+                </button>
+              ))}
+            </div>
+            <ol className="mt-3 grid gap-1 rounded-xl bg-[#f7f7f3] p-3 text-[12px] text-soft">
+              {Array.from({ length: sessionTotal }, (_, index) => (
+                <li key={index}><span className="font-bold text-ink">Lesson {index + 1}:</span> {plan.startsAt[index] ? `${formatSlotFull(plan.startsAt[index])} Pacific` : "Choose a date and time"}</li>
+              ))}
+            </ol>
+            <div className="mt-3">
+              <DateTimeStep
+                key={`${option.id}-${sessionTotal}-${plan.sessionIndex}-${availabilityRevision}`}
+                lessonId={option.id}
+                selectedStart={plan.startsAt[plan.sessionIndex] ?? null}
+                minDate={plan.sessionIndex > 0 && plan.startsAt[plan.sessionIndex - 1] ? dayKeyOf(plan.startsAt[plan.sessionIndex - 1]) : undefined}
+                maxDate={addOnWindowEnd}
+                horizonDays={185}
+                blockedStartsAt={addOnBlocked}
+                onSelect={(slot) => {
+                  setAddOnPlans((current) => {
+                    const selectedPlan = current[option.id]!;
+                    const next = selectedPlan.startsAt.slice(0, selectedPlan.sessionIndex);
+                    next[selectedPlan.sessionIndex] = slot;
+                    return { ...current, [option.id]: { ...selectedPlan, startsAt: next, sessionIndex: Math.min(selectedPlan.sessionIndex + 1, sessionTotal - 1) } };
+                  });
+                  setActionError(null);
+                }}
+                onUnavailableSelection={() => setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, startsAt: current[option.id]!.startsAt.slice(0, current[option.id]!.sessionIndex) } }))}
+              />
+            </div>
+                  <p className="mt-3 text-[12px] font-bold text-soft">Subtotal: ${(option.priceCad * plan.quantity).toFixed(2)} CAD</p>
+                </>}
+              </div>;
+            })}
+          </div>
+          {selectedOptions.length > 0 && <>
+            <p className="mt-3 text-[12px] font-bold text-soft">Checkout total: ${selectedOptions.reduce((sum, option) => sum + option.priceCad * addOnPlans[option.id]!.quantity, 0).toFixed(2)} CAD + applicable taxes</p>
+            <div className="mt-3"><StripePackagePurchaseButton packages={allScheduled} disabled={busy || scheduledCount !== totalLessons || totalLessons === 0} /></div>
+          </>}
+        </section>;
+      })()}
       <div className="mt-7 border-t border-line pt-5">
         <button type="button" onClick={() => void leaveToHome()} className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
               <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to My Booking lookup

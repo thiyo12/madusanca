@@ -119,7 +119,8 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /Add lessons to this booking/);
   assert.match(manage, /StripePackagePurchaseButton/);
   assert.match(manage, /<input type="checkbox" checked=\{Boolean\(plan\)\}/);
-  assert.match(manage, /Select one or more package types/);
+  assert.match(manage, /Choose the package lessons you want/);
+  assert.ok(manage.indexOf(">Reschedule (") < manage.indexOf("Add lessons to this booking"));
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);

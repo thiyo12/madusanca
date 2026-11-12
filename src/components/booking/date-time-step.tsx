@@ -189,13 +189,13 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
   }
 
   return (
-    <div>
-      <p className="mb-3 text-[12.5px] font-semibold text-soft">
+    <div className="w-full min-w-0 max-w-full overflow-hidden">
+      <p className="mb-3 min-w-0 text-[12.5px] font-semibold text-soft">
         Times shown in Pacific Time (America/Vancouver). {durationMin}-minute lesson.
         {activeWorkingHours && <> Working hours on {weekdayLabel(activeDay)}: {formatMinutesAsTime(activeWorkingHours.startMin)}–{formatMinutesAsTime(activeWorkingHours.endMin)}.</>}
       </p>
 
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
         <button
           type="button"
           aria-label="Previous month"
@@ -219,7 +219,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
         </button>
       </div>
 
-      <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label={`Choose a date in ${monthLabel(`${displayedMonth}-01`)}`}>
+      <div className="no-scrollbar -mx-1 flex min-w-0 max-w-full gap-2 overflow-x-auto px-1 pb-1" role="tablist" aria-label={`Choose a date in ${monthLabel(`${displayedMonth}-01`)}`}>
         {monthDays.map((day) => {
           const available = day.count > 0;
           const active = day.key === activeDay;
@@ -258,7 +258,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
           No times left on this day. Pick another date above.
         </p>
       ) : (
-        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
+        <div className="grid min-w-0 grid-cols-2 gap-2.5 min-[420px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5">
           {daySlots.map((slot) => {
             const active = slot === selectedStart;
             return (
