@@ -15,6 +15,7 @@ import { occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
 
 export const dynamic = "force-dynamic";
+const ADDON_CHECKOUT_LEAD_TIME_MIN = 135;
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!hasTrustedRequestOrigin(request)) {
@@ -82,6 +83,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     const startsAt = scheduleItems.flatMap((item) => item.startsAt).sort((a, b) => Date.parse(a) - Date.parse(b));
     if (new Set(startsAt).size !== startsAt.length) return NextResponse.json({ ok: false, error: "Choose a different time for every lesson." }, { status: 400 });
     const now = new Date();
+    if (Date.parse(startsAt[0]!) < now.getTime() + ADDON_CHECKOUT_LEAD_TIME_MIN * 60_000) {
+      return NextResponse.json({
+        ok: false,
+        failure: "availability_invalid",
+        error: "Choose add-on lesson times at least 2 hours 15 minutes from now so checkout can reserve them.",
+      }, { status: 409 });
+    }
     const firstDay = dayKeyOf(startsAt[0]);
     const latestFirstDay = addMonthsToKey(dayKeyOf(now.toISOString()), 6);
     const lastAllowedDay = addMonthsToKey(firstDay, 6);
@@ -211,6 +219,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       const conflict = created.error === "conflict";
       const notModifiable = created.error === "not_modifiable";
       const invalidSchedule = created.error === "not_found";
+      const scheduleFailureMessage = created.failure === "lead_time"
+        ? "The first add-on lesson is too close to start. Choose a time at least 2 hours 15 minutes from now."
+        : created.failure === "first_lesson_window" || created.failure === "package_window"
+          ? "One of the selected lessons is outside the six-month scheduling window. Review the selected dates."
+          : created.failure === "schedule_rule" || created.failure === "weekly_window"
+            ? "One of the selected times no longer matches the available hours for that date. Please select the time again."
+            : undefined;
       return NextResponse.json({
         ok: false,
         failure: conflict ? "reservation_conflict" : invalidSchedule ? "reservation_invalid" : undefined,
@@ -219,7 +234,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           : notModifiable
             ? "Add-on packages are available when you have an active paid lesson."
             : invalidSchedule
-              ? "The database rejected one of the selected times as outside the current booking window or schedule."
+              ? scheduleFailureMessage ?? "The database rejected one of the selected times as outside the current booking window or schedule."
               : "We couldn’t reserve those lesson times. Refresh My Booking and choose available times again.",
       }, { status: 409 });
     }

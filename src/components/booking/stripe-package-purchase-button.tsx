@@ -22,7 +22,7 @@ export function StripePackagePurchaseButton({ packages, disabled = false, onAvai
       });
       const result = await response.json() as { ok?: boolean; url?: string; error?: string; failure?: string };
       if (!response.ok || !result.ok || !result.url) {
-        if (response.status === 409 && ["availability_conflict", "reservation_conflict"].includes(result.failure ?? "")) {
+        if (response.status === 409 && ["availability_conflict", "reservation_conflict", "reservation_invalid"].includes(result.failure ?? "")) {
           onAvailabilityConflict?.();
           setError(result.error ?? "One of the selected times is no longer available. The calendar has been refreshed; choose another time.");
         } else {

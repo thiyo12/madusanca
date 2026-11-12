@@ -702,6 +702,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
                 minDate={plan.sessionIndex > 0 && plan.startsAt[plan.sessionIndex - 1] ? dayKeyOf(plan.startsAt[plan.sessionIndex - 1]) : undefined}
                 maxDate={addOnWindowEnd}
                 horizonDays={370}
+                leadTimeMin={135}
                 blockedStartsAt={addOnBlocked}
                 onSelect={(slot) => {
                   setAddOnPlans((current) => {

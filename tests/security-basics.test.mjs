@@ -324,6 +324,17 @@ test("add-on checkout allows a date override when no weekly availability row exi
   assert.match(migration, /else[\s\S]*if v_rule\.weekday is null then/);
 });
 
+test("My Booking add-on checkout reports database schedule rejection details", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0056_identify_addon_schedule_rejection.sql", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  assert.match(migration, /interval '135 minutes'/);
+  assert.match(migration, /'failure', 'lead_time'/);
+  assert.match(migration, /'failure', 'schedule_rule'/);
+  assert.match(migration, /v_child_failure := v_result->>'failure'/);
+  assert.match(route, /created\.failure === "schedule_rule"/);
+  assert.match(route, /ADDON_CHECKOUT_LEAD_TIME_MIN = 135/);
+});
+
 test("Pacific booking times remain UTC-7 after British Columbia's final clock change", () => {
   const nineAm = zonedToUtc(2027, 1, 2, 9 * 60);
   assert.equal(nineAm.toISOString(), "2027-01-02T16:00:00.000Z");

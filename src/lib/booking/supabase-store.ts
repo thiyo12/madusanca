@@ -989,8 +989,8 @@ export const supabaseStore: BookingStore = {
       p_expires_at: checkoutExpiresAt,
     });
     if (error) throw new Error(`Failed to reserve package lesson times: ${error.message}`);
-    const envelope = data as { ok: boolean; error?: string; records?: PackagePurchaseRow[] };
-    if (!envelope.ok) return { ok: false, error: mapError(envelope.error ?? "conflict") };
+    const envelope = data as { ok: boolean; error?: string; failure?: string; records?: PackagePurchaseRow[] };
+    if (!envelope.ok) return { ok: false, error: mapError(envelope.error ?? "conflict"), ...(envelope.failure ? { failure: envelope.failure } : {}) };
     return { ok: true, value: (envelope.records ?? []).map((row) => toPackagePurchase(row)) };
   },
 

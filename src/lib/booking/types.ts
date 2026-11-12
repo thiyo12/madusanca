@@ -282,7 +282,7 @@ export interface CreateBookingPackageInput {
 
 export type StoreResult<T> =
   | { ok: true; value: T }
-  | { ok: false; error: StoreError };
+  | { ok: false; error: StoreError; failure?: string };
 
 export interface BookingFilter {
   /** Inclusive ISO lower bound on startsAt. */

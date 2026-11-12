@@ -19,6 +19,7 @@ export interface DateTimeStepProps {
   maxDate?: string;
   minDate?: string;
   horizonDays?: number;
+  leadTimeMin?: number;
   blockedStartsAt?: Array<{ startsAt: string; durationMin: number }>;
   onUnavailableSelection?: () => void;
 }
@@ -40,7 +41,7 @@ function formatMinutesAsTime(minutes: number): string {
   return `${hour12}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
-export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90, blockedStartsAt = [], onUnavailableSelection }: DateTimeStepProps) {
+export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDate, horizonDays = 90, leadTimeMin = 120, blockedStartsAt = [], onUnavailableSelection }: DateTimeStepProps) {
   const [slots, setSlots] = useState<string[]>([]);
   const [durationMin, setDurationMin] = useState(90);
   const [workingHours, setWorkingHours] = useState<AvailabilityResponse["workingHours"]>([]);
@@ -73,7 +74,9 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
           }
           return;
         }
+        const earliestStartMs = Date.now() + leadTimeMin * 60_000;
         const visibleSlots = data.slots.filter((slot) =>
+          Date.parse(slot) >= earliestStartMs &&
           (!maxDate || dayKeyOf(slot) <= maxDate) && (!minDate || dayKeyOf(slot) >= minDate),
         );
         setSlots(visibleSlots);
@@ -120,7 +123,7 @@ export function DateTimeStep({ lessonId, selectedStart, onSelect, maxDate, minDa
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [lessonId, maxDate, minDate, horizonDays, selectedStart]);
+  }, [lessonId, maxDate, minDate, horizonDays, leadTimeMin, selectedStart]);
 
   const availableSlots = useMemo(
     () => slots.filter((slot) => !blockedStartsAt.some((blocked) => {
