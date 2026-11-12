@@ -296,6 +296,15 @@ test("date-specific availability overrides replace that date's weekly window", (
   assert.deepEqual(slots, [7, 9, 11, 13].map((hour) => zonedToUtc(2026, 11, 3, hour * 60).toISOString()));
 });
 
+test("database booking guards accept the same date-specific windows and cadence as availability", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0052_booking_triggers_honor_date_overrides.sql", import.meta.url), "utf8");
+  assert.match(migration, /select \* into v_override from public\.availability_date_overrides/);
+  assert.match(migration, /v_start_min := v_override\.start_min/);
+  assert.match(migration, /v_start_min := v_rule\.start_min/);
+  assert.match(migration, /mod\(v_minute - v_start_min, public\.booking_start_cadence_min/);
+  assert.doesNotMatch(migration, /not found or v_minute < v_rule\.start_min/);
+});
+
 test("Pacific booking times remain UTC-7 after British Columbia's final clock change", () => {
   const nineAm = zonedToUtc(2027, 1, 2, 9 * 60);
   assert.equal(nineAm.toISOString(), "2027-01-02T16:00:00.000Z");
