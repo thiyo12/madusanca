@@ -335,6 +335,13 @@ test("My Booking add-on checkout reports database schedule rejection details", (
   assert.match(route, /ADDON_CHECKOUT_LEAD_TIME_MIN = 135/);
 });
 
+test("My Booking generates add-on references in the format required by the database", () => {
+  const route = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations/0039_mybooking_addon_eligibility_and_reschedule_limit.sql", import.meta.url), "utf8");
+  assert.match(route, /reference: `WDA-A-\$\{Array\.from\(randomBytes\(12\)/);
+  assert.match(migration, /p_reference !~ '\^WDA-A-\[A-Z0-9\]\{12\}\$'/);
+});
+
 test("Pacific booking times remain UTC-7 after British Columbia's final clock change", () => {
   const nineAm = zonedToUtc(2027, 1, 2, 9 * 60);
   assert.equal(nineAm.toISOString(), "2027-01-02T16:00:00.000Z");

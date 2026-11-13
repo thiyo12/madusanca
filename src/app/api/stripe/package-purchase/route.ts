@@ -137,7 +137,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       quantity: item.quantity,
       startsAt: item.startsAt,
       id: randomUUID(),
-      reference: `WDA-A-${Array.from(randomBytes(6), (byte) => (byte % 36).toString(36)).join("").toUpperCase()}`,
+      // The database validates add-on references as WDA-A- plus 12 characters.
+      reference: `WDA-A-${Array.from(randomBytes(12), (byte) => (byte % 36).toString(36)).join("").toUpperCase()}`,
       creditsPurchased: item.lesson.sessionCount * item.quantity,
       amountCad: Math.round(item.lesson.priceCad * item.quantity * 100) / 100,
     }));
