@@ -191,6 +191,11 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(manage, /Select a date and time for each of the/);
   assert.match(manage, /packages=\{allScheduled\}/);
   assert.doesNotMatch(manage, /Upgrade package|StripeUpgradeButton|upgradeOptions/);
+  assert.match(manage, /function backWithinBooking\(\)/);
+  assert.match(manage, /onClick=\{backWithinBooking\}/);
+  assert.match(manage, /Back to booking details/);
+  assert.match(manage, /Exit My Booking/);
+  assert.doesNotMatch(manage, /Back to My Booking lookup/);
   assert.match(purchaseButton, /startsAt/);
   const purchaseRoute = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
   assert.match(purchaseRoute, /selection\.startsAt\.length !== credits/);

@@ -143,6 +143,15 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
     router.replace("/booking/manage");
   }
 
+  function backWithinBooking() {
+    setActionError(null);
+    if (mode === "reschedule") {
+      setMode("view");
+      setPendingStart(null);
+    }
+    if (showAddOns) setShowAddOns(false);
+  }
+
   const callManage = useCallback(
     async (payload: Record<string, unknown>): Promise<ManageResponse> => {
       const response = await fetch("/api/bookings/manage", {
@@ -400,8 +409,8 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           <a className="font-bold underline" href="tel:+12362343229">+1 236-234-3229</a><br />
           <a className="font-bold underline" href="mailto:info@wisdomdrivingacademy.com">info@wisdomdrivingacademy.com</a>
         </p>
-        <button type="button" onClick={() => void leaveToHome()} className="mt-6 inline-flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
-          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to My Booking lookup
+        <button type="button" onClick={() => void leaveToHome()} className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-3 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed] sm:w-auto">
+          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">↗</span> Exit My Booking
         </button>
       </div>
     );
@@ -631,9 +640,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
               setActionError(null);
             }}
             disabled={busy}
-            className="inline-flex min-h-11 items-center rounded-full border border-ink bg-white px-5 text-[13px] font-extrabold text-ink transition-colors hover:bg-ink hover:text-white disabled:opacity-60"
+            className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-ink bg-white px-5 py-3 text-[13px] font-extrabold text-ink transition-colors hover:bg-ink hover:text-white disabled:opacity-60 sm:w-auto"
           >
-            {showAddOns ? "Close add-on lessons" : "Add an add-on lesson"}
+            {showAddOns ? "← Back to booking details" : "Add an add-on lesson"}
           </button>
         </div>
       )}
@@ -731,9 +740,14 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </>}
         </section>;
       })()}
-      <div className="mt-7 border-t border-line pt-5">
-        <button type="button" onClick={() => void leaveToHome()} className="inline-flex items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
-              <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span> Back to My Booking lookup
+      <div className="mt-7 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:justify-between">
+        {(mode === "reschedule" || showAddOns) && (
+          <button type="button" onClick={backWithinBooking} disabled={busy} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-ink bg-white px-4 py-3 text-[13px] font-bold text-ink transition hover:bg-[#f7fbed] disabled:opacity-60 sm:w-auto">
+            <span aria-hidden="true">←</span> Back to booking details
+          </button>
+        )}
+        <button type="button" onClick={() => void leaveToHome()} disabled={busy} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-3 text-[13px] font-bold text-soft transition hover:border-[#83b657] hover:bg-[#f7fbed] disabled:opacity-60 sm:ml-auto sm:w-auto">
+          Exit My Booking
         </button>
       </div>
     </div>
