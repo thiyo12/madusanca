@@ -71,7 +71,7 @@ function readPendingOtp(email: string): number | null {
   }
 }
 
-export function BookingFind() {
+export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string) => void }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -196,11 +196,7 @@ export function BookingFind() {
       const result = await callOtp({ action: "token", code, reference });
       if (result.ok) {
         markManageSessionVerified();
-        // A full navigation makes the verification cookie available before the
-        // private manage page renders; the App Router cache can otherwise keep
-        // the pre-verification manage screen until a manual refresh.
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.assign(`/booking/manage?selected=${encodeURIComponent(reference)}`);
+        onOpenManage(reference);
         return;
       }
       setError(result.error ?? "Could not open that booking.");
@@ -224,8 +220,6 @@ export function BookingFind() {
     setRequestAvailableAt(null);
     setStudentName("");
   }
-
-  const addOnBooking = bookings.find((booking) => booking.canOpen && booking.paymentStatus === "paid");
 
   return (
     <div className="grid gap-3.5">
@@ -277,7 +271,7 @@ export function BookingFind() {
       {step === "code" && (
         <form onSubmit={verifyCode} className="grid gap-3.5">
           <p className="text-[13px] leading-relaxed text-soft">
-            If an active booking exists, a code was sent to <strong className="text-ink">{email}</strong>. Use the same code until it expires. You can request a replacement when the countdown reaches zero. If you leave and return, enter this email again to continue with the active code. Check spam if it didn&rsquo;t arrive.
+            If a booking or package purchase is linked to <strong className="text-ink">{email}</strong>, a code was sent. Use the same code until it expires. You can request a replacement when the countdown reaches zero. If you leave and return, enter this email again to continue with the active code. Check spam if it didn&rsquo;t arrive.
           </p>
           <p className="rounded-[12px] bg-[#eaf5df] px-3 py-2 text-[12px] leading-relaxed text-[#31543a]">
             You can still view or pay for your booking. Online date changes close 48 hours before the lesson; for a late change, call{" "}
@@ -359,7 +353,7 @@ export function BookingFind() {
                     </span>
                   </p>
                   <p className="mt-0.5 text-[12.5px] text-soft">
-                    {formatSlotFull(booking.startsAt)} · {booking.reference}
+                    {formatSlotFull(booking.startsAt)} · {booking.reference} · {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "due" ? "Awaiting payment" : booking.paymentStatus}
                   </p>
                 </div>
                 {booking.canOpen || booking.status === "cancelled" || booking.status === "completed" || booking.status === "no_show" ? (
@@ -369,7 +363,7 @@ export function BookingFind() {
                     disabled={pending}
                     className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60"
                   >
-                    {booking.status === "no_show" || (now !== null && Date.parse(booking.startsAt) <= now) ? "View lesson" : "Manage"}
+                    {booking.status === "no_show" || (now !== null && Date.parse(booking.startsAt) <= now) ? "View lesson" : "View booking"}
                   </button>
                 ) : (
                   <div className="text-right">
@@ -400,22 +394,12 @@ export function BookingFind() {
                   </div>
                   {purchase.canOpen && (
                     <button type="button" onClick={() => openBooking(purchase.reference)} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
-                      Manage lessons
+                      View package
                     </button>
                   )}
                 </div>
               ))}
             </div>
-          )}
-          {addOnBooking && (
-            <button
-              type="button"
-              onClick={() => void openBooking(addOnBooking.reference)}
-              disabled={pending}
-              className="inline-flex min-h-10 w-fit items-center rounded-full bg-ink px-5 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60"
-            >
-              {pending ? "Opening My Booking…" : "Add lessons to my booking"}
-            </button>
           )}
           <div>
             <button

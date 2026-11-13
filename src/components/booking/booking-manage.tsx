@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
-import { BookingFind } from "@/components/booking/booking-find";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
@@ -16,6 +15,7 @@ import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPend
 export interface BookingManageProps {
   paymentReturn?: string;
   packagePurchaseAdded?: boolean;
+  onBackToBookings?: () => void;
 }
 
 interface BookingView {
@@ -78,7 +78,7 @@ const STATUS_LABEL: Record<string, string> = {
   no_show: "No-show",
 };
 
-export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: BookingManageProps) {
+export function BookingManage({ paymentReturn, packagePurchaseAdded = false, onBackToBookings }: BookingManageProps) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +94,6 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const [busy, setBusy] = useState(false);
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
   const [addOnPlans, setAddOnPlans] = useState<Record<string, { quantity: number; startsAt: string[]; sessionIndex: number }>>({});
-  const [showAddOns, setShowAddOns] = useState(false);
   const [creditStart, setCreditStart] = useState<string | null>(null);
   const sessionAuthorizedRef = useRef(false);
 
@@ -138,13 +137,13 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
     router.replace("/booking/manage");
   }
 
-  function backWithinBooking() {
-    setActionError(null);
-    if (mode === "reschedule") {
-      setMode("view");
-      setPendingStart(null);
+  async function returnToBookings() {
+    if (onBackToBookings) {
+      onBackToBookings();
+      return;
     }
-    if (showAddOns) setShowAddOns(false);
+    await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+    router.replace("/booking/manage");
   }
 
   const callManage = useCallback(
@@ -192,7 +191,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         setBooking(result.booking ?? null);
         setSessions(loadedSessions);
         setActiveSessionId(firstEligibleSession?.id ?? result.booking?.id ?? null);
-        setMode(firstEligibleSession ? "reschedule" : "view");
+        setMode("view");
         setNow(loadedAt);
         setStatus("ready");
       })
@@ -310,9 +309,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           Your secure session may have expired. You don’t need a booking link—enter the email address used for your booking below and verify it with the one-time code.
         </p>
         {error && <p role="status" className="mt-3 text-[12px] text-soft">{error}</p>}
-        <div className="mt-5 rounded-[18px] border border-line bg-[#fbfbf8] p-4 sm:p-5">
-          <BookingFind />
-        </div>
+        <button type="button" onClick={() => void returnToBookings()} className="mt-5 inline-flex min-h-11 items-center rounded-full bg-ink px-5 text-[13px] font-extrabold text-white">Return to My Booking login</button>
         <p className="mt-5 text-[12.5px] text-soft">Can’t access that email? <a href="/contact" className="font-bold text-gold-deep underline underline-offset-2">Contact the school</a>.</p>
       </div>
     );
@@ -381,43 +378,12 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
   const rescheduleLimitReached = selectedSession.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION;
   const withinCancellationWindow = now !== null && Date.parse(selectedSession.startsAt) > now && isInsideSelfServiceWindow(selectedSession.startsAt, now);
 
-  if (paymentReturn === "success" && packagePurchaseAdded) {
-    return (
-      <div className="rounded-[25px] border border-[#d3e9c5] bg-[#f5fbed] p-6 sm:p-8">
-        <h2 className="font-display text-2xl font-extrabold text-ink">Package checkout returned</h2>
-        <p role="status" className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
-          Stripe returned you from checkout. Your existing booking is unchanged. Verify your email below to view and manage the package lessons you selected.
-        </p>
-        <div className="mt-5 rounded-[18px] border border-line bg-white p-4 sm:p-5"><BookingFind /></div>
-      </div>
-    );
-  }
-
-  if (paymentReturn === "success") {
-    return (
-      <div className="rounded-[25px] border border-[#d3e9c5] bg-[#f5fbed] p-6 sm:p-8">
-        <h2 className="font-display text-2xl font-extrabold text-ink">Payment complete</h2>
-        <p role="status" className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
-          {booking.paymentStatus === "paid" ? "Your payment has been received." : "We’re confirming your payment. Please refresh this page shortly if it has not updated."}
-        </p>
-        <p className="mt-4 text-sm font-bold text-ink">Questions or changes? Contact your tutor:</p>
-        <p className="mt-2 text-sm leading-relaxed text-ink">
-          <a className="font-bold underline" href="tel:+12362343229">+1 236-234-3229</a><br />
-          <a className="font-bold underline" href="mailto:info@wisdomdrivingacademy.com">info@wisdomdrivingacademy.com</a>
-        </p>
-        <button type="button" onClick={() => void leaveToHome()} className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-3 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed] sm:w-auto">
-          <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">↗</span> Exit My Booking
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-[25px] border border-line bg-white p-5 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-gold-deep">
-            Manage your booking
+            My Booking
           </p>
           <h2 className="mt-2 font-display text-2xl font-extrabold text-ink">
             {booking.lessonName}
@@ -435,6 +401,11 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           {STATUS_LABEL[booking.status] ?? booking.status}
         </span>
       </div>
+      {onBackToBookings && (
+        <button type="button" onClick={onBackToBookings} className="mt-3 inline-flex min-h-10 items-center rounded-full border border-line bg-white px-4 text-[12.5px] font-bold text-ink transition hover:border-[#83b657]">
+          ← Back to all bookings
+        </button>
+      )}
 
       <BookingSummary
         className="mt-5"
@@ -499,7 +470,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       {paymentReturn === "success" && (
         <p role="status" className={`mt-4 rounded-[14px] border px-4 py-3 text-[13px] font-semibold leading-relaxed ${booking.paymentStatus === "paid" ? "border-[#cce6b1] bg-[#f1f9e9] text-[#385a22]" : "border-[#eadcb1] bg-[#fff9e9] text-[#735c1e]"}`}>
           {booking.paymentStatus === "paid"
-            ? "Payment received. Your booking is up to date, and your paid invoice is available below."
+            ? packagePurchaseAdded
+              ? "Payment received. Your add-on lessons are shown below."
+              : "Payment received. Your booking is up to date, and your paid invoice is available below."
             : "Checkout returned successfully. We’re confirming your payment now; refresh this page shortly if the status has not updated yet."}
         </p>
       )}
@@ -646,26 +619,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
           </div>
         </div>
       )}
-      {booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (
-        <div className="mt-5 border-t border-line pt-5">
-          <button
-            type="button"
-            onClick={() => {
-              if (mode === "reschedule") {
-                setMode("view");
-                setPendingStart(null);
-              }
-              setShowAddOns((visible) => !visible);
-              setActionError(null);
-            }}
-            disabled={busy}
-            className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-ink bg-white px-5 py-3 text-[13px] font-extrabold text-ink transition-colors hover:bg-ink hover:text-white disabled:opacity-60 sm:w-auto"
-          >
-            {showAddOns ? "← Back to booking details" : "Add an add-on lesson"}
-          </button>
-        </div>
-      )}
-      {mode === "view" && showAddOns && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
+      {mode === "view" && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
         const totalLessons = booking.addOnOptions!.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
         const selectedOptions = booking.addOnOptions!.filter((option) => addOnPlans[option.id]);
         const allScheduled = selectedOptions.flatMap((option) => {
@@ -760,11 +714,6 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         </section>;
       })()}
       <div className="mt-7 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:justify-between">
-        {(mode === "reschedule" || showAddOns) && (
-          <button type="button" onClick={backWithinBooking} disabled={busy} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-ink bg-white px-4 py-3 text-[13px] font-bold text-ink transition hover:bg-[#f7fbed] disabled:opacity-60 sm:w-auto">
-            <span aria-hidden="true">←</span> Back to booking details
-          </button>
-        )}
         <button type="button" onClick={() => void leaveToHome()} disabled={busy} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-3 text-[13px] font-bold text-soft transition hover:border-[#83b657] hover:bg-[#f7fbed] disabled:opacity-60 sm:ml-auto sm:w-auto">
           Exit My Booking
         </button>

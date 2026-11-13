@@ -87,7 +87,9 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   assert.match(dailyLimitConstraintMigration, /check \(send_count between 0 and 15\)/);
   assert.match(otpRoute, /studentName: target\?\.studentName \?\? purchaseTarget\?\.studentName \?\? "there"/);
   assert.match(otpRoute, /studentEmail: target\?\.email \?\? purchaseTarget\?\.email \?\? email/);
-  assert.match(otpRoute, /regardless of booking eligibility/);
+  assert.match(otpRoute, /if \(found\.length === 0 && purchases\.length === 0\)/);
+  assert.match(otpRoute, /If a booking or package purchase exists for that email, a code has been sent or may still be active/);
+  assert.ok(otpRoute.indexOf("if (found.length === 0 && purchases.length === 0)") < otpRoute.indexOf("await store.putOtp(email, otpHash, expiresAt)"));
   assert.match(otpRoute, /sendLimitReason: "daily_limit"/);
   assert.match(bookingFind, /result\.sendLimitReason === "daily_limit"/);
   assert.match(bookingFind, /expiry - Date\.now\(\) > OTP_TTL_MS/);
@@ -114,10 +116,9 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   const dateTime = readFileSync(new URL("../src/components/booking/date-time-step.tsx", import.meta.url), "utf8");
   const packageCheckout = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
-  assert.match(finder, /Add lessons to my booking/);
-  assert.match(finder, /openBooking\(addOnBooking\.reference\)/);
-  assert.match(finder, /window\.location\.assign\(`\/booking\/manage\?selected=/);
-  assert.doesNotMatch(finder, /router\.push\(`\/booking\/manage/);
+  assert.match(finder, /onOpenManage\(reference\)/);
+  assert.match(finder, /Paid.*Awaiting payment/);
+  assert.doesNotMatch(finder, /window\.location\.assign\(`\/booking\/manage/);
   assert.doesNotMatch(finder, /href="\/lessons"/);
   assert.match(otpRoute, /paymentStatus: booking\.paymentStatus/);
   assert.match(manage, /Add lessons to this booking/);
@@ -128,9 +129,9 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);
-  assert.match(manage, /setMode\(firstEligibleSession \? "reschedule" : "view"\)/);
-  assert.match(manage, /Add an add-on lesson/);
-  assert.match(manage, /mode === "view" && showAddOns/);
+  assert.match(manage, /setMode\("view"\)/);
+  assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
+  assert.match(manage, /mode === "view" && booking\.paymentStatus === "paid"/);
   assert.match(manage, /addMonthsToKey\(todayKey\(\), 6\)/);
   assert.match(manage, /horizonDays=\{370\}/);
   assert.match(dateTime, /selectedSlot && visibleSlots\.includes\(selectedSlot\)/);
@@ -191,9 +192,9 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(manage, /Select a date and time for each of the/);
   assert.match(manage, /packages=\{allScheduled\}/);
   assert.doesNotMatch(manage, /Upgrade package|StripeUpgradeButton|upgradeOptions/);
-  assert.match(manage, /function backWithinBooking\(\)/);
-  assert.match(manage, /onClick=\{backWithinBooking\}/);
-  assert.match(manage, /Back to booking details/);
+  assert.match(manage, /onBackToBookings\(\)/);
+  assert.match(manage, /Back to all bookings/);
+  assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
   assert.match(manage, /Exit My Booking/);
   assert.doesNotMatch(manage, /Back to My Booking lookup/);
   assert.match(manage, /Your booking and add-on lessons/);
@@ -234,8 +235,13 @@ test("My Booking lets users add packages only after selecting all lesson times a
   const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   assert.match(finder, /We verified this email, but couldn’t find a booking or package purchase linked to it/);
   assert.match(finder, /Back to verification/);
+  assert.match(finder, /onOpenManage\(reference\)/);
+  assert.doesNotMatch(finder, /window\.location\.assign\(`\/booking\/manage/);
   assert.doesNotMatch(finder, /Back to home/);
   assert.doesNotMatch(manage, /Back to home/);
+  const portal = readFileSync(new URL("../src/components/booking/booking-portal.tsx", import.meta.url), "utf8");
+  assert.match(portal, /<BookingFind onOpenManage=\{openManage\}/);
+  assert.match(portal, /<BookingManage/);
 });
 
 test("90-minute lessons and 45-minute road tests reserve 120-minute instructor blocks", () => {

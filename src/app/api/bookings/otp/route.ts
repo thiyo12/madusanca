@@ -17,8 +17,8 @@ const MAX_BODY_BYTES = 4_096;
  * Self-service booking finder.
  *
  * Security model:
- *  - The send step always answers identically, so nobody can probe which
- *    emails have bookings.
+ *  - The send step always answers identically, and only sends a code when the
+ *    address has a booking or package purchase.
  *  - Only a SHA-256 hash of the 6-digit code is stored, bound to the email.
  *  - Codes expire after 10 minutes and lock after 5 wrong attempts.
  *  - Per-IP and per-email rate limits slow down abuse and email bombing.
@@ -76,8 +76,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     const store = getStore();
 
     if (action === "send") {
-      // Apply the same per-address quota before checking eligibility so the
-      // response cannot disclose whether that email has a booking.
+      // Apply the same per-address quota before checking eligibility. Keep the
+      // response generic regardless of whether an eligible record is found.
       failureStage = "send_quota";
       const quota = await store.consumeOtpSendQuota(email, new Date().toISOString());
       if (!quota.allowed) {
@@ -95,6 +95,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       failureStage = "eligible_booking_lookup";
       const found = await store.findBookingsByEmail(email);
       const purchases = await store.findPackagePurchasesByEmail(email);
+      if (found.length === 0 && purchases.length === 0) {
+        // Keep the response shape and apparent cooldown the same without
+        // persisting a code or sending mail for an unknown email.
+        return NextResponse.json(genericSend({
+          expiresAt: new Date(Date.now() + OTP_TTL_MIN * 60 * 1000).toISOString(),
+          retryAfterSeconds: OTP_TTL_MIN * 60,
+        }));
+      }
       // Email ownership also grants access to historical bookings, so a past
       // or closed lesson can still be shown as expired with tutor contact info.
       const target = found[0];
@@ -116,9 +124,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       } else {
         console.info("[otp] verification email accepted by the configured provider");
       }
-      // Sending on explicit request to any valid address lets inbox owners
-      // distinguish a mistyped/unbooked email only after verification. The
-      // send response remains identical regardless of booking eligibility.
       return NextResponse.json(genericSend({ expiresAt, retryAfterSeconds: OTP_TTL_MIN * 60 }));
     }
 
