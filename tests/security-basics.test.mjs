@@ -78,6 +78,7 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   const dailyLimitMigration = readFileSync(new URL("../supabase/migrations/0045_otp_daily_send_limit_fifteen.sql", import.meta.url), "utf8");
   const dailyLimitConstraintMigration = readFileSync(new URL("../supabase/migrations/0046_otp_send_count_check_fifteen.sql", import.meta.url), "utf8");
+  const latestCooldownMigration = readFileSync(new URL("../supabase/migrations/0047_enforce_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
   assert.match(otpRoute, /expiresAt,/);
   assert.match(otpRoute, /verifyOtp\(email, hashOtp\(email, code \?\? ""\)\)/);
   assert.doesNotMatch(otpRoute, /action === "token"\);/);
@@ -97,7 +98,14 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   assert.match(bookingFind, /readPendingOtp\(email\) \? "Enter current code"/);
   assert.match(bookingFind, /localStorage\.setItem\(PENDING_OTP_KEY, JSON\.stringify\(\{ email: email\.trim\(\)\.toLowerCase\(\), expiresAt:/);
   assert.match(resendMigration, /last_sent_at \+ interval '10 minutes'/);
+  assert.match(latestCooldownMigration, /last_sent_at \+ interval '10 minutes'/);
+  assert.match(latestCooldownMigration, /pg_advisory_xact_lock/);
   assert.doesNotMatch(resendMigration, /interval '2 minutes'/);
+});
+
+test("expired lessons do not offer online payment", () => {
+  const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
+  assert.match(bookingFind, /booking\.canOpen && booking\.paymentStatus === "due" && !isPast/);
 });
 
 test("the 48-hour reschedule cutoff applies independently to each package session", () => {

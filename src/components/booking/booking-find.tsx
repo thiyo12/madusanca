@@ -410,7 +410,7 @@ export function BookingFind({
                       {pending && rescheduleAvailable ? "Opening…" : rescheduleLabel}
                     </button>
                   )}
-                  {booking.canOpen && booking.paymentStatus === "due" && (
+                  {booking.canOpen && booking.paymentStatus === "due" && !isPast && (
                     <button
                       type="button"
                       onClick={() => openBooking(booking.reference, "payment", booking.id)}
