@@ -196,6 +196,11 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(manage, /Back to booking details/);
   assert.match(manage, /Exit My Booking/);
   assert.doesNotMatch(manage, /Back to My Booking lookup/);
+  assert.match(manage, /Your booking and add-on lessons/);
+  assert.match(manage, /Reschedule lesson/);
+  assert.match(manage, /if \(!event\.persisted\) void clearSession\(\)/);
+  assert.doesNotMatch(manage, /popstate|reloadRestoredPage/);
+  assert.match(manage, /clearOnLeavingLink/);
   assert.match(purchaseButton, /startsAt/);
   const purchaseRoute = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
   assert.match(purchaseRoute, /selection\.startsAt\.length !== credits/);
@@ -220,6 +225,12 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(manageRoute, /const canAddPackage = activePaidSessions\.length > 0/);
   assert.match(manageRoute, /addOnOptions/);
   assert.match(manageRoute, /activePaidSessions\[0\]/);
+  assert.match(manageRoute, /function loadManageContext/);
+  assert.match(manageRoute, /Added from My Booking/);
+  const linkedSessionMigration = readFileSync(new URL("../supabase/migrations/0057_reschedule_related_mybooking_sessions.sql", import.meta.url), "utf8");
+  assert.match(linkedSessionMigration, /v_target_root_reference <> v_anchor_root_reference/);
+  assert.match(linkedSessionMigration, /package_purchase_tokens/);
+  assert.match(linkedSessionMigration, /booking_start_cadence_min/);
   const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   assert.match(finder, /We verified this email, but couldn’t find a booking or package purchase linked to it/);
   assert.match(finder, /Back to verification/);

@@ -8,7 +8,7 @@ import { isIpRateLimitedShared, isRateLimitedShared } from "@/lib/server/rate-li
 import {
   sendBookingRescheduledEmail,
 } from "@/lib/email/booking-emails";
-import type { BookingRecord, PackagePurchaseRecord } from "@/lib/booking/types";
+import type { BookingRecord, BookingStore, PackagePurchaseRecord } from "@/lib/booking/types";
 import { manageUrl as buildManageUrl } from "@/lib/booking/urls";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
@@ -29,6 +29,7 @@ const ERROR_STATUS: Record<string, number> = {
   cutoff: 409,
   reschedule_limit: 409,
 };
+const ADDON_SOURCE_PREFIX = "Added from My Booking ";
 
 function errorResponse(error: string, message: string): NextResponse {
   return NextResponse.json(
@@ -77,7 +78,7 @@ function safeView(booking: BookingRecord): {
     sessionCount: booking.sessionCount ?? 1,
     packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
     packageWindowStart: booking.packageWindowStart ?? dayKeyOf(booking.startsAt),
-    isAdditionalPackage: Boolean(booking.purchaseId),
+    isAdditionalPackage: booking.notes.startsWith(ADDON_SOURCE_PREFIX),
   };
 }
 
@@ -100,6 +101,60 @@ function safePurchaseView(purchase: PackagePurchaseRecord) {
 async function load(hash: string) {
   const store = getStore();
   return store.getBookingByToken(hash);
+}
+
+function addonSourceReference(purchase: PackagePurchaseRecord | null | undefined): string | null {
+  return purchase?.notes.startsWith(ADDON_SOURCE_PREFIX)
+    ? purchase.notes.slice(ADDON_SOURCE_PREFIX.length).trim()
+    : null;
+}
+
+function packageGroupId(booking: BookingRecord): string {
+  return booking.packageId ?? booking.id;
+}
+
+/**
+ * My Booking add-ons are separate package groups. Rejoin only purchases whose
+ * stored source note points at this exact booking reference, so an email that
+ * owns unrelated bookings does not accidentally merge them into this view.
+ */
+async function loadManageContext(
+  store: BookingStore,
+  seedBooking: BookingRecord | null,
+  seedPurchase: PackagePurchaseRecord | null,
+): Promise<{ booking: BookingRecord | null; sessions: BookingRecord[]; purchase: PackagePurchaseRecord | null }> {
+  const email = seedBooking?.email ?? seedPurchase?.email;
+  if (!email) return { booking: seedBooking, sessions: seedBooking ? [seedBooking] : [], purchase: seedPurchase };
+
+  const [allBookings, purchases] = await Promise.all([
+    store.findBookingsByEmail(email),
+    store.findPackagePurchasesByEmail(email),
+  ]);
+  const originReference = addonSourceReference(seedPurchase) ?? seedBooking?.reference ?? null;
+  const originRecord = originReference
+    ? allBookings.find((item) => item.reference === originReference) ?? null
+    : null;
+  const primaryCandidate = originRecord ?? seedBooking;
+  const primaryGroup = primaryCandidate
+    ? allBookings.filter((item) => packageGroupId(item) === packageGroupId(primaryCandidate))
+    : [];
+  const booking = primaryGroup.find((item) => (item.sessionIndex ?? 1) === 1) ?? primaryCandidate;
+
+  const linkedPurchases = originReference
+    ? purchases.filter((item) => item.notes === `${ADDON_SOURCE_PREFIX}${originReference}` && !["failed", "refunded"].includes(item.paymentStatus))
+    : [];
+  if (seedPurchase && !linkedPurchases.some((item) => item.id === seedPurchase.id)) linkedPurchases.push(seedPurchase);
+
+  const linkedSessions = (await Promise.all(linkedPurchases.map((item) => store.findBookingsByPurchaseId(item.id)))).flat();
+  const combined = new Map<string, BookingRecord>();
+  for (const item of [...primaryGroup, ...linkedSessions, ...(seedBooking ? [seedBooking] : [])]) combined.set(item.id, item);
+  const sessions = [...combined.values()].sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt));
+
+  const primaryPurchaseId = booking?.purchaseId;
+  const purchase = primaryPurchaseId
+    ? await store.getPackagePurchaseById(primaryPurchaseId)
+    : seedPurchase;
+  return { booking, sessions, purchase };
 }
 
 async function expireUpgradeCheckout(booking: BookingRecord): Promise<boolean> {
@@ -182,27 +237,29 @@ export async function POST(request: Request): Promise<NextResponse> {
         const purchase = await getStore().getPackagePurchaseByToken(hash);
         if (purchase) {
           const purchaseBookings = await getStore().findBookingsByPurchaseId(purchase.id);
-          const activePaidSessions = purchaseBookings.filter((session) =>
+          const seedBooking = purchaseBookings.find((session) => (session.sessionIndex ?? 1) === 1) ?? purchaseBookings[0] ?? null;
+          const context = await loadManageContext(getStore(), seedBooking, purchase);
+          const activePaidSessions = context.sessions.filter((session) =>
             ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" && Date.parse(session.startsAt) > Date.now(),
           );
           const addOnOptions = activePaidSessions.length > 0
             ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package")
               .map(({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }) => ({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }))
             : [];
-          const sessions = purchaseBookings.map(safeView);
-          const activeBookingRecord = activePaidSessions[0] ?? purchaseBookings.find((session) => !["cancelled", "completed"].includes(session.status));
+          const activeBookingRecord = context.booking ?? activePaidSessions[0] ?? seedBooking;
           return NextResponse.json({
             ok: true,
-            purchase: safePurchaseView(purchase),
+            ...(context.purchase ? { purchase: safePurchaseView(context.purchase) } : {}),
             ...(activeBookingRecord ? { booking: { ...safeView(activeBookingRecord), addOnOptions } } : {}),
-            sessions,
+            sessions: context.sessions.map(safeView),
           });
         }
         return errorResponse("not_found", "This booking link is invalid or has expired.");
       }
-      const purchaseId = found.sessions.find((session) => session.purchaseId)?.purchaseId;
-      const purchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
-      const activePaidSessions = found.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" && Date.parse(session.startsAt) > Date.now());
+      const purchaseId = found.booking.purchaseId ?? found.sessions.find((session) => session.purchaseId)?.purchaseId;
+      const linkedPurchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
+      const context = await loadManageContext(getStore(), found.booking, linkedPurchase);
+      const activePaidSessions = context.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" && Date.parse(session.startsAt) > Date.now());
       // Add-ons reserve their own future lesson times, so do not hide the
       // option just because an existing lesson is inside the 48-hour cutoff.
       const canAddPackage = activePaidSessions.length > 0;
@@ -210,11 +267,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({
         ok: true,
         booking: {
-          ...safeView(found.booking),
+          ...safeView(context.booking ?? found.booking),
           addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }) => ({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category })) : [],
         },
-        sessions: found.sessions.map(safeView),
-        ...(purchase ? { purchase: safePurchaseView(purchase) } : {}),
+        sessions: context.sessions.map(safeView),
+        ...(context.purchase ? { purchase: safePurchaseView(context.purchase) } : {}),
       });
     }
 
@@ -228,11 +285,19 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const store = getStore();
     const found = await load(hash);
-    if (!found) {
+    const tokenPurchase = found
+      ? (found.booking.purchaseId ? await store.getPackagePurchaseById(found.booking.purchaseId) : null)
+      : await store.getPackagePurchaseByToken(hash);
+    const purchaseBookings = !found && tokenPurchase ? await store.findBookingsByPurchaseId(tokenPurchase.id) : [];
+    const seedBooking = found?.booking ?? purchaseBookings.find((session) => (session.sessionIndex ?? 1) === 1) ?? purchaseBookings[0] ?? null;
+    if (!seedBooking) {
       return errorResponse("not_found", "This booking link is invalid or has expired.");
     }
-    const targetBooking = found.sessions.find((session) => session.id === sessionId) ?? found.booking;
-    const paymentBooking = found.sessions.find((session) => session.stripeCheckoutSessionId) ?? found.booking;
+    const context = await loadManageContext(store, seedBooking, tokenPurchase);
+    const targetBooking = context.sessions.find((session) => session.id === sessionId);
+    if (!targetBooking) return errorResponse("not_found", "That lesson is not part of this My Booking group.");
+    const targetGroupId = packageGroupId(targetBooking);
+    const paymentBooking = context.sessions.find((session) => packageGroupId(session) === targetGroupId && session.stripeCheckoutSessionId) ?? targetBooking;
     if (["cancelled", "completed", "no_show"].includes(targetBooking.status) || Date.parse(targetBooking.startsAt) <= Date.now()) {
       return errorResponse("not_modifiable", "This lesson has expired or is closed. Please contact your tutor for help.");
     }
@@ -248,7 +313,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return errorResponse("cutoff", messageFor("cutoff"));
     }
     const paidBooking = targetBooking.paymentStatus === "paid" ||
-      (found.sessions.length > 1 && found.sessions.every((session) => session.paymentStatus === "paid"));
+      (context.sessions.length > 1 && context.sessions.every((session) => session.paymentStatus === "paid"));
     if (!paidBooking && paymentBooking.stripeCheckoutSessionId) {
       try {
         const stripe = (await import("@/lib/stripe/server")).getStripe();
@@ -339,11 +404,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       manageUrl,
     });
     const updated = await store.getBookingByToken(hashToken(newToken));
+    const updatedPurchaseId = updated?.booking.purchaseId ?? result.value.purchaseId;
+    const updatedPurchase = updatedPurchaseId ? await store.getPackagePurchaseById(updatedPurchaseId) : null;
+    const updatedContext = await loadManageContext(store, updated?.booking ?? result.value, updatedPurchase);
 
     const response = NextResponse.json({
       ok: true,
-      booking: safeView(result.value),
-      sessions: updated?.sessions.map(safeView) ?? [safeView(result.value)],
+      booking: safeView(updatedContext.booking ?? result.value),
+      sessions: updatedContext.sessions.map(safeView),
+      ...(updatedContext.purchase ? { purchase: safePurchaseView(updatedContext.purchase) } : {}),
       emailSent,
     });
     response.cookies.set(MANAGE_COOKIE_NAME, newToken, manageCookieOptions);

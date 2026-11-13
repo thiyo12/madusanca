@@ -605,7 +605,16 @@ export const fileStore: BookingStore = {
       const token = data.tokens.find((item) => item.tokenHash === tokenHash && Date.parse(item.expiresAt) >= Date.now());
       const anchor = token && data.bookings.find((item) => item.id === token.bookingId);
       const target = data.bookings.find((item) => item.id === sessionId);
-      if (!anchor || !target || (anchor.packageId ?? anchor.id) !== (target.packageId ?? target.id)) {
+      const sourceRefFor = (booking: BookingRecord) => {
+        const source = booking.purchaseId
+          ? data.packagePurchases.find((item) => item.id === booking.purchaseId)?.notes
+          : undefined;
+        const prefix = "Added from My Booking ";
+        return source?.startsWith(prefix) ? source.slice(prefix.length).trim() : booking.reference;
+      };
+      const samePackage = Boolean(anchor && target && (anchor.packageId ?? anchor.id) === (target.packageId ?? target.id));
+      const relatedPackage = Boolean(anchor && target && anchor.email.toLowerCase() === target.email.toLowerCase() && sourceRefFor(anchor) === sourceRefFor(target));
+      if (!anchor || !target || (!samePackage && !relatedPackage)) {
         return Promise.resolve({ ok: false, error: "expired" as const });
       }
       if (["cancelled", "completed"].includes(target.status)) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
@@ -624,7 +633,7 @@ export const fileStore: BookingStore = {
       target.status = "rescheduled";
       target.studentRescheduleCount = (target.studentRescheduleCount ?? 0) + 1;
       target.updatedAt = new Date().toISOString();
-      const packageId = anchor.packageId ?? anchor.id;
+      const packageId = target.packageId ?? target.id;
       const packageAnchor = data.bookings.find((item) =>
         (item.packageId ?? item.id) === packageId && (item.sessionIndex ?? 1) === 1,
       ) ?? anchor;

@@ -103,9 +103,6 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       if (hasPendingManageSessionStripeReturn()) return;
       await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => undefined);
     };
-    const reloadRestoredPage = (event: PageTransitionEvent) => {
-      if (event.persisted) window.location.reload();
-    };
     const clearOnLeavingLink = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
       const link = event.target.closest("a[href]");
@@ -121,19 +118,17 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       event.preventDefault();
       void clearSession().finally(() => window.location.assign(destination.href));
     };
-    const clearOnHistoryNavigation = () => {
-      void clearSession().finally(() => window.location.reload());
+    const clearOnPageHide = (event: PageTransitionEvent) => {
+      // Keep the one-use verified session while the browser temporarily
+      // stores this My Booking step for Back/Forward navigation. Reloads and
+      // closing the tab are not BFCache restores and still clear the session.
+      if (!event.persisted) void clearSession();
     };
-    const clearOnPageHide = () => { void clearSession(); };
     window.addEventListener("pagehide", clearOnPageHide);
-    window.addEventListener("pageshow", reloadRestoredPage);
     document.addEventListener("click", clearOnLeavingLink, true);
-    window.addEventListener("popstate", clearOnHistoryNavigation);
     return () => {
       window.removeEventListener("pagehide", clearOnPageHide);
-      window.removeEventListener("pageshow", reloadRestoredPage);
       document.removeEventListener("click", clearOnLeavingLink, true);
-      window.removeEventListener("popstate", clearOnHistoryNavigation);
     };
   }, []);
 
@@ -189,7 +184,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         const loadedAt = Date.now();
         const loadedSessions = result.sessions ?? (result.booking ? [result.booking] : []);
         const firstEligibleSession = loadedSessions.find((session) =>
-          ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" &&
+          ["confirmed", "rescheduled"].includes(session.status) &&
           session.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION &&
           Date.parse(session.startsAt) > loadedAt && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
         );
@@ -282,6 +277,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
       }
       setBooking(result.booking);
       setSessions(result.sessions ?? sessions.map((session) => session.id === result.booking!.id ? result.booking! : session));
+      if (result.purchase) setPurchase(result.purchase);
       setPendingStart(null);
       setMode("view");
       setEmailNotice(
@@ -457,20 +453,43 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
 
       {sessions.length > 1 && (
         <section className="mt-5 rounded-[16px] border border-line p-4">
-          <h3 className="text-sm font-extrabold text-ink">Your {sessions.length} scheduled sessions</h3>
+          <h3 className="text-sm font-extrabold text-ink">Your booking and add-on lessons ({sessions.length})</h3>
           <ol className="mt-3 grid gap-2">
             {sessions.map((session) => (
-              <li key={session.id} className="flex flex-wrap justify-between gap-2 rounded-[10px] bg-mist px-3 py-2 text-[12.5px]">
-                <button type="button" onClick={() => setActiveSessionId(session.id)} aria-pressed={activeSessionId === session.id} className="text-left font-bold text-ink underline decoration-transparent underline-offset-2 hover:decoration-current aria-pressed:text-gold-deep">
-                  Session {session.sessionIndex}: {formatSlotFull(session.startsAt)}
-                </button>
-                <span className="text-right text-soft">
-                  {isExpired(session) ? "Expired" : STATUS_LABEL[session.status] ?? session.status}
-                  {activeSessionId === session.id ? " · selected" : ""}
-                  {!isExpired(session) && session.status !== "cancelled" && now !== null && (
-                    <span className="block font-semibold">{session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION ? "Reschedule used" : isInsideSelfServiceWindow(session.startsAt, now) ? "Within 48 hours · contact tutor" : "1 reschedule available"}</span>
-                  )}
-                </span>
+              <li key={session.id} className="grid gap-3 rounded-[12px] bg-mist px-3 py-3 text-[12.5px] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="min-w-0">
+                  <p className="font-bold text-ink">
+                    {session.isAdditionalPackage ? `${session.lessonName} · Add-on` : session.lessonName}
+                    <span className="ml-2 font-medium text-soft">Lesson {session.sessionIndex}</span>
+                  </p>
+                  <p className="mt-1 break-words text-soft">{formatSlotFull(session.startsAt)} · {session.reference}</p>
+                  <p className="mt-1 text-soft">
+                    {isExpired(session) ? "Expired" : STATUS_LABEL[session.status] ?? session.status}
+                    {session.paymentStatus === "paid" ? " · Paid" : session.paymentStatus === "due" ? " · Payment due" : ""}
+                    {activeSessionId === session.id ? " · Selected" : ""}
+                  </p>
+                </div>
+                {session.status === "confirmed" || session.status === "rescheduled" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveSessionId(session.id);
+                      setPendingStart(null);
+                      setActionError(null);
+                      setMode("reschedule");
+                    }}
+                    disabled={busy || isExpired(session) || session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION || (now !== null && isInsideSelfServiceWindow(session.startsAt, now))}
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-full border border-ink bg-white px-4 py-2.5 text-[12px] font-extrabold text-ink transition hover:bg-ink hover:text-white disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  >
+                    {isExpired(session)
+                      ? "Expired"
+                      : session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION
+                        ? "Reschedule used"
+                        : now !== null && isInsideSelfServiceWindow(session.startsAt, now)
+                          ? "Within 48 hours"
+                          : "Reschedule lesson"}
+                  </button>
+                ) : <span className="text-[11px] font-semibold text-soft">{STATUS_LABEL[session.status] ?? session.status}</span>}
               </li>
             ))}
           </ol>
@@ -521,7 +540,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         </p>
       )}
 
-      {mode === "view" && !closed && selectedSessionOpen && !withinCancellationWindow && (
+      {mode === "view" && sessions.length <= 1 && !closed && selectedSessionOpen && !withinCancellationWindow && (
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-5">
           {!rescheduleLimitReached ? (
             <Button
@@ -550,7 +569,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false }: B
         </div>
       )}
 
-      {mode === "view" && !closed && selectedSessionOpen && withinCancellationWindow && (
+      {mode === "view" && sessions.length <= 1 && !closed && selectedSessionOpen && withinCancellationWindow && (
         <div className="mt-6 border-t border-line pt-5">
           <p className="text-[13px] leading-relaxed text-soft">
             This appointment is within 48 hours. Please contact your driving instructor to request a change. For assistance, call{" "}
