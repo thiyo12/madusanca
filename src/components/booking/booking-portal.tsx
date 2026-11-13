@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { BookingFind, type BookingAction } from "@/components/booking/booking-find";
 import { BookingManage } from "@/components/booking/booking-manage";
 
@@ -31,10 +31,10 @@ export function BookingPortal({
     setShowManage(true);
   }
 
-  async function backToBookings() {
+  const backToBookings = useCallback(async () => {
     await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
     setShowManage(false);
-  }
+  }, []);
 
   return (
     <>
@@ -48,7 +48,7 @@ export function BookingPortal({
           packagePurchaseAdded={packagePurchaseAdded}
           initialAction={activeAction}
           initialSessionId={activeSessionId}
-          onBackToBookings={!hasManageCookie ? backToBookings : undefined}
+          onBackToBookings={backToBookings}
           onBookingUpdated={() => setRefreshVersion((version) => version + 1)}
         />
       )}

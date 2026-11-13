@@ -17,7 +17,7 @@ export interface BookingManageProps {
   packagePurchaseAdded?: boolean;
   initialAction?: "details" | "reschedule";
   initialSessionId?: string;
-  onBackToBookings?: () => void;
+  onBackToBookings: () => Promise<void>;
   onBookingUpdated?: () => void;
 }
 
@@ -141,12 +141,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
   }
 
   async function returnToBookings() {
-    if (onBackToBookings) {
-      onBackToBookings();
-      return;
-    }
-    await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
-    router.replace("/booking/manage");
+    await onBackToBookings();
   }
 
   const callManage = useCallback(
@@ -167,9 +162,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
     // Stripe checkout is the only exception to the one-use OTP navigation.
     const isStripeReturn = consumeManageSessionStripeReturn();
     if (!isVerifiedNavigation && !isStripeReturn) {
-      setStatus("error");
-      setError("For your security, please enter your email and request a new verification code.");
-      void fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+      void onBackToBookings();
       return () => {
         cancelled = true;
       };
@@ -212,7 +205,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
     return () => {
       cancelled = true;
     };
-  }, [callManage, initialAction, initialSessionId]);
+  }, [callManage, initialAction, initialSessionId, onBackToBookings]);
 
   async function scheduleCredit() {
     if (!purchase || !creditStart) return;
