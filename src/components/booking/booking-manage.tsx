@@ -15,7 +15,7 @@ import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPend
 export interface BookingManageProps {
   paymentReturn?: string;
   packagePurchaseAdded?: boolean;
-  initialAction?: "details" | "reschedule";
+  initialAction?: "details" | "reschedule" | "payment" | "addons";
   initialSessionId?: string;
   onBackToBookings: () => Promise<void>;
   onBookingUpdated?: () => void;
@@ -69,7 +69,7 @@ interface PurchaseView {
   validUntil?: string;
 }
 
-type Mode = "view" | "reschedule";
+type Mode = "view" | "reschedule" | "payment" | "addons";
 type Status = "loading" | "ready" | "error";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -193,7 +193,11 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
         setBooking(result.booking ?? null);
         setSessions(loadedSessions);
         setActiveSessionId(selectedSession?.id ?? null);
-        setMode(initialAction === "reschedule" && selectedSessionCanReschedule ? "reschedule" : "view");
+        setMode(initialAction === "reschedule" && selectedSessionCanReschedule
+          ? "reschedule"
+          : initialAction === "payment" && result.booking?.paymentStatus === "due"
+            ? "payment"
+            : initialAction === "addons" ? "addons" : "view");
         setNow(loadedAt);
         setStatus("ready");
       })
@@ -496,7 +500,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           </a>
         )}
       </div>
-      {booking.paymentStatus === "due" && !closed && !booking.isAdditionalPackage && (
+      {booking.paymentStatus === "due" && !closed && !booking.isAdditionalPackage && (mode === "view" || mode === "payment") && (
         <div className="mt-4">
           <StripeCheckoutButton />
         </div>
@@ -623,7 +627,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           </div>
         </div>
       )}
-      {mode === "view" && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
+      {mode === "addons" && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
         const totalLessons = booking.addOnOptions!.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
         const selectedOptions = booking.addOnOptions!.filter((option) => addOnPlans[option.id]);
         const allScheduled = selectedOptions.flatMap((option) => {
@@ -717,6 +721,11 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           </>}
         </section>;
       })()}
+      {(mode === "payment" || mode === "addons" || mode === "reschedule") && (
+        <div className="mt-5 border-t border-line pt-4">
+          <Button variant="ghost" onClick={() => { setMode("view"); setPendingStart(null); setActionError(null); }} disabled={busy}>Back to all bookings</Button>
+        </div>
+      )}
       <div className="mt-7 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:justify-between">
         <button type="button" onClick={() => void leaveToHome()} disabled={busy} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-3 text-[13px] font-bold text-soft transition hover:border-[#83b657] hover:bg-[#f7fbed] disabled:opacity-60 sm:ml-auto sm:w-auto">
           Exit My Booking

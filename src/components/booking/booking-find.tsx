@@ -74,7 +74,7 @@ function readPendingOtp(email: string): number | null {
   }
 }
 
-export type BookingAction = "details" | "reschedule";
+export type BookingAction = "details" | "reschedule" | "payment" | "addons";
 
 export function BookingFind({
   onOpenManage,
@@ -410,15 +410,18 @@ export function BookingFind({
                       {pending && rescheduleAvailable ? "Opening…" : rescheduleLabel}
                     </button>
                   )}
-                  {canView && (
+                  {booking.canOpen && booking.paymentStatus === "due" && (
                     <button
                       type="button"
-                      onClick={() => openBooking(booking.reference, "details", booking.id)}
+                      onClick={() => openBooking(booking.reference, "payment", booking.id)}
                       disabled={pending}
                       className="inline-flex min-h-10 items-center justify-center rounded-full border border-line bg-white px-4 text-[12px] font-extrabold text-ink transition-colors hover:border-[#83b657] disabled:opacity-60"
                     >
-                      {booking.paymentStatus === "due" ? "Payment / add lessons" : "Add lessons"}
+                      Pay
                     </button>
+                  )}
+                  {canView && !isActive && booking.paymentStatus !== "due" && (
+                    <span className="self-center text-[11px] text-soft">No online action available</span>
                   )}
                   {!booking.canOpen && booking.status !== "cancelled" && booking.status !== "completed" && booking.status !== "no_show" && (
                     <a href="tel:+12362343229" className="inline-flex min-h-10 items-center px-2 text-[12px] font-extrabold text-gold-deep">Call Shan</a>
@@ -441,7 +444,7 @@ export function BookingFind({
                     {purchase.validUntil && <p className="mt-0.5 text-[11px] text-soft">Valid through {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}</p>}
                   </div>
                   {purchase.canOpen && (
-                      <button type="button" onClick={() => openBooking(purchase.reference)} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
+                      <button type="button" onClick={() => openBooking(purchase.reference, "addons")} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
                           Schedule lessons
                     </button>
                   )}
@@ -449,6 +452,28 @@ export function BookingFind({
               ))}
             </div>
           )}
+          {(() => {
+            const addOnSource = bookings.find((booking) =>
+              booking.canOpen && booking.paymentStatus === "paid" &&
+              (booking.status === "confirmed" || booking.status === "rescheduled") &&
+              now !== null && Date.parse(booking.startsAt) > now,
+            );
+            return (
+              <section className="mt-2 border-t border-line pt-4">
+                <h4 className="text-[12px] font-extrabold uppercase tracking-[0.12em] text-[#426a2c]">Add a lesson</h4>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a lesson and time, then pay securely. Your existing bookings stay unchanged.</p>
+                <button
+                  type="button"
+                  onClick={() => addOnSource && openBooking(addOnSource.reference, "addons", addOnSource.id)}
+                  disabled={pending || !addOnSource}
+                  className="mt-3 inline-flex min-h-10 items-center rounded-full bg-ink px-5 text-[12px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {pending ? "Opening…" : "Choose add-on lesson"}
+                </button>
+                {!addOnSource && <p className="mt-2 text-[11px] text-soft">Add-on lessons are available after you have an active paid booking.</p>}
+              </section>
+            );
+          })()}
           <div>
             <button
               type="button"

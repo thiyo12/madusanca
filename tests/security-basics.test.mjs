@@ -133,7 +133,7 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /setMode\("view"\)/);
   assert.match(manage, /initialAction === "reschedule" && selectedSessionCanReschedule/);
   assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
-  assert.match(manage, /mode === "view" && booking\.paymentStatus === "paid"/);
+  assert.match(manage, /mode === "addons" && booking\.paymentStatus === "paid"/);
   assert.match(manage, /addMonthsToKey\(todayKey\(\), 6\)/);
   assert.match(manage, /horizonDays=\{370\}/);
   assert.match(dateTime, /selectedSlot && visibleSlots\.includes\(selectedSlot\)/);
