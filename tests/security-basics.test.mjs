@@ -78,7 +78,7 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   const dailyLimitMigration = readFileSync(new URL("../supabase/migrations/0045_otp_daily_send_limit_fifteen.sql", import.meta.url), "utf8");
   const dailyLimitConstraintMigration = readFileSync(new URL("../supabase/migrations/0046_otp_send_count_check_fifteen.sql", import.meta.url), "utf8");
-  const latestCooldownMigration = readFileSync(new URL("../supabase/migrations/0047_enforce_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
+  const latestCooldownMigration = readFileSync(new URL("../supabase/migrations/0058_enforce_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
   assert.match(otpRoute, /expiresAt,/);
   assert.match(otpRoute, /verifyOtp\(email, hashOtp\(email, code \?\? ""\)\)/);
   assert.doesNotMatch(otpRoute, /action === "token"\);/);
@@ -105,7 +105,7 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
 
 test("expired lessons do not offer online payment", () => {
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
-  assert.match(bookingFind, /booking\.canOpen && booking\.paymentStatus === "due" && !isPast/);
+  assert.match(bookingFind, /booking\.canOpen && booking\.paymentStatus === "due" && isUpcoming/);
 });
 
 test("the 48-hour reschedule cutoff applies independently to each package session", () => {
@@ -126,15 +126,19 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
   assert.match(finder, /onOpenManage\(reference, action, sessionId\)/);
   assert.match(finder, /openBooking\(booking\.reference, "reschedule", booking\.id\)/);
+  assert.match(finder, /booking\.status === "pending_payment"/);
+  assert.match(finder, /booking\.paymentStatus === "due" && isUpcoming/);
+  assert.doesNotMatch(finder, /Package purchases/);
+  assert.match(finder, /Welcome back, \{studentName\}/);
   assert.match(finder, /Paid.*Awaiting payment/);
   assert.doesNotMatch(finder, /window\.location\.assign\(`\/booking\/manage/);
   assert.doesNotMatch(finder, /href="\/lessons"/);
   assert.match(otpRoute, /paymentStatus: booking\.paymentStatus/);
-  assert.match(manage, /Add lessons to this booking/);
+  assert.match(manage, /Add a lesson/);
   assert.match(manage, /StripePackagePurchaseButton/);
-  assert.match(manage, /<input type="checkbox" checked=\{Boolean\(plan\)\}/);
-  assert.match(manage, /Choose the package lessons you want/);
-  assert.ok(manage.indexOf(">Reschedule (") < manage.indexOf("Add lessons to this booking"));
+  assert.match(manage, /<LessonStep/);
+  assert.match(manage, /Choose a lesson package, select its time or times/);
+  assert.ok(manage.indexOf(">Reschedule (") < manage.indexOf("Add a lesson"));
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);
@@ -243,7 +247,7 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(linkedSessionMigration, /package_purchase_tokens/);
   assert.match(linkedSessionMigration, /booking_start_cadence_min/);
   const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
-  assert.match(finder, /We verified this email, but couldn’t find a booking or package purchase linked to it/);
+  assert.match(finder, /We verified this email, but couldn’t find any scheduled lessons linked to it/);
   assert.match(finder, /Back to verification/);
   assert.match(finder, /onOpenManage\(reference, action, sessionId\)/);
   assert.doesNotMatch(finder, /window\.location\.assign\(`\/booking\/manage/);

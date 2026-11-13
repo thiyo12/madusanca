@@ -251,18 +251,20 @@ export function BookingFind({
 
   return (
     <div className="grid gap-3.5">
-      <div>
-        <h3 className="font-display text-[23px] font-extrabold tracking-[-0.04em] text-ink">
-          Find my booking
-        </h3>
-        <p className="mt-1 text-[13.5px] leading-relaxed text-soft">
-          Enter the email you booked with. If the code doesn’t arrive, check your spam/junk folder and confirm the address matches your booking. Online changes are available until
-          48 hours before the lesson. To cancel, or for a later change, contact Shan at{" "}
-          <a href="tel:+12362343229" className="font-bold text-gold-deep underline-offset-2 hover:underline">
-            +1 236-234-3229
-          </a>.
-        </p>
-      </div>
+      {step !== "list" && (
+        <div>
+          <h3 className="font-display text-[23px] font-extrabold tracking-[-0.04em] text-ink">
+            Find my booking
+          </h3>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-soft">
+            Enter the email you booked with. If the code doesn’t arrive, check your spam/junk folder and confirm the address matches your booking. Online changes are available until
+            48 hours before the lesson. To cancel, or for a later change, contact Shan at{" "}
+            <a href="tel:+12362343229" className="font-bold text-gold-deep underline-offset-2 hover:underline">
+              +1 236-234-3229
+            </a>.
+          </p>
+        </div>
+      )}
 
       {step === "email" && (
         <form onSubmit={requestCode} className="grid gap-3.5">
@@ -351,18 +353,19 @@ export function BookingFind({
       {step === "list" && (
         <div className="grid gap-3">
           {studentName && (
-            <h3 className="font-display text-[23px] font-extrabold tracking-[-0.04em] text-ink">
+            <h3 className="font-display text-[19px] font-extrabold tracking-[-0.03em] text-ink">
               Welcome back, {studentName}!
             </h3>
           )}
-      {bookings.length === 0 && purchases.length === 0 ? (
+          {bookings.length === 0 ? (
             <p className="rounded-[10px] bg-mist px-3.5 py-2.5 text-[13px] font-bold text-soft">
-              We verified this email, but couldn’t find a booking or package purchase linked to it. Check that you entered the same email used at checkout, or contact the school and we’ll help locate it.
+              We verified this email, but couldn’t find any scheduled lessons linked to it. Check that you entered the same email used at checkout, or contact the school and we’ll help locate them.
             </p>
           ) : bookings.length > 0 && (
             bookings.map((booking) => {
               const isPast = now !== null && Date.parse(booking.startsAt) <= now;
-              const isActive = booking.status === "confirmed" || booking.status === "rescheduled";
+              const isUpcoming = now !== null && !isPast;
+              const isActive = booking.status === "confirmed" || booking.status === "rescheduled" || booking.status === "pending_payment";
               const withinCutoff = now !== null && isInsideSelfServiceWindow(booking.startsAt, now);
               const rescheduleAvailable = booking.canOpen && isActive && !isPast && !withinCutoff && booking.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION;
               const rescheduleLabel = isPast
@@ -374,7 +377,6 @@ export function BookingFind({
                     : booking.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION
                       ? "Reschedule used"
                       : "Reschedule";
-              const canView = booking.canOpen || booking.status === "cancelled" || booking.status === "completed" || booking.status === "no_show";
               return (
               <div
                 key={booking.id}
@@ -392,7 +394,9 @@ export function BookingFind({
                             : "bg-[#e6f6ec] text-[#1f7a45]"
                       }`}
                     >
-                      {booking.status === "no_show" || (now !== null && Date.parse(booking.startsAt) <= now) ? "Expired" : STATUS_LABEL[booking.status] ?? booking.status}
+                      {booking.status === "cancelled" || booking.status === "completed" || booking.status === "no_show"
+                        ? STATUS_LABEL[booking.status]
+                        : isPast ? "Expired" : STATUS_LABEL[booking.status] ?? booking.status}
                     </span>
                   </p>
                   <p className="mt-0.5 text-[12.5px] text-soft">
@@ -410,7 +414,7 @@ export function BookingFind({
                       {pending && rescheduleAvailable ? "Opening…" : rescheduleLabel}
                     </button>
                   )}
-                  {booking.canOpen && booking.paymentStatus === "due" && !isPast && (
+                  {booking.canOpen && booking.paymentStatus === "due" && isUpcoming && (
                     <button
                       type="button"
                       onClick={() => openBooking(booking.reference, "payment", booking.id)}
@@ -419,9 +423,6 @@ export function BookingFind({
                     >
                       Pay
                     </button>
-                  )}
-                  {canView && !isActive && booking.paymentStatus !== "due" && (
-                    <span className="self-center text-[11px] text-soft">No online action available</span>
                   )}
                   {!booking.canOpen && booking.status !== "cancelled" && booking.status !== "completed" && booking.status !== "no_show" && (
                     <a href="tel:+12362343229" className="inline-flex min-h-10 items-center px-2 text-[12px] font-extrabold text-gold-deep">Call Shan</a>
@@ -432,45 +433,31 @@ export function BookingFind({
               );
             })
           )}
-          {purchases.length > 0 && (
-            <div className="mt-2 grid gap-2 border-t border-line pt-4">
-              <h4 className="text-[12px] font-extrabold uppercase tracking-[0.12em] text-[#426a2c]">Package purchases</h4>
-              {purchases.map((purchase) => (
-                <div key={purchase.reference} className="flex flex-wrap items-center justify-between gap-3 rounded-[17px] border border-line bg-white px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="text-[13.5px] font-extrabold text-ink">{purchase.lessonName}</p>
-                    <p className="mt-0.5 text-[12.5px] text-soft">{purchase.creditsAvailable} of {purchase.creditsPurchased} lessons remaining to schedule · {purchase.paymentStatus === "paid" ? "Paid" : purchase.paymentStatus}</p>
-                    {purchase.purchasedAt && <p className="mt-0.5 text-[11px] text-soft">Purchased {new Date(purchase.purchasedAt).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })} · {purchase.reference}</p>}
-                    {purchase.validUntil && <p className="mt-0.5 text-[11px] text-soft">Valid through {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}</p>}
-                  </div>
-                  {purchase.canOpen && (
-                      <button type="button" onClick={() => openBooking(purchase.reference, "addons")} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
-                          Schedule lessons
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
           {(() => {
             const addOnSource = bookings.find((booking) =>
               booking.canOpen && booking.paymentStatus === "paid" &&
               (booking.status === "confirmed" || booking.status === "rescheduled") &&
               now !== null && Date.parse(booking.startsAt) > now,
             );
+            const prepaidPurchase = purchases.find((purchase) =>
+              purchase.canOpen && purchase.paymentStatus === "paid" && purchase.creditsAvailable > 0,
+            );
             return (
-              <section className="mt-2 border-t border-line pt-4">
-                <h4 className="text-[12px] font-extrabold uppercase tracking-[0.12em] text-[#426a2c]">Add a lesson</h4>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a lesson and time, then pay securely. Your existing bookings stay unchanged.</p>
+              <section className="mt-1 rounded-[17px] border border-line bg-[#fbfcf9] p-4">
+                <h4 className="text-[13px] font-extrabold text-ink">Add a lesson</h4>
+                <p className="mt-1 text-[12px] leading-relaxed text-soft">Choose a lesson and time, then pay securely. Your existing bookings stay unchanged.</p>
                 <button
                   type="button"
-                  onClick={() => addOnSource && openBooking(addOnSource.reference, "addons", addOnSource.id)}
-                  disabled={pending || !addOnSource}
-                  className="mt-3 inline-flex min-h-10 items-center rounded-full bg-ink px-5 text-[12px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-55"
+                  onClick={() => {
+                    if (addOnSource) void openBooking(addOnSource.reference, "addons", addOnSource.id);
+                    else if (prepaidPurchase) void openBooking(prepaidPurchase.reference, "addons");
+                  }}
+                  disabled={pending || (!addOnSource && !prepaidPurchase)}
+                  className="mt-3 inline-flex min-h-10 items-center rounded-full bg-[#c2ee84] px-5 text-[12px] font-extrabold text-[#10212e] disabled:cursor-not-allowed disabled:opacity-55"
                 >
-                  {pending ? "Opening…" : "Choose add-on lesson"}
+                  {pending ? "Opening…" : prepaidPurchase && !addOnSource ? "Schedule prepaid lessons" : "Choose a lesson"}
                 </button>
-                {!addOnSource && <p className="mt-2 text-[11px] text-soft">Add-on lessons are available after you have an active paid booking.</p>}
+                {!addOnSource && !prepaidPurchase && <p className="mt-2 text-[11px] text-soft">Add-on lessons are available after you have an active paid booking.</p>}
               </section>
             );
           })()}

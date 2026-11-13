@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
+import { LessonStep } from "@/components/booking/lesson-step";
 import { StripeCheckoutButton } from "@/components/booking/stripe-checkout-button";
 import { StripePackagePurchaseButton } from "@/components/booking/stripe-package-purchase-button";
 import { DateTimeStep } from "@/components/booking/date-time-step";
@@ -179,14 +180,14 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
         const loadedAt = Date.now();
         const loadedSessions = result.sessions ?? (result.booking ? [result.booking] : []);
         const firstEligibleSession = loadedSessions.find((session) =>
-          ["confirmed", "rescheduled"].includes(session.status) &&
+          ["confirmed", "rescheduled", "pending_payment"].includes(session.status) &&
           session.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION &&
           Date.parse(session.startsAt) > loadedAt && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
         );
         const requestedSession = initialSessionId ? loadedSessions.find((session) => session.id === initialSessionId) : undefined;
         const selectedSession = requestedSession ?? firstEligibleSession ?? result.booking;
         const selectedSessionCanReschedule = Boolean(selectedSession &&
-          ["confirmed", "rescheduled"].includes(selectedSession.status) &&
+          ["confirmed", "rescheduled", "pending_payment"].includes(selectedSession.status) &&
           selectedSession.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION &&
           Date.parse(selectedSession.startsAt) > loadedAt && !isInsideSelfServiceWindow(selectedSession.startsAt, loadedAt));
         setPurchase(result.purchase ?? null);
@@ -636,11 +637,21 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
         });
         const scheduledCount = allScheduled.reduce((sum, item) => sum + item.startsAt.length, 0);
         return <section className="mt-5 min-w-0 max-w-full rounded-[14px] border border-line p-4">
-          <h3 className="text-sm font-extrabold text-ink">Add lessons to this booking</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose the package lessons you want, select a date and time for each, then pay for your selection. Your current booking stays unchanged.</p>
+          <h3 className="text-sm font-extrabold text-ink">Add a lesson</h3>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a lesson package, select its time or times, then pay. Your current bookings stay unchanged.</p>
+          <div className="mt-4">
+            <LessonStep
+              lessons={booking.addOnOptions!}
+              selectedId={selectedOptions[0]?.id ?? null}
+              onSelect={(option) => setAddOnPlans((current) => current[option.id]
+                ? {}
+                : { [option.id]: { quantity: 1, startsAt: [], sessionIndex: 0 } })}
+            />
+          </div>
           <div className="mt-4 grid min-w-0 gap-3">
             {booking.addOnOptions!.map((option) => {
               const plan = addOnPlans[option.id];
+              if (!plan) return null;
               const sessionTotal = plan ? option.sessionCount * plan.quantity : 0;
               const addOnWindowEnd = plan?.startsAt[0]
                 ? addMonthsToKey(dayKeyOf(plan.startsAt[0]), 6)
@@ -649,20 +660,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
                 ? [{ startsAt, durationMin: option.durationMin }]
                 : []) ?? [];
               return <div key={option.id} className="min-w-0 rounded-xl border border-line p-3">
-                <label className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 text-sm font-extrabold text-ink">
-                  <input type="checkbox" checked={Boolean(plan)} onChange={(event) => setAddOnPlans((current) => {
-                    if (!event.target.checked) {
-                      const next = { ...current };
-                      delete next[option.id];
-                      return next;
-                    }
-                    const currentTotal = Object.entries(current).reduce((sum, [id, value]) => sum + (booking.addOnOptions!.find((item) => item.id === id)?.sessionCount ?? 0) * value.quantity, 0);
-                    if (currentTotal + option.sessionCount > 20) return current;
-                    return { ...current, [option.id]: { quantity: 1, startsAt: [], sessionIndex: 0 } };
-                  })} />
-                  <span className="min-w-0 break-words">{option.name} · {option.durationMin} min · ${option.priceCad} CAD/package</span>
-                </label>
-                {plan && <>
+                <>
                   <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
                         <input type="number" min="1" max={Math.min(Math.floor(20 / option.sessionCount), plan.quantity + Math.floor((20 - totalLessons) / option.sessionCount))} step="1" inputMode="numeric" value={plan.quantity} onChange={(event) => {
                           const otherLessons = totalLessons - option.sessionCount * plan.quantity;
@@ -707,7 +705,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
               />
             </div>
                   <p className="mt-3 text-[12px] font-bold text-soft">Subtotal: ${(option.priceCad * plan.quantity).toFixed(2)} CAD</p>
-                </>}
+                </>
               </div>;
             })}
           </div>
