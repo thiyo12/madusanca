@@ -15,7 +15,10 @@ import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPend
 export interface BookingManageProps {
   paymentReturn?: string;
   packagePurchaseAdded?: boolean;
+  initialAction?: "details" | "reschedule";
+  initialSessionId?: string;
   onBackToBookings?: () => void;
+  onBookingUpdated?: () => void;
 }
 
 interface BookingView {
@@ -78,7 +81,7 @@ const STATUS_LABEL: Record<string, string> = {
   no_show: "No-show",
 };
 
-export function BookingManage({ paymentReturn, packagePurchaseAdded = false, onBackToBookings }: BookingManageProps) {
+export function BookingManage({ paymentReturn, packagePurchaseAdded = false, initialAction = "details", initialSessionId, onBackToBookings, onBookingUpdated }: BookingManageProps) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -187,11 +190,17 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, onB
           session.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION &&
           Date.parse(session.startsAt) > loadedAt && !isInsideSelfServiceWindow(session.startsAt, loadedAt),
         );
+        const requestedSession = initialSessionId ? loadedSessions.find((session) => session.id === initialSessionId) : undefined;
+        const selectedSession = requestedSession ?? firstEligibleSession ?? result.booking;
+        const selectedSessionCanReschedule = Boolean(selectedSession &&
+          ["confirmed", "rescheduled"].includes(selectedSession.status) &&
+          selectedSession.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION &&
+          Date.parse(selectedSession.startsAt) > loadedAt && !isInsideSelfServiceWindow(selectedSession.startsAt, loadedAt));
         setPurchase(result.purchase ?? null);
         setBooking(result.booking ?? null);
         setSessions(loadedSessions);
-        setActiveSessionId(firstEligibleSession?.id ?? result.booking?.id ?? null);
-        setMode("view");
+        setActiveSessionId(selectedSession?.id ?? null);
+        setMode(initialAction === "reschedule" && selectedSessionCanReschedule ? "reschedule" : "view");
         setNow(loadedAt);
         setStatus("ready");
       })
@@ -203,7 +212,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, onB
     return () => {
       cancelled = true;
     };
-  }, [callManage]);
+  }, [callManage, initialAction, initialSessionId]);
 
   async function scheduleCredit() {
     if (!purchase || !creditStart) return;
@@ -235,6 +244,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, onB
       setActiveSessionId(updated.booking?.id ?? null);
       setCreditStart(null);
       setNow(Date.now());
+      onBookingUpdated?.();
     } catch {
       setActionError("Network error. Your lesson was not scheduled unless the appointment appears here; refresh to check.");
     } finally {
@@ -279,6 +289,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, onB
       if (result.purchase) setPurchase(result.purchase);
       setPendingStart(null);
       setMode("view");
+      onBookingUpdated?.();
       setEmailNotice(
         result.emailSent === false
           ? "Your new time is saved, but the update email could not be delivered. This page now has your updated booking link."

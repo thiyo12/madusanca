@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatSlotFull } from "@/lib/booking/format";
+import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import { markManageSessionVerified } from "@/lib/booking/manage-session-client";
 
 type Step = "email" | "code" | "list";
 
 interface FoundBooking {
+  id: string;
   studentName: string;
   reference: string;
   lessonName: string;
@@ -16,6 +18,7 @@ interface FoundBooking {
   startsAt: string;
   status: "pending_payment" | "confirmed" | "rescheduled" | "cancelled" | "completed" | "no_show";
   paymentStatus: "due" | "paid" | "refunded" | "waived";
+  studentRescheduleCount: number;
   canOpen: boolean;
 }
 
@@ -71,7 +74,15 @@ function readPendingOtp(email: string): number | null {
   }
 }
 
-export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string) => void }) {
+export type BookingAction = "details" | "reschedule";
+
+export function BookingFind({
+  onOpenManage,
+  refreshVersion = 0,
+}: {
+  onOpenManage: (reference: string, action: BookingAction, sessionId?: string) => void;
+  refreshVersion?: number;
+}) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -86,6 +97,16 @@ export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string
   const [otpExpiresAt, setOtpExpiresAt] = useState<number | null>(null);
   const [requestAvailableAt, setRequestAvailableAt] = useState<number | null>(null);
   const [studentName, setStudentName] = useState("");
+  const lastRefreshVersion = useRef(refreshVersion);
+
+  const callOtp = useCallback(async (payload: Record<string, unknown>): Promise<OtpResponse> => {
+    const response = await fetch("/api/bookings/otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, ...payload }),
+    });
+    return (await response.json()) as OtpResponse;
+  }, [email]);
 
   useEffect(() => {
     const update = () => {
@@ -105,6 +126,22 @@ export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string
     return () => window.clearInterval(timer);
   }, [otpExpiresAt, requestAvailableAt]);
 
+  useEffect(() => {
+    if (refreshVersion === lastRefreshVersion.current) return;
+    lastRefreshVersion.current = refreshVersion;
+    if (step !== "list" || !code) return;
+    let cancelled = false;
+    void callOtp({ action: "verify", code }).then((result) => {
+      if (cancelled || !result.ok || !result.bookings) return;
+      setBookings(result.bookings);
+      setPurchases(result.purchases ?? []);
+      setStudentName(result.studentName?.trim().split(/\s+/)[0] ?? "");
+    }).catch(() => undefined).finally(() => {
+      if (!cancelled) setPending(false);
+    });
+    return () => { cancelled = true; };
+  }, [refreshVersion, step, code, callOtp]);
+
   function formatRemaining(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -112,15 +149,6 @@ export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string
     if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(remainingSeconds).padStart(2, "0")}s`;
     if (minutes > 0) return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
     return `${remainingSeconds}s`;
-  }
-
-  async function callOtp(payload: Record<string, unknown>): Promise<OtpResponse> {
-    const response = await fetch("/api/bookings/otp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, ...payload }),
-    });
-    return (await response.json()) as OtpResponse;
   }
 
   async function requestCode(event?: React.FormEvent) {
@@ -189,14 +217,14 @@ export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string
     }
   }
 
-  async function openBooking(reference: string) {
+  async function openBooking(reference: string, action: BookingAction = "details", sessionId?: string) {
     setPending(true);
     setError(null);
     try {
       const result = await callOtp({ action: "token", code, reference });
       if (result.ok) {
         markManageSessionVerified();
-        onOpenManage(reference);
+        onOpenManage(reference, action, sessionId);
         return;
       }
       setError(result.error ?? "Could not open that booking.");
@@ -332,9 +360,24 @@ export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string
               We verified this email, but couldn’t find a booking or package purchase linked to it. Check that you entered the same email used at checkout, or contact the school and we’ll help locate it.
             </p>
           ) : bookings.length > 0 && (
-            bookings.map((booking) => (
+            bookings.map((booking) => {
+              const isPast = now !== null && Date.parse(booking.startsAt) <= now;
+              const isActive = booking.status === "confirmed" || booking.status === "rescheduled";
+              const withinCutoff = now !== null && isInsideSelfServiceWindow(booking.startsAt, now);
+              const rescheduleAvailable = booking.canOpen && isActive && !isPast && !withinCutoff && booking.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION;
+              const rescheduleLabel = isPast
+                ? "Expired"
+                : !isActive
+                  ? booking.paymentStatus === "due" ? "Pay before rescheduling" : "Unavailable"
+                  : withinCutoff
+                    ? "Within 48 hours"
+                    : booking.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION
+                      ? "Reschedule used"
+                      : "Reschedule";
+              const canView = booking.canOpen || booking.status === "cancelled" || booking.status === "completed" || booking.status === "no_show";
+              return (
               <div
-                key={booking.reference}
+                key={booking.id}
                 className="flex flex-wrap items-center justify-between gap-3 rounded-[17px] border border-line bg-white px-4 py-3"
               >
                 <div className="min-w-0">
@@ -356,30 +399,35 @@ export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string
                     {formatSlotFull(booking.startsAt)} · {booking.reference} · {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "due" ? "Awaiting payment" : booking.paymentStatus}
                   </p>
                 </div>
-                {booking.canOpen || booking.status === "cancelled" || booking.status === "completed" || booking.status === "no_show" ? (
-                  <button
-                    type="button"
-                    onClick={() => openBooking(booking.reference)}
-                    disabled={pending}
-                    className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60"
-                  >
-                    {booking.status === "no_show" || (now !== null && Date.parse(booking.startsAt) <= now) ? "View lesson" : "View booking"}
-                  </button>
-                ) : (
-                  <div className="text-right">
-                    <p className="text-[11px] font-semibold text-[#9a4d25]">
-                      Less than 48 hours
-                    </p>
-                    <a
-                      href="tel:+12362343229"
-                      className="text-[12px] font-extrabold text-gold-deep underline-offset-2 hover:underline"
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                  {isActive && !isPast && (
+                    <button
+                      type="button"
+                      onClick={() => openBooking(booking.reference, "reschedule", booking.id)}
+                      disabled={pending || !rescheduleAvailable}
+                      className="inline-flex min-h-10 items-center justify-center rounded-full bg-ink px-4 text-[12px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:cursor-not-allowed disabled:opacity-55"
                     >
-                      Call Shan
-                    </a>
-                  </div>
-                )}
+                      {pending && rescheduleAvailable ? "Opening…" : rescheduleLabel}
+                    </button>
+                  )}
+                  {canView && (
+                    <button
+                      type="button"
+                      onClick={() => openBooking(booking.reference, "details", booking.id)}
+                      disabled={pending}
+                      className="inline-flex min-h-10 items-center justify-center rounded-full border border-line bg-white px-4 text-[12px] font-extrabold text-ink transition-colors hover:border-[#83b657] disabled:opacity-60"
+                    >
+                      {booking.paymentStatus === "due" ? "Payment / add lessons" : "Add lessons"}
+                    </button>
+                  )}
+                  {!booking.canOpen && booking.status !== "cancelled" && booking.status !== "completed" && booking.status !== "no_show" && (
+                    <a href="tel:+12362343229" className="inline-flex min-h-10 items-center px-2 text-[12px] font-extrabold text-gold-deep">Call Shan</a>
+                  )}
+                  {withinCutoff && <span className="self-center text-[11px] text-soft">Contact tutor for late changes</span>}
+                </div>
               </div>
-            ))
+              );
+            })
           )}
           {purchases.length > 0 && (
             <div className="mt-2 grid gap-2 border-t border-line pt-4">
@@ -393,8 +441,8 @@ export function BookingFind({ onOpenManage }: { onOpenManage: (reference: string
                     {purchase.validUntil && <p className="mt-0.5 text-[11px] text-soft">Valid through {new Date(purchase.validUntil).toLocaleDateString("en-CA", { timeZone: "America/Vancouver" })}</p>}
                   </div>
                   {purchase.canOpen && (
-                    <button type="button" onClick={() => openBooking(purchase.reference)} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
-                      View package
+                      <button type="button" onClick={() => openBooking(purchase.reference)} disabled={pending} className="inline-flex h-9 shrink-0 items-center rounded-full bg-ink px-4 text-[12.5px] font-extrabold text-white transition-colors hover:bg-[#183c37] disabled:opacity-60">
+                          Schedule lessons
                     </button>
                   )}
                 </div>

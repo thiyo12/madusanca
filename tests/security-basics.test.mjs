@@ -116,7 +116,8 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   const dateTime = readFileSync(new URL("../src/components/booking/date-time-step.tsx", import.meta.url), "utf8");
   const packageCheckout = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
-  assert.match(finder, /onOpenManage\(reference\)/);
+  assert.match(finder, /onOpenManage\(reference, action, sessionId\)/);
+  assert.match(finder, /openBooking\(booking\.reference, "reschedule", booking\.id\)/);
   assert.match(finder, /Paid.*Awaiting payment/);
   assert.doesNotMatch(finder, /window\.location\.assign\(`\/booking\/manage/);
   assert.doesNotMatch(finder, /href="\/lessons"/);
@@ -130,6 +131,7 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);
   assert.match(manage, /setMode\("view"\)/);
+  assert.match(manage, /initialAction === "reschedule" && selectedSessionCanReschedule/);
   assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
   assert.match(manage, /mode === "view" && booking\.paymentStatus === "paid"/);
   assert.match(manage, /addMonthsToKey\(todayKey\(\), 6\)/);
@@ -235,7 +237,7 @@ test("My Booking lets users add packages only after selecting all lesson times a
   const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   assert.match(finder, /We verified this email, but couldn’t find a booking or package purchase linked to it/);
   assert.match(finder, /Back to verification/);
-  assert.match(finder, /onOpenManage\(reference\)/);
+  assert.match(finder, /onOpenManage\(reference, action, sessionId\)/);
   assert.doesNotMatch(finder, /window\.location\.assign\(`\/booking\/manage/);
   assert.doesNotMatch(finder, /Back to home/);
   assert.doesNotMatch(manage, /Back to home/);

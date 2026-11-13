@@ -197,6 +197,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 function safeListItem(booking: BookingRecord): {
+  id: string;
   studentName: string;
   reference: string;
   lessonName: string;
@@ -205,9 +206,11 @@ function safeListItem(booking: BookingRecord): {
   startsAt: string;
   status: BookingRecord["status"];
   paymentStatus: BookingRecord["paymentStatus"];
+  studentRescheduleCount: number;
   canOpen: boolean;
 } {
   return {
+    id: booking.id,
     studentName: booking.studentName,
     reference: booking.reference,
     lessonName: booking.lessonName,
@@ -216,6 +219,7 @@ function safeListItem(booking: BookingRecord): {
     startsAt: booking.startsAt,
     status: booking.status,
     paymentStatus: booking.paymentStatus ?? "due",
+    studentRescheduleCount: booking.studentRescheduleCount ?? 0,
     canOpen: booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
   };
 }

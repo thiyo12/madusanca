@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BookingFind } from "@/components/booking/booking-find";
+import { BookingFind, type BookingAction } from "@/components/booking/booking-find";
 import { BookingManage } from "@/components/booking/booking-manage";
 
 interface BookingPortalProps {
@@ -20,9 +20,14 @@ export function BookingPortal({
 }: BookingPortalProps) {
   const [showManage, setShowManage] = useState(hasManageCookie);
   const [activeReference, setActiveReference] = useState(selectedReference);
+  const [activeAction, setActiveAction] = useState<BookingAction>("details");
+  const [activeSessionId, setActiveSessionId] = useState<string | undefined>();
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
-  function openManage(reference: string) {
+  function openManage(reference: string, action: BookingAction, sessionId?: string) {
     setActiveReference(reference);
+    setActiveAction(action);
+    setActiveSessionId(sessionId);
     setShowManage(true);
   }
 
@@ -34,14 +39,17 @@ export function BookingPortal({
   return (
     <>
       <div hidden={showManage}>
-        <BookingFind onOpenManage={openManage} />
+        <BookingFind onOpenManage={openManage} refreshVersion={refreshVersion} />
       </div>
       {showManage && (
         <BookingManage
-          key={`${activeReference}:${paymentReturn ?? ""}:${packagePurchaseAdded ? "purchase" : ""}`}
+          key={`${activeReference}:${activeAction}:${activeSessionId ?? ""}:${paymentReturn ?? ""}:${packagePurchaseAdded ? "purchase" : ""}`}
           paymentReturn={paymentReturn}
           packagePurchaseAdded={packagePurchaseAdded}
+          initialAction={activeAction}
+          initialSessionId={activeSessionId}
           onBackToBookings={!hasManageCookie ? backToBookings : undefined}
+          onBookingUpdated={() => setRefreshVersion((version) => version + 1)}
         />
       )}
     </>
