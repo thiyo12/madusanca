@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BookingSummary } from "@/components/booking/booking-summary";
 import { LessonStep } from "@/components/booking/lesson-step";
@@ -83,7 +82,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function BookingManage({ paymentReturn, packagePurchaseAdded = false, initialAction = "details", initialSessionId, onBackToBookings, onBookingUpdated }: BookingManageProps) {
-  const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState<BookingView | null>(null);
@@ -96,7 +94,6 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
   const [availabilityRevision, setAvailabilityRevision] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [emailNotice, setEmailNotice] = useState<string | null>(null);
   const [addOnPlans, setAddOnPlans] = useState<Record<string, { quantity: number; startsAt: string[]; sessionIndex: number }>>({});
   const [creditStart, setCreditStart] = useState<string | null>(null);
   const sessionAuthorizedRef = useRef(false);
@@ -134,12 +131,6 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
       document.removeEventListener("click", clearOnLeavingLink, true);
     };
   }, []);
-
-  async function leaveToHome() {
-    setActionError(null);
-    await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
-    router.replace("/booking/manage");
-  }
 
   async function returnToBookings() {
     await onBackToBookings();
@@ -286,14 +277,8 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
       setSessions(result.sessions ?? sessions.map((session) => session.id === result.booking!.id ? result.booking! : session));
       if (result.purchase) setPurchase(result.purchase);
       setPendingStart(null);
-      setMode("view");
       onBookingUpdated?.();
-      setEmailNotice(
-        result.emailSent === false
-          ? "Your new time is saved, but the update email could not be delivered. This page now has your updated booking link."
-          : "Your new time is saved and an update email has been sent.",
-      );
-      router.refresh();
+      await returnToBookings();
     } catch {
       setActionError("Network error. Please try again.");
     } finally {
@@ -386,6 +371,16 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
   const selectedSessionOpen = !["cancelled", "completed", "no_show"].includes(selectedSession.status) && !isExpired(selectedSession);
   const rescheduleLimitReached = selectedSession.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION;
   const withinCancellationWindow = now !== null && Date.parse(selectedSession.startsAt) > now && isInsideSelfServiceWindow(selectedSession.startsAt, now);
+  const addOnOptions = booking.addOnOptions ?? [];
+  const selectedAddOnOptions = addOnOptions.filter((option) => addOnPlans[option.id]);
+  const totalAddOnLessons = addOnOptions.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
+  const scheduledAddOnPackages = selectedAddOnOptions.flatMap((option) => {
+    const plan = addOnPlans[option.id]!;
+    return plan.startsAt.length === option.sessionCount * plan.quantity
+      ? [{ lessonId: option.id, quantity: plan.quantity, startsAt: plan.startsAt }]
+      : [];
+  });
+  const scheduledAddOnCount = scheduledAddOnPackages.reduce((sum, item) => sum + item.startsAt.length, 0);
 
   return (
     <div className="rounded-[25px] border border-line bg-white p-5 shadow-[0_22px_60px_rgba(12,42,48,0.08)] sm:p-8">
@@ -395,10 +390,10 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
             My Booking
           </p>
           <h2 className="mt-2 font-display text-2xl font-extrabold text-ink">
-            {booking.lessonName}
+            {mode === "reschedule" ? "Reschedule lesson" : mode === "payment" ? "Pay for lesson" : mode === "addons" ? "Add a lesson" : booking.lessonName}
           </h2>
         </div>
-        <span
+        {mode === "view" && <span
           className={`rounded-full px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide ${
             closed
               ? "bg-mist text-soft"
@@ -408,15 +403,15 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           }`}
         >
           {STATUS_LABEL[booking.status] ?? booking.status}
-        </span>
+        </span>}
       </div>
-      {onBackToBookings && (
-        <button type="button" onClick={onBackToBookings} className="mt-3 inline-flex min-h-10 items-center rounded-full border border-line bg-white px-4 text-[12.5px] font-bold text-ink transition hover:border-[#83b657]">
-          ← Back to all bookings
-        </button>
+      {mode !== "view" && (
+        <p className="mt-1 text-[12.5px] text-soft">
+          {selectedSession.lessonName} · {formatSlotFull(selectedSession.startsAt)}
+        </p>
       )}
 
-      <BookingSummary
+      {mode === "view" && <BookingSummary
         className="mt-5"
         reference={booking.reference}
         data={{
@@ -427,11 +422,11 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           studentName: booking.studentName,
           email: booking.emailMasked,
         }}
-      />
+      />}
 
-      {creditPanel}
+      {mode === "view" && creditPanel}
 
-      {sessions.length > 1 && (
+      {mode === "view" && sessions.length > 1 && (
         <section className="mt-5 rounded-[16px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Your booking and add-on lessons ({sessions.length})</h3>
           <ol className="mt-3 grid gap-2">
@@ -476,7 +471,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
         </section>
       )}
 
-      {paymentReturn === "success" && (
+      {(mode === "view" || mode === "payment") && paymentReturn === "success" && (
         <p role="status" className={`mt-4 rounded-[14px] border px-4 py-3 text-[13px] font-semibold leading-relaxed ${booking.paymentStatus === "paid" ? "border-[#cce6b1] bg-[#f1f9e9] text-[#385a22]" : "border-[#eadcb1] bg-[#fff9e9] text-[#735c1e]"}`}>
           {booking.paymentStatus === "paid"
             ? packagePurchaseAdded
@@ -485,13 +480,13 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
             : "Checkout returned successfully. We’re confirming your payment now; refresh this page shortly if the status has not updated yet."}
         </p>
       )}
-      {paymentReturn === "cancelled" && (
+      {(mode === "view" || mode === "payment") && paymentReturn === "cancelled" && (
         <p role="status" className="mt-4 rounded-[14px] border border-line bg-white px-4 py-3 text-[13px] font-semibold leading-relaxed text-soft">
           Checkout was cancelled. Your booking and current payment status are unchanged; you can try again below if you wish.
         </p>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[14px] bg-[#f7f7f3] px-4 py-3">
+      {(mode === "view" || mode === "payment") && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[14px] bg-[#f7f7f3] px-4 py-3">
         <p className="text-[12.5px] font-bold text-ink">
           Payment: {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "refunded" ? "Refunded" : booking.paymentStatus === "waived" ? "Waived" : "Due"}
         </p>
@@ -500,22 +495,12 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
             View Stripe invoice
           </a>
         )}
-      </div>
-      {booking.paymentStatus === "due" && !closed && !booking.isAdditionalPackage && (mode === "view" || mode === "payment") && (
+      </div>}
+      {booking.paymentStatus === "due" && !closed && !booking.isAdditionalPackage && mode === "view" && (
         <div className="mt-4">
           <StripeCheckoutButton />
         </div>
       )}
-      {emailNotice && (
-        <p className={`mt-4 rounded-lg px-4 py-3 text-[13px] leading-relaxed ${
-          emailNotice.includes("could not be delivered")
-            ? "bg-[#eaf5df] text-[#31543a]"
-            : "bg-[#e6f6ec] text-[#1f7a45]"
-        }`}>
-          {emailNotice}
-        </p>
-      )}
-
       {actionError && (
         <p role="alert" className="mt-4 rounded-lg bg-[#fff0ed] px-4 py-3 text-[13px] font-semibold text-[#bc4633]">
           {actionError}
@@ -610,46 +595,23 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
               <p className="mt-4 text-[11px] leading-relaxed text-soft">Online changes are available more than 48 hours before the lesson. Confirming uses your one online reschedule for this lesson.</p>
             </aside>
           </div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button onClick={rescheduleBooking} disabled={!pendingStart || busy}>
-              {busy ? "Updating…" : "Confirm new time"}
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setMode("view");
-                setPendingStart(null);
-                setActionError(null);
-              }}
-              disabled={busy}
-            >
-              Keep current time
-            </Button>
-          </div>
         </div>
       )}
       {mode === "addons" && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
-        const totalLessons = booking.addOnOptions!.reduce((sum, option) => sum + (addOnPlans[option.id]?.quantity ?? 0) * option.sessionCount, 0);
-        const selectedOptions = booking.addOnOptions!.filter((option) => addOnPlans[option.id]);
-        const allScheduled = selectedOptions.flatMap((option) => {
-          const plan = addOnPlans[option.id]!;
-          return plan.startsAt.length === option.sessionCount * plan.quantity ? [{ lessonId: option.id, quantity: plan.quantity, startsAt: plan.startsAt }] : [];
-        });
-        const scheduledCount = allScheduled.reduce((sum, item) => sum + item.startsAt.length, 0);
         return <section className="mt-5 min-w-0 max-w-full rounded-[14px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Add a lesson</h3>
           <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a lesson package, select its time or times, then pay. Your current bookings stay unchanged.</p>
           <div className="mt-4">
             <LessonStep
-              lessons={booking.addOnOptions!}
-              selectedId={selectedOptions[0]?.id ?? null}
+              lessons={addOnOptions}
+              selectedId={selectedAddOnOptions[0]?.id ?? null}
               onSelect={(option) => setAddOnPlans((current) => current[option.id]
                 ? {}
                 : { [option.id]: { quantity: 1, startsAt: [], sessionIndex: 0 } })}
             />
           </div>
           <div className="mt-4 grid min-w-0 gap-3">
-            {booking.addOnOptions!.map((option) => {
+            {addOnOptions.map((option) => {
               const plan = addOnPlans[option.id];
               if (!plan) return null;
               const sessionTotal = plan ? option.sessionCount * plan.quantity : 0;
@@ -662,8 +624,8 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
               return <div key={option.id} className="min-w-0 rounded-xl border border-line p-3">
                 <>
                   <label className="mt-3 grid max-w-xs gap-1.5 text-xs font-bold text-ink">Number of packages
-                        <input type="number" min="1" max={Math.min(Math.floor(20 / option.sessionCount), plan.quantity + Math.floor((20 - totalLessons) / option.sessionCount))} step="1" inputMode="numeric" value={plan.quantity} onChange={(event) => {
-                          const otherLessons = totalLessons - option.sessionCount * plan.quantity;
+                        <input type="number" min="1" max={Math.min(Math.floor(20 / option.sessionCount), plan.quantity + Math.floor((20 - totalAddOnLessons) / option.sessionCount))} step="1" inputMode="numeric" value={plan.quantity} onChange={(event) => {
+                          const otherLessons = totalAddOnLessons - option.sessionCount * plan.quantity;
                           const maxQuantity = Math.floor((20 - otherLessons) / option.sessionCount);
                           const quantity = Math.max(1, Math.min(maxQuantity, Math.floor(Number(event.target.value) || 1)));
                       setAddOnPlans((current) => ({ ...current, [option.id]: { ...current[option.id]!, quantity, startsAt: [], sessionIndex: 0 } }));
@@ -709,26 +671,30 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
               </div>;
             })}
           </div>
-          {selectedOptions.length > 0 && <>
-            <p className="mt-3 text-[12px] font-bold text-soft">Checkout total: ${selectedOptions.reduce((sum, option) => sum + option.priceCad * addOnPlans[option.id]!.quantity, 0).toFixed(2)} CAD + applicable taxes</p>
-            <div className="mt-3"><StripePackagePurchaseButton
-              packages={allScheduled}
-              disabled={busy || scheduledCount !== totalLessons || totalLessons === 0}
-              onAvailabilityConflict={() => setAvailabilityRevision((revision) => revision + 1)}
-            /></div>
-          </>}
+          {selectedAddOnOptions.length > 0 && <p className="mt-3 text-[12px] font-bold text-soft">Checkout total: ${selectedAddOnOptions.reduce((sum, option) => sum + option.priceCad * addOnPlans[option.id]!.quantity, 0).toFixed(2)} CAD + applicable taxes</p>}
         </section>;
       })()}
       {(mode === "payment" || mode === "addons" || mode === "reschedule") && (
-        <div className="mt-5 border-t border-line pt-4">
-          <Button variant="ghost" onClick={() => { setMode("view"); setPendingStart(null); setActionError(null); }} disabled={busy}>Back to all bookings</Button>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+          <Button variant="ghost" onClick={() => void returnToBookings()} disabled={busy}>Back</Button>
+          {mode === "reschedule" && (
+            <Button onClick={() => void rescheduleBooking()} disabled={!pendingStart || busy}>
+              {busy ? "Updating…" : "Next"}
+            </Button>
+          )}
+          {mode === "payment" && booking.paymentStatus === "due" && !closed && !booking.isAdditionalPackage && (
+            <StripeCheckoutButton buttonLabel="Next" />
+          )}
+          {mode === "addons" && booking.paymentStatus === "paid" && !closed && (
+            <StripePackagePurchaseButton
+              packages={scheduledAddOnPackages}
+              buttonLabel="Next"
+              disabled={busy || scheduledAddOnCount !== totalAddOnLessons || totalAddOnLessons === 0}
+              onAvailabilityConflict={() => setAvailabilityRevision((revision) => revision + 1)}
+            />
+          )}
         </div>
       )}
-      <div className="mt-7 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:justify-between">
-        <button type="button" onClick={() => void leaveToHome()} disabled={busy} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-line bg-white px-4 py-3 text-[13px] font-bold text-soft transition hover:border-[#83b657] hover:bg-[#f7fbed] disabled:opacity-60 sm:ml-auto sm:w-auto">
-          Exit My Booking
-        </button>
-      </div>
     </div>
   );
 }

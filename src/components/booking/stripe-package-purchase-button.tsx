@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { preserveManageSessionForStripeReturn } from "@/lib/booking/manage-session-client";
 
-export function StripePackagePurchaseButton({ packages, disabled = false, onAvailabilityConflict }: {
+export function StripePackagePurchaseButton({ packages, disabled = false, onAvailabilityConflict, buttonLabel = "Add package & pay" }: {
   packages: Array<{ lessonId: string; quantity: number; startsAt: string[] }>;
   disabled?: boolean;
   onAvailabilityConflict?: () => void;
+  buttonLabel?: string;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +44,7 @@ export function StripePackagePurchaseButton({ packages, disabled = false, onAvai
     <div className="grid justify-items-start gap-2">
       <button type="button" onClick={() => void startCheckout()} disabled={disabled || pending}
         className="inline-flex h-10 items-center justify-center rounded-full bg-[#c2ee84] px-4 text-[12px] font-extrabold text-[#10212e] hover:bg-[#d4f4a8] disabled:opacity-60">
-        {pending ? "Opening checkout…" : "Add package & pay"}
+        {pending ? "Opening checkout…" : buttonLabel}
       </button>
       {error && <p role="alert" className="max-w-xl rounded-[10px] bg-[#fff0ed] px-3 py-2 text-[12px] font-semibold text-[#9d382a]">{error}</p>}
     </div>

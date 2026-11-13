@@ -12,7 +12,7 @@ interface CheckoutResponse {
   error?: string;
 }
 
-export function StripeCheckoutButton({ manageToken, addOnPackages = [] }: { manageToken?: string; addOnPackages?: PackageQuantitySelection[] } = {}) {
+export function StripeCheckoutButton({ manageToken, addOnPackages = [], buttonLabel = "Continue to payment" }: { manageToken?: string; addOnPackages?: PackageQuantitySelection[]; buttonLabel?: string } = {}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +52,7 @@ export function StripeCheckoutButton({ manageToken, addOnPackages = [] }: { mana
         disabled={pending}
         className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#c2ee84] px-6 text-[13px] font-extrabold text-[#10212e] transition-colors hover:bg-[#d4f4a8] disabled:opacity-60"
       >
-        {pending ? "Opening secure payment…" : "Continue to payment"}
+        {pending ? "Opening secure payment…" : buttonLabel}
         {!pending && <span aria-hidden="true">↗</span>}
       </button>
       {error && (

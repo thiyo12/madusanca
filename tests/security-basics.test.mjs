@@ -129,7 +129,10 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(finder, /booking\.status === "pending_payment"/);
   assert.match(finder, /booking\.paymentStatus === "due" && isUpcoming/);
   assert.doesNotMatch(finder, /Package purchases/);
-  assert.match(finder, /Welcome back, \{studentName\}/);
+  assert.match(finder, /Welcome back\{studentName \?/);
+  assert.match(finder, /email\.trim\(\)/);
+  assert.match(finder, /Reference: \{booking\.reference\}/);
+  assert.match(finder, /orderBookingsForOverview\(bookings/);
   assert.match(finder, /Paid.*Awaiting payment/);
   assert.doesNotMatch(finder, /window\.location\.assign\(`\/booking\/manage/);
   assert.doesNotMatch(finder, /href="\/lessons"/);
@@ -142,7 +145,7 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
   assert.match(manage, /Confirming uses your one online reschedule/);
-  assert.match(manage, /setMode\("view"\)/);
+  assert.match(manage, /await returnToBookings\(\)/);
   assert.match(manage, /initialAction === "reschedule" && selectedSessionCanReschedule/);
   assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
   assert.match(manage, /mode === "addons" && booking\.paymentStatus === "paid"/);
@@ -152,6 +155,10 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.doesNotMatch(dateTime, /!minDate \|\| key >= minDate/);
   assert.match(packageCheckout, /onAvailabilityConflict\?\.\(\)/);
   assert.match(manage, /onAvailabilityConflict=\{\(\) => setAvailabilityRevision/);
+  assert.match(manage, /await returnToBookings\(\)/);
+  assert.match(manage, /buttonLabel="Next"/);
+  assert.match(manage, /Back<\/Button>/);
+  assert.doesNotMatch(manage, /Back to all bookings|Keep current time|Confirm new time|Exit My Booking/);
 });
 
 test("each scheduled lesson has exactly one student reschedule", () => {
@@ -204,12 +211,12 @@ test("My Booking lets users add packages only after selecting all lesson times a
   const manage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
   const purchaseButton = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   assert.match(manage, /Select a date and time for each of the/);
-  assert.match(manage, /packages=\{allScheduled\}/);
+  assert.match(manage, /packages=\{scheduledAddOnPackages\}/);
   assert.doesNotMatch(manage, /Upgrade package|StripeUpgradeButton|upgradeOptions/);
   assert.match(manage, /onBackToBookings\(\)/);
-  assert.match(manage, /Back to all bookings/);
+  assert.match(manage, /Back<\/Button>/);
   assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
-  assert.match(manage, /Exit My Booking/);
+  assert.doesNotMatch(manage, /Exit My Booking/);
   assert.doesNotMatch(manage, /Back to My Booking lookup/);
   assert.match(manage, /Your booking and add-on lessons/);
   assert.match(manage, /Reschedule lesson/);

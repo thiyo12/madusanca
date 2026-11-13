@@ -58,6 +58,17 @@ const STATUS_LABEL: Record<string, string> = {
 const PENDING_OTP_KEY = "wda_pending_booking_otp";
 const OTP_TTL_MS = 10 * 60 * 1000;
 
+function orderBookingsForOverview(bookings: FoundBooking[], now: number): FoundBooking[] {
+  const section = (booking: FoundBooking) => {
+    if (["cancelled", "completed", "no_show"].includes(booking.status)) return 1;
+    if (Date.parse(booking.startsAt) <= now) return 2;
+    return 0;
+  };
+  return [...bookings].sort((left, right) =>
+    section(left) - section(right) || Date.parse(left.startsAt) - Date.parse(right.startsAt),
+  );
+}
+
 function readPendingOtp(email: string): number | null {
   if (typeof window === "undefined" || !email.trim()) return null;
   try {
@@ -135,7 +146,7 @@ export function BookingFind({
       if (cancelled || !result.ok || !result.bookings) return;
       setBookings(result.bookings);
       setPurchases(result.purchases ?? []);
-      setStudentName(result.studentName?.trim().split(/\s+/)[0] ?? "");
+      setStudentName(result.studentName?.trim() ?? "");
     }).catch(() => undefined).finally(() => {
       if (!cancelled) setPending(false);
     });
@@ -208,7 +219,7 @@ export function BookingFind({
       }
       setBookings(result.bookings);
       setPurchases(result.purchases ?? []);
-      setStudentName(result.studentName?.trim().split(/\s+/)[0] ?? "");
+      setStudentName(result.studentName?.trim() ?? "");
       setStep("list");
     } catch {
       setError("Network error. Please try again.");
@@ -352,17 +363,18 @@ export function BookingFind({
 
       {step === "list" && (
         <div className="grid gap-3">
-          {studentName && (
+          <div>
             <h3 className="font-display text-[19px] font-extrabold tracking-[-0.03em] text-ink">
-              Welcome back, {studentName}!
+              Welcome back{studentName ? `, ${studentName}` : ""}!
             </h3>
-          )}
+            <p className="mt-0.5 text-[12px] text-soft">{email.trim()}</p>
+          </div>
           {bookings.length === 0 ? (
             <p className="rounded-[10px] bg-mist px-3.5 py-2.5 text-[13px] font-bold text-soft">
               We verified this email, but couldn’t find any scheduled lessons linked to it. Check that you entered the same email used at checkout, or contact the school and we’ll help locate them.
             </p>
           ) : bookings.length > 0 && (
-            bookings.map((booking) => {
+            orderBookingsForOverview(bookings, now ?? 0).map((booking) => {
               const isPast = now !== null && Date.parse(booking.startsAt) <= now;
               const isUpcoming = now !== null && !isPast;
               const isActive = booking.status === "confirmed" || booking.status === "rescheduled" || booking.status === "pending_payment";
@@ -399,8 +411,9 @@ export function BookingFind({
                         : isPast ? "Expired" : STATUS_LABEL[booking.status] ?? booking.status}
                     </span>
                   </p>
+                  <p className="mt-0.5 text-[11.5px] font-semibold text-soft">Reference: {booking.reference}</p>
                   <p className="mt-0.5 text-[12.5px] text-soft">
-                    {formatSlotFull(booking.startsAt)} · {booking.reference} · {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "due" ? "Awaiting payment" : booking.paymentStatus}
+                    {formatSlotFull(booking.startsAt)} · {booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus === "due" ? "Awaiting payment" : booking.paymentStatus}
                   </p>
                 </div>
                 <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
