@@ -28,6 +28,7 @@ export function BookingPortal({
   const [activeSessionId, setActiveSessionId] = useState<string | undefined>();
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [returnSessionReady, setReturnSessionReady] = useState(!successfulAddonReturn);
+  const [forceVerifiedHistory, setForceVerifiedHistory] = useState(false);
 
   const clearReturnSession = useCallback(() => fetch("/api/bookings/session", {
     method: "POST",
@@ -44,6 +45,7 @@ export function BookingPortal({
   }, [successfulAddonReturn, clearReturnSession]);
 
   function openManage(reference: string, action: BookingAction, sessionId?: string) {
+    setForceVerifiedHistory(false);
     setActiveReference(reference);
     setActiveAction(action);
     setActiveSessionId(sessionId);
@@ -58,6 +60,7 @@ export function BookingPortal({
     setActiveReference("");
     setActiveAction("details");
     setActiveSessionId(undefined);
+    setForceVerifiedHistory(true);
   }, []);
 
   return (
@@ -69,7 +72,12 @@ export function BookingPortal({
           </p>
         )}
         {returnSessionReady ? (
-          <BookingFind onOpenManage={openManage} refreshVersion={refreshVersion} />
+          <BookingFind
+            onOpenManage={openManage}
+            refreshVersion={refreshVersion}
+            forceVerifiedHistory={forceVerifiedHistory}
+            onDismissForcedHistory={() => setForceVerifiedHistory(false)}
+          />
         ) : successfulAddonReturn ? (
           <div role="status" className="grid gap-3 rounded-[14px] border border-line bg-white p-4 text-[13px] text-soft">
             <p>Preparing secure email verification…</p>

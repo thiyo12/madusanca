@@ -266,16 +266,21 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.doesNotMatch(finder, /Back to home/);
   assert.doesNotMatch(manage, /Back to home/);
   const portal = readFileSync(new URL("../src/components/booking/booking-portal.tsx", import.meta.url), "utf8");
-  assert.match(portal, /<BookingFind onOpenManage=\{openManage\}/);
+  assert.match(portal, /<BookingFind[\s\S]*onOpenManage=\{openManage\}/);
   assert.match(portal, /<BookingManage/);
 });
 
 test("add-on Stripe returns preserve the manage session and reopen selections after cancellation", () => {
   const portal = readFileSync(new URL("../src/components/booking/booking-portal.tsx", import.meta.url), "utf8");
+  const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   const manage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
   const button = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   const session = readFileSync(new URL("../src/lib/booking/manage-session-client.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  assert.match(portal, /setForceVerifiedHistory\(true\)/);
+  assert.match(portal, /forceVerifiedHistory=\{forceVerifiedHistory\}/);
+  assert.match(finder, /forceVerifiedHistory && \(bookings\.length > 0 \|\| purchases\.length > 0\) \? "list" : step/);
+  assert.match(finder, /onDismissForcedHistory\?\.\(\)/);
   assert.match(portal, /const backToBookings = useCallback\(async \(\) => \{\s*\/\/ This is an in-session return to the already-verified lesson history,[\s\S]*?setShowManage\(false\);\s*setActiveReference\(""\);\s*setActiveAction\("details"\);\s*setActiveSessionId\(undefined\);/);
   assert.doesNotMatch(portal.match(/const backToBookings = useCallback\([\s\S]*?\}, \[\]\);/)?.[0] ?? "", /fetch\("\/api\/bookings\/session"/);
   assert.match(portal, /packagePurchaseAdded && paymentReturn === "cancelled" \? "addons" : "details"/);

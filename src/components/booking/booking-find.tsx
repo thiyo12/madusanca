@@ -90,9 +90,13 @@ export type BookingAction = "details" | "reschedule" | "payment" | "addons";
 export function BookingFind({
   onOpenManage,
   refreshVersion = 0,
+  forceVerifiedHistory = false,
+  onDismissForcedHistory,
 }: {
   onOpenManage: (reference: string, action: BookingAction, sessionId?: string) => void;
   refreshVersion?: number;
+  forceVerifiedHistory?: boolean;
+  onDismissForcedHistory?: () => void;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
@@ -109,6 +113,7 @@ export function BookingFind({
   const [requestAvailableAt, setRequestAvailableAt] = useState<number | null>(null);
   const [studentName, setStudentName] = useState("");
   const lastRefreshVersion = useRef(refreshVersion);
+  const visibleStep = forceVerifiedHistory && (bookings.length > 0 || purchases.length > 0) ? "list" : step;
 
   const callOtp = useCallback(async (payload: Record<string, unknown>): Promise<OtpResponse> => {
     const response = await fetch("/api/bookings/otp", {
@@ -247,6 +252,7 @@ export function BookingFind({
   }
 
   function reset() {
+    onDismissForcedHistory?.();
     setStep("email");
     setEmail("");
     setCode("");
@@ -262,7 +268,7 @@ export function BookingFind({
 
   return (
     <div className="grid gap-3.5">
-      {step !== "list" && (
+      {visibleStep !== "list" && (
         <div>
           <h3 className="font-display text-[23px] font-extrabold tracking-[-0.04em] text-ink">
             Find my booking
@@ -277,7 +283,7 @@ export function BookingFind({
         </div>
       )}
 
-      {step === "email" && (
+      {visibleStep === "email" && (
         <form onSubmit={requestCode} className="grid gap-3.5">
           <label className="grid gap-1.5 text-[12px] font-bold text-ink">
             Email address
@@ -309,7 +315,7 @@ export function BookingFind({
         </form>
       )}
 
-      {step === "code" && (
+      {visibleStep === "code" && (
         <form onSubmit={verifyCode} className="grid gap-3.5">
           <p className="text-[13px] leading-relaxed text-soft">
             If a booking or package purchase is linked to <strong className="text-ink">{email}</strong>, a code was sent. Use the same code until it expires. You can request a replacement when the countdown reaches zero. If you leave and return, enter this email again to continue with the active code. Check spam if it didn&rsquo;t arrive.
@@ -361,7 +367,7 @@ export function BookingFind({
         </form>
       )}
 
-      {step === "list" && (
+      {visibleStep === "list" && (
         <div className="grid gap-3">
           <div>
             <h3 className="font-display text-[19px] font-extrabold tracking-[-0.03em] text-ink">
@@ -503,15 +509,15 @@ export function BookingFind({
           </p>
         )
       )}
-      {step === "email" ? (
+      {visibleStep === "email" ? (
         <button type="button" onClick={() => router.back()} className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
           <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span>
           Back
         </button>
       ) : (
-        <button type="button" onClick={() => { setError(null); setMessage(null); setStep(step === "list" ? "code" : "email"); }} className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
+        <button type="button" onClick={() => { onDismissForcedHistory?.(); setError(null); setMessage(null); setStep(visibleStep === "list" ? "code" : "email"); }} className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-line bg-white px-4 py-2.5 text-[13px] font-bold text-ink transition hover:border-[#83b657] hover:bg-[#f7fbed]">
           <span aria-hidden="true" className="grid h-6 w-6 place-items-center rounded-full bg-[#eaf5df] text-[#426a2c]">←</span>
-          {step === "list" ? "Back to verification" : "Back to email"}
+          {visibleStep === "list" ? "Back to verification" : "Back to email"}
         </button>
       )}
     </div>
