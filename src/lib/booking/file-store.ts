@@ -932,6 +932,15 @@ export const fileStore: BookingStore = {
     });
   },
 
+  deleteLesson(id: string): Promise<Lesson[]> {
+    return withLock((): Promise<Lesson[]> => {
+      const data = load();
+      data.lessons = data.lessons.filter((lesson) => lesson.id !== id);
+      save(data);
+      return Promise.resolve(data.lessons);
+    });
+  },
+
   async findBookingsByEmail(email: string): Promise<BookingRecord[]> {
     const needle = email.trim().toLowerCase();
     return load()

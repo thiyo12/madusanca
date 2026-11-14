@@ -16,6 +16,11 @@ export function occupiedDurationMin(lessonDurationMin: number): number {
   return lessonDurationMin;
 }
 
+/** Align a dragged calendar booking by its top edge, not the pointer grab point. */
+export function calendarDropStartMin(pointerMin: number, grabOffsetMin: number, stepMin = 10): number {
+  return pointerMin - Math.floor(Math.max(0, grabOffsetMin) / stepMin) * stepMin;
+}
+
 /** Default school hours: Mon–Sat 09:00–18:00, Sunday closed. */
 export const DEFAULT_RULES: AvailabilityRule[] = [
   { weekday: 1, startMin: 9 * 60, endMin: 18 * 60 },

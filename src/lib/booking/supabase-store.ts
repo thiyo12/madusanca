@@ -735,6 +735,13 @@ export const supabaseStore: BookingStore = {
     return this.getLessons();
   },
 
+  async deleteLesson(id: string): Promise<Lesson[]> {
+    const { data, error } = await adminClient().from("lessons").delete().eq("id", id).select("id");
+    if (error) throw new Error(`Failed to delete lesson: ${error.message}`);
+    if (!data?.length) throw new Error("Lesson not found.");
+    return this.getLessons();
+  },
+
   async findBookingsByEmail(email: string): Promise<BookingRecord[]> {
     const needle = email.trim();
     const { data, error } = await adminClient()

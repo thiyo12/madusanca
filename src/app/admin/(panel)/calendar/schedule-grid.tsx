@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { AvailabilityRule, BlackoutDate, BookingRecord } from "@/lib/booking/types";
 import { dayKeyOf, dayNumber, formatSlotDay, formatSlotFull, formatSlotTime, weekdayLabel } from "@/lib/booking/format";
-import { occupiedDurationMin, toVancouverParts, zonedToUtc } from "@/lib/booking/slots";
+import { calendarDropStartMin, occupiedDurationMin, toVancouverParts, zonedToUtc } from "@/lib/booking/slots";
 import type { Lesson } from "@/lib/data/lessons";
 import { rescheduleBookingAction } from "../bookings/actions";
 import { BookingWizard } from "@/components/booking/booking-wizard";
@@ -90,6 +90,7 @@ export function ScheduleGrid({
   const [dropError, setDropError] = useState<string | null>(null);
   const [pendingMove, setPendingMove] = useState<{ booking: BookingRecord; dayKey: string; startMin: number; startsAt: string } | null>(null);
   const draggedBooking = useRef(false);
+  const dragOrigin = useRef<{ bookingId: string; grabOffsetMin: number } | null>(null);
   const [moving, startTransition] = useTransition();
   const [currentNowMs, setCurrentNowMs] = useState(nowMs);
   const rows = Math.max(1, (endHour - startHour) * 60 / SLOT_STEP_MIN);
@@ -154,16 +155,23 @@ export function ScheduleGrid({
 
   function moveBooking(event: React.DragEvent<HTMLDivElement>, dayKey: string, startMin: number) {
     event.preventDefault();
+    const bookingId = event.dataTransfer.getData("text/booking-id") || event.dataTransfer.getData("text/plain");
+    if (!bookingId) return;
+    const booking = Object.values(byDay).flat().find((item) => item.id === bookingId);
+    if (!booking) return;
+    const grabOffsetMin = dragOrigin.current?.bookingId === bookingId ? dragOrigin.current.grabOffsetMin : 0;
+    const targetStartMin = calendarDropStartMin(startMin, grabOffsetMin, SLOT_STEP_MIN);
+    if (targetStartMin < 0 || targetStartMin + occupiedDurationMin(booking.durationMin) > 24 * 60) {
+      setDropError("Drop the lesson where its full time block fits on the calendar.");
+      return;
+    }
     const [year, month, day] = dayKey.split("-").map(Number);
-    const startsAt = zonedToUtc(year, month, day, startMin).toISOString();
+    const startsAt = zonedToUtc(year, month, day, targetStartMin).toISOString();
     if (Date.parse(startsAt) <= currentNowMs) {
       setDropError("Choose a future date and time. Past times are not available.");
       return;
     }
-    const bookingId = event.dataTransfer.getData("text/booking-id");
-    if (!bookingId) return;
-    const booking = Object.values(byDay).flat().find((item) => item.id === bookingId);
-    if (booking) setPendingMove({ booking, dayKey, startMin, startsAt });
+    setPendingMove({ booking, dayKey, startMin: targetStartMin, startsAt });
   }
 
   function confirmMove() {
@@ -370,16 +378,23 @@ export function ScheduleGrid({
                         onDragStart={(event) => {
                           draggedBooking.current = true;
                           event.dataTransfer.setData("text/booking-id", booking.id);
+                          event.dataTransfer.setData("text/plain", booking.id);
                           event.dataTransfer.effectAllowed = "move";
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          const offsetY = Math.max(0, event.clientY - bounds.top);
+                          dragOrigin.current = {
+                            bookingId: booking.id,
+                            grabOffsetMin: Math.floor(offsetY / ROW_H) * SLOT_STEP_MIN,
+                          };
                         }}
-                        onDragEnd={() => window.setTimeout(() => { draggedBooking.current = false; }, 500)}
+                        onDragEnd={() => window.setTimeout(() => { draggedBooking.current = false; dragOrigin.current = null; }, 500)}
                         onClick={(event) => {
                           if (!draggedBooking.current) return;
                           event.preventDefault();
                           event.stopPropagation();
                           draggedBooking.current = false;
                         }}
-                        title={overdue ? "Warning: past lesson is not marked complete or missed." : "Drag to another open time, or click to view booking actions"}
+                        title={overdue ? "Warning: past lesson is not marked complete or missed." : "Drag the lesson’s top edge to its new start time, or click to view booking actions"}
                           className={`absolute z-20 overflow-hidden rounded-[7px] border-l-[3px] px-2 py-1 shadow-sm transition-shadow hover:shadow-md ${overdue ? "border-l-[#dc2626] bg-[#fff0ed]" : `bg-mist ${CHIP_TONES[booking.status]}`} ${booking.id === selectedBookingId ? "calendar-focus-blink" : ""} ${
                           dim ? "opacity-60" : ""
                         }`}

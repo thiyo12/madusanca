@@ -386,6 +386,8 @@ export interface BookingStore {
   getLessons(): Promise<Lesson[]>;
   /** Catalogue: create-or-update a lesson by id. */
   saveLesson(lesson: Lesson): Promise<Lesson[]>;
+  /** Catalogue: remove an option without changing historical booking records. */
+  deleteLesson(id: string): Promise<Lesson[]>;
   /** Lookup used by the "find my booking" flow (no token required). */
   findBookingsByEmail(email: string): Promise<BookingRecord[]>;
   /** Rotates and returns a fresh manage token for a booking (post-verification). */

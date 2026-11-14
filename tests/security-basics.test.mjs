@@ -28,7 +28,7 @@ import { hasTrustedRequestOrigin } from "../src/lib/server/request-origin.ts";
 import { createStudentBookingPdf } from "../src/lib/admin/student-booking-pdf.ts";
 import { customerCanAccessBooking } from "../src/lib/booking/customer-access.ts";
 import { addMonthsToKey, dayKeyOf, formatSlotTime } from "../src/lib/booking/format.ts";
-import { generateSlots, HORIZON_DAYS, occupiedDurationMin, toVancouverDayKey, toVancouverParts, zonedToUtc } from "../src/lib/booking/slots.ts";
+import { calendarDropStartMin, generateSlots, HORIZON_DAYS, occupiedDurationMin, toVancouverDayKey, toVancouverParts, zonedToUtc } from "../src/lib/booking/slots.ts";
 import { manageUrl } from "../src/lib/booking/urls.ts";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "../src/lib/booking/manage-policy.ts";
 import { isLocalAdminBypassEnabled } from "../src/lib/auth/local-admin-bypass.ts";
@@ -981,6 +981,11 @@ test("admin dashboard exposes manual booking and working payment and package man
   assert.match(lessonsEditor, /\+ Add package/);
   assert.match(lessonForm, /name="isNew"/);
   assert.match(lessonAction, /store\.saveLesson\(/);
+  assert.match(lessonAction, /export async function deleteLessonAction/);
+  assert.match(lessonAction, /signInWithPassword\(\{ email: admin\.email, password: parsed\.data\.password \}\)/);
+  assert.match(lessonAction, /store\.deleteLesson\(existing\.id\)/);
+  assert.match(lessonsEditor, /<DeleteLessonForm id=\{lesson\.id\} name=\{lesson\.name\} \/>/);
+  assert.match(lessonAction, /Existing bookings were not changed/);
   assert.match(stripeFulfillment, /handleStripeCheckoutEvent\(/);
   assert.match(payments, /mode === "unconfigured"/);
 });
@@ -998,6 +1003,7 @@ test("admin calendar supports custom conflict-checked times and confirms moves b
   assert.match(scheduleGrid, /const SLOT_STEP_MIN = 10/);
   assert.match(scheduleGrid, /Review change/);
   assert.match(scheduleGrid, /Confirm move/);
+  assert.match(scheduleGrid, /calendarDropStartMin\(startMin, grabOffsetMin, SLOT_STEP_MIN\)/);
   assert.match(scheduleGrid, /Choose a future date and time/);
   assert.match(scheduleGrid, /⚠ Past — mark complete or no-show/);
   assert.match(monthGrid, /⚠ Needs update/);
@@ -1007,6 +1013,11 @@ test("admin calendar supports custom conflict-checked times and confirms moves b
   assert.match(bookingActions, /startsAt\.getTime\(\) > Date\.now\(\)/);
   assert.match(migration, /public\.booking_overlaps\(p_starts_at, p_ends_at, v_target\.id\)/);
   assert.match(migration, /set_config\('app\.admin_calendar_override', 'on', true\)/);
+});
+
+test("calendar drag target aligns the booking top edge to the chosen Pacific start time", () => {
+  assert.equal(calendarDropStartMin(10 * 60, 60), 9 * 60);
+  assert.equal(zonedToUtc(2026, 12, 10, calendarDropStartMin(10 * 60, 60)).toISOString(), "2026-12-10T16:00:00.000Z");
 });
 
 test("admin package calendar holds allow selected future times but remain admin-gated and conflict checked", () => {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { LessonForm } from "./lesson-form";
 import { formatLessonPrice, type Lesson } from "@/lib/data/lessons";
+import { DeleteLessonForm } from "./delete-lesson-form";
 
 interface LessonsEditorProps {
   lessons: Lesson[];
@@ -25,7 +26,7 @@ export function LessonsEditor({ lessons }: LessonsEditorProps) {
                 <th scope="col" className="px-4 py-3">Lesson</th>
                 <th scope="col" className="px-4 py-3">Duration</th>
                 <th scope="col" className="px-4 py-3">Price</th>
-                <th scope="col" className="px-4 py-3 text-right">Edit</th>
+                <th scope="col" className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -109,15 +110,18 @@ function LessonRow({ lesson, editing, onEdit, onClose }: LessonRowProps) {
       <td className="px-4 py-3.5 text-[13px] font-extrabold text-ink">
         {formatLessonPrice(lesson.priceCad)}
       </td>
-      <td className="px-4 py-3.5 text-right">
-        <button
+        <td className="px-4 py-3.5 text-right">
+          <div className="flex justify-end gap-2">
+          <button
           type="button"
           onClick={onEdit}
           className="inline-flex h-9 items-center rounded-[8px] border border-line bg-white px-3.5 text-[12.5px] font-extrabold text-ink transition-colors hover:border-gold hover:text-gold-deep"
-        >
-          Edit
-        </button>
-      </td>
+          >
+            Edit
+          </button>
+          <DeleteLessonForm id={lesson.id} name={lesson.name} />
+          </div>
+        </td>
     </tr>
   );
 }
