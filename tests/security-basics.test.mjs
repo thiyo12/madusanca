@@ -281,6 +281,8 @@ test("add-on Stripe returns preserve the manage session and reopen selections af
   assert.match(manageRoute, /if \(action === "history"\)/);
   assert.match(manageRoute, /store\.findBookingsByEmail\(email\)/);
   assert.match(portal, /JSON\.stringify\(\{ action: "history" \}\)/);
+  assert.match(manage, /onAccessExpired\s*\?\?\s*onBackToBookings/);
+  assert.match(portal, /const accessExpired = useCallback\(async \(\) => \{[\s\S]*?setForceVerifiedHistory\(false\);[\s\S]*?setRestoredHistory\(null\);/);
   assert.match(portal, /setForceVerifiedHistory\(true\)/);
   assert.match(portal, /forceVerifiedHistory=\{forceVerifiedHistory\}/);
   assert.match(finder, /forceVerifiedHistory && \(bookings\.length > 0 \|\| purchases\.length > 0\) \? "list" : step/);

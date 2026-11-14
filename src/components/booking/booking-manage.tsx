@@ -18,6 +18,7 @@ export interface BookingManageProps {
   initialAction?: "details" | "reschedule" | "payment" | "addons";
   initialSessionId?: string;
   onBackToBookings: () => Promise<void>;
+  onAccessExpired?: () => Promise<void>;
   onBookingUpdated?: () => void;
 }
 
@@ -81,7 +82,7 @@ const STATUS_LABEL: Record<string, string> = {
   no_show: "No-show",
 };
 
-export function BookingManage({ paymentReturn, packagePurchaseAdded = false, initialAction = "details", initialSessionId, onBackToBookings, onBookingUpdated }: BookingManageProps) {
+export function BookingManage({ paymentReturn, packagePurchaseAdded = false, initialAction = "details", initialSessionId, onBackToBookings, onAccessExpired, onBookingUpdated }: BookingManageProps) {
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState<BookingView | null>(null);
@@ -156,7 +157,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
     // Stripe checkout is the only exception to the one-use OTP navigation.
     const isStripeReturn = consumeManageSessionStripeReturn();
     if (!isVerifiedNavigation && !isStripeReturn) {
-      void onBackToBookings();
+      void (onAccessExpired ?? onBackToBookings)();
       return () => {
         cancelled = true;
       };
@@ -226,7 +227,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
     return () => {
       cancelled = true;
     };
-  }, [callManage, initialAction, initialSessionId, onBackToBookings, packagePurchaseAdded, paymentReturn]);
+  }, [callManage, initialAction, initialSessionId, onAccessExpired, onBackToBookings, packagePurchaseAdded, paymentReturn]);
 
   async function scheduleCredit() {
     if (!purchase || !creditStart) return;

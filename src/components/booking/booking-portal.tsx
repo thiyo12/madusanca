@@ -76,6 +76,16 @@ export function BookingPortal({
     setForceVerifiedHistory(true);
   }, []);
 
+  const accessExpired = useCallback(async () => {
+    await clearReturnSession().catch(() => undefined);
+    setShowManage(false);
+    setActiveReference("");
+    setActiveAction("details");
+    setActiveSessionId(undefined);
+    setForceVerifiedHistory(false);
+    setRestoredHistory(null);
+  }, [clearReturnSession]);
+
   return (
     <>
       <div hidden={showManage}>
@@ -114,6 +124,7 @@ export function BookingPortal({
           initialAction={activeAction}
           initialSessionId={activeSessionId}
           onBackToBookings={backToBookings}
+          onAccessExpired={accessExpired}
           onBookingUpdated={() => setRefreshVersion((version) => version + 1)}
         />
       )}
