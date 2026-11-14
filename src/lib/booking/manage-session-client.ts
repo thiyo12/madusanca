@@ -2,6 +2,13 @@
 
 const STRIPE_RETURN_MARKER = "wda_manage_stripe_return";
 const VERIFIED_NAVIGATION_MARKER = "wda_manage_verified_navigation";
+const ADDON_SELECTION_MARKER = "wda_manage_addon_selection";
+
+export interface ManageAddonSelection {
+  lessonId: string;
+  quantity: number;
+  startsAt: string[];
+}
 
 /** Authorize the immediate navigation to My Booking after OTP verification. */
 export function markManageSessionVerified(): void {
@@ -31,4 +38,31 @@ export function consumeManageSessionStripeReturn(): boolean {
 
 export function hasPendingManageSessionStripeReturn(): boolean {
   return window.sessionStorage.getItem(STRIPE_RETURN_MARKER) === "1";
+}
+
+/** Keep the in-progress add-on choice only for this browser tab's checkout return. */
+export function saveManageAddonSelection(selection: ManageAddonSelection[]): void {
+  window.sessionStorage.setItem(ADDON_SELECTION_MARKER, JSON.stringify(selection));
+}
+
+export function consumeManageAddonSelection(): ManageAddonSelection[] {
+  const saved = window.sessionStorage.getItem(ADDON_SELECTION_MARKER);
+  window.sessionStorage.removeItem(ADDON_SELECTION_MARKER);
+  if (!saved) return [];
+  try {
+    const value: unknown = JSON.parse(saved);
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is ManageAddonSelection =>
+      typeof item === "object" && item !== null &&
+      typeof item.lessonId === "string" &&
+      Number.isSafeInteger(item.quantity) && item.quantity > 0 &&
+      Array.isArray(item.startsAt) && item.startsAt.every((time: unknown) => typeof time === "string"),
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function clearManageAddonSelection(): void {
+  window.sessionStorage.removeItem(ADDON_SELECTION_MARKER);
 }

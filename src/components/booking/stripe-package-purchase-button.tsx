@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { preserveManageSessionForStripeReturn } from "@/lib/booking/manage-session-client";
+import { preserveManageSessionForStripeReturn, saveManageAddonSelection } from "@/lib/booking/manage-session-client";
 
 export function StripePackagePurchaseButton({ packages, disabled = false, onAvailabilityConflict, buttonLabel = "Add package & pay" }: {
   packages: Array<{ lessonId: string; quantity: number; startsAt: string[] }>;
@@ -31,6 +31,7 @@ export function StripePackagePurchaseButton({ packages, disabled = false, onAvai
         }
         return;
       }
+      saveManageAddonSelection(packages);
       preserveManageSessionForStripeReturn();
       window.location.assign(result.url);
     } catch {

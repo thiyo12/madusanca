@@ -265,6 +265,26 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(portal, /<BookingManage/);
 });
 
+test("add-on Stripe returns preserve the manage session and reopen selections after cancellation", () => {
+  const portal = readFileSync(new URL("../src/components/booking/booking-portal.tsx", import.meta.url), "utf8");
+  const manage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  const button = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
+  const session = readFileSync(new URL("../src/lib/booking/manage-session-client.ts", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  assert.match(portal, /packagePurchaseAdded && paymentReturn === "cancelled" \? "addons" : "details"/);
+  assert.match(portal, /hasManageCookie && !successfulAddonReturn/);
+  assert.match(portal, /Require the same email \+ OTP verification/);
+  assert.match(portal, /verify the code to view your updated My Booking lessons/);
+  assert.match(manage, /consumeManageAddonSelection\(\)/);
+  assert.match(manage, /clearManageAddonSelection\(\)/);
+  assert.match(button, /saveManageAddonSelection\(packages\)/);
+  assert.match(session, /sessionStorage\.setItem\(ADDON_SELECTION_MARKER/);
+  assert.match(route, /payment=success&purchase=added/);
+  assert.match(route, /payment=cancelled&purchase=added/);
+  assert.match(manage, /<Button variant="ghost" onClick=\{\(\) => void returnToBookings\(\)\} disabled=\{busy\}>Back<\/Button>/);
+  assert.match(manage, /buttonLabel="Next"/);
+});
+
 test("90-minute lessons and 45-minute road tests reserve 120-minute instructor blocks", () => {
   assert.equal(occupiedDurationMin(90), 120);
   assert.equal(occupiedDurationMin(45), 120);

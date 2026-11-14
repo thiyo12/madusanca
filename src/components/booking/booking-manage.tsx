@@ -10,7 +10,7 @@ import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull, todayKey } from "@/lib/booking/format";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import type { Lesson } from "@/lib/data/lessons";
-import { consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
+import { clearManageAddonSelection, consumeManageAddonSelection, consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
   paymentReturn?: string;
@@ -185,7 +185,28 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
         setBooking(result.booking ?? null);
         setSessions(loadedSessions);
         setActiveSessionId(selectedSession?.id ?? null);
-        setMode(initialAction === "reschedule" && selectedSessionCanReschedule
+        const savedPlans = packagePurchaseAdded && paymentReturn === "success"
+          ? []
+          : consumeManageAddonSelection();
+        if (savedPlans.length > 0) {
+          const options = result.booking?.addOnOptions ?? [];
+          setAddOnPlans(Object.fromEntries(savedPlans
+            .filter((plan) => options.some((option) => option.id === plan.lessonId))
+            .map((plan) => {
+              const option = options.find((item) => item.id === plan.lessonId)!;
+              return [plan.lessonId, {
+                quantity: Math.min(plan.quantity, Math.floor(20 / option.sessionCount)),
+                startsAt: plan.startsAt.slice(0, option.sessionCount * plan.quantity),
+                sessionIndex: Math.min(plan.startsAt.length, option.sessionCount * plan.quantity - 1),
+              }];
+            })));
+        }
+        if (packagePurchaseAdded && paymentReturn === "success") {
+          clearManageAddonSelection();
+        }
+        setMode(savedPlans.length > 0 && !(packagePurchaseAdded && paymentReturn === "success")
+          ? "addons"
+          : initialAction === "reschedule" && selectedSessionCanReschedule
           ? "reschedule"
           : initialAction === "payment" && result.booking?.paymentStatus === "due"
             ? "payment"
@@ -201,7 +222,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
     return () => {
       cancelled = true;
     };
-  }, [callManage, initialAction, initialSessionId, onBackToBookings]);
+  }, [callManage, initialAction, initialSessionId, onBackToBookings, packagePurchaseAdded, paymentReturn]);
 
   async function scheduleCredit() {
     if (!purchase || !creditStart) return;
