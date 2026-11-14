@@ -735,14 +735,14 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           if (event.target === event.currentTarget) setShowExitConfirmation(false);
         }}>
           <section role="dialog" aria-modal="true" aria-labelledby="exit-booking-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <h3 id="exit-booking-title" className="font-display text-xl font-extrabold text-ink">Exit My Booking?</h3>
-            <p className="mt-2 text-sm leading-relaxed text-soft">Your add-on choices will stay here if you continue. Do you want to leave My Booking?</p>
+            <h3 id="exit-booking-title" className="font-display text-xl font-extrabold text-ink">Return to lesson history?</h3>
+            <p className="mt-2 text-sm leading-relaxed text-soft">Return to your My Booking lesson list, or stay here to continue choosing add-on lessons. Your selections will be kept if you stay.</p>
             <div className="mt-5 flex flex-wrap justify-end gap-3">
-              <Button variant="ghost" onClick={() => setShowExitConfirmation(false)}>Stay and continue</Button>
+              <Button variant="ghost" onClick={() => setShowExitConfirmation(false)}>Stay in add-on flow</Button>
               <Button variant="outline" onClick={() => {
                 setShowExitConfirmation(false);
                 void returnToBookings();
-              }}>Exit My Booking</Button>
+              }}>Return to lesson history</Button>
             </div>
           </section>
         </div>

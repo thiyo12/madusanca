@@ -220,8 +220,8 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(manage, /Back<\/Button>/);
   assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
   assert.match(manage, /role="dialog" aria-modal="true"/);
-  assert.match(manage, /Stay and continue/);
-  assert.match(manage, /Exit My Booking/);
+  assert.match(manage, /Return to lesson history/);
+  assert.match(manage, /Stay in add-on flow/);
   assert.doesNotMatch(manage, /Back to My Booking lookup/);
   assert.match(manage, /Your booking and add-on lessons/);
   assert.match(manage, /Reschedule lesson/);
@@ -276,6 +276,8 @@ test("add-on Stripe returns preserve the manage session and reopen selections af
   const button = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   const session = readFileSync(new URL("../src/lib/booking/manage-session-client.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  assert.match(portal, /const backToBookings = useCallback\(async \(\) => \{\s*\/\/ This is an in-session return to the already-verified lesson history,/);
+  assert.doesNotMatch(portal.match(/const backToBookings = useCallback\([\s\S]*?\}, \[\]\);/)?.[0] ?? "", /fetch\("\/api\/bookings\/session"/);
   assert.match(portal, /packagePurchaseAdded && paymentReturn === "cancelled" \? "addons" : "details"/);
   assert.match(portal, /hasManageCookie && !successfulAddonReturn/);
   assert.match(portal, /Require the same email \+ OTP verification/);

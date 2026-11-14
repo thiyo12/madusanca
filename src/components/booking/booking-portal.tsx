@@ -51,7 +51,9 @@ export function BookingPortal({
   }
 
   const backToBookings = useCallback(async () => {
-    await fetch("/api/bookings/session", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+    // This is an in-session return to the already-verified lesson history,
+    // not a logout. Keep the short-lived manage cookie so the student can
+    // open another lesson or start the add-on flow without re-entering OTP.
     setShowManage(false);
   }, []);
 
