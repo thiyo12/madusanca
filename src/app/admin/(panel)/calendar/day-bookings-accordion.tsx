@@ -76,6 +76,8 @@ export function DayBookingsAccordion({
     <ul className="divide-y divide-line">
       {entries.map(({ booking, packagePlan, studentDetails }) => {
         const expanded = openId === booking.id;
+        const reportAllowed = booking.status === "completed" || Boolean(booking.report) ||
+          (["pending_payment", "confirmed", "rescheduled"].includes(booking.status) && Date.parse(booking.startsAt) + booking.durationMin * 60_000 <= nowMs);
         return (
           <li key={booking.id} id={`booking-${booking.id}`} className="scroll-mt-6 px-3 py-2 sm:px-4">
             <button
@@ -111,7 +113,7 @@ export function DayBookingsAccordion({
                 </div>
                 {booking.notes && <details className="text-[12px] text-soft"><summary className="cursor-pointer font-bold text-ink">Notes</summary><pre className="mt-2 whitespace-pre-wrap break-words font-sans leading-relaxed">{booking.notes}</pre></details>}
 
-                <section className="rounded-xl border border-line bg-white p-3 sm:p-4">
+                 <section className="rounded-xl border border-line bg-white p-3 sm:p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div><h4 className="text-[13px] font-extrabold text-ink">Selected package</h4><p className="mt-0.5 text-[12px] text-soft">{packagePlan.lessonName}</p></div>
                     <p className="rounded-full bg-gold-soft px-2.5 py-1 text-[11px] font-extrabold text-gold-deep">{packagePlan.completedClasses} completed · {packagePlan.remainingClasses} remaining of {packagePlan.totalClasses}</p>
@@ -120,13 +122,14 @@ export function DayBookingsAccordion({
                 </section>
 
                 <div className="border-t border-line pt-3">
-                   <details className="rounded-xl border border-line bg-white" open={booking.status === "completed" || Boolean(booking.report && !booking.report.rubric_scores)}>
+                  {reportAllowed ? <>
+                   <details className="rounded-xl border border-line bg-white" open={booking.status === "completed" || Boolean(booking.report)}>
                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 sm:px-4">
                        <span><span className="block text-[12.5px] font-extrabold text-ink">Lesson report · Class {booking.sessionIndex} of {booking.sessionCount}</span><span className="mt-0.5 block text-[10.5px] text-soft">{booking.report?.rubric_scores ? "Saved" : "Not saved yet"}</span></span>
                        <span className="text-[11px] font-bold text-gold-deep">Open / close</span>
                      </summary>
                      <div className="border-t border-line p-3 sm:p-4">
-                     <p className="mb-3 text-[11px] text-soft">Rate the skills practiced today from 1–10. Section comments and extra notes are optional. This is a school progress report, not an official road-test score.</p>
+                      <p className="mb-3 text-[11px] text-soft">Rate the skills practiced today from 1–10; leave unpracticed skills unrated. At least one score is required to save. Section comments and extra notes are optional. This is a school progress report, not an official road-test score.</p>
                      {booking.report && !booking.report.rubric_scores && <p className="mb-3 rounded-lg bg-[#fff9e9] px-3 py-2 text-[11px] font-semibold text-[#735c1e]">This older report can be updated with skill ratings; its saved information will be kept.</p>}
                      <form action={saveTutorLessonReportAction} className="grid gap-3">
                      <input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="day" value={day} /><input type="hidden" name="view" value={view} />
@@ -136,7 +139,7 @@ export function DayBookingsAccordion({
                           <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-extrabold text-ink">{section.title} <span className="ml-1 text-[10px] font-normal text-soft">{section.items.length} skills</span></summary>
                           <div className="border-t border-line p-3">
                           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                           {section.items.map((item) => <label key={item.key} className="grid gap-1 text-[11px] font-semibold text-soft">{item.label}<select required name={`score_${item.key}`} defaultValue={booking.report?.rubric_scores?.[item.key] ?? ""} className="min-h-10 rounded-lg border border-line bg-white px-2 text-ink"><option value="" disabled>Select 1–10</option>{Array.from({ length: 10 }, (_, index) => index + 1).map((score) => <option key={score} value={score}>{score}</option>)}</select></label>)}
+                            {section.items.map((item) => <label key={item.key} className="grid gap-1 text-[11px] font-semibold text-soft">{item.label}<select name={`score_${item.key}`} defaultValue={booking.report?.rubric_scores?.[item.key] ?? ""} className="min-h-10 rounded-lg border border-line bg-white px-2 text-ink"><option value="">Not rated</option>{Array.from({ length: 10 }, (_, index) => index + 1).map((score) => <option key={score} value={score}>{score}</option>)}</select></label>)}
                          </div>
                          <label className="mt-3 grid gap-1 text-[11px] font-semibold text-soft">Comment · {section.title}<textarea name={`comment_${section.key}`} maxLength={2000} rows={2} defaultValue={booking.report?.section_comments?.[section.key] ?? ""} placeholder={`Comment on ${section.title.toLowerCase()}…`} className="rounded-lg border border-line p-2 text-ink" /></label>
                           </div>
@@ -152,7 +155,8 @@ export function DayBookingsAccordion({
                     </form>
                      </div>
                    </details>
-                    <BookingActions
+                  </> : <p className="text-[11px] text-soft">A report can be started after this lesson has taken place.</p>}
+                     <BookingActions
                     bookingId={booking.id}
                      status={booking.status}
                      startsAt={booking.startsAt}

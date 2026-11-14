@@ -55,12 +55,16 @@ export default async function AdminStudentDetailPage({
     return { key, sessions, done, expected, finished, averages };
   });
   const completedLessons = bookings.filter((booking) => booking.status === "completed");
-  const upcomingLessons = bookings.filter((booking) => ["confirmed", "rescheduled", "pending_payment"].includes(booking.status));
+  const nowMs = Date.now(); // eslint-disable-line react-hooks/purity -- server-rendered request snapshot
+  const upcomingLessons = bookings.filter((booking) => ["confirmed", "rescheduled", "pending_payment"].includes(booking.status) && Date.parse(booking.startsAt) + booking.durationMin * 60_000 > nowMs);
+  const pastIncompleteLessons = bookings.filter((booking) => ["confirmed", "rescheduled", "pending_payment"].includes(booking.status) && Date.parse(booking.startsAt) + booking.durationMin * 60_000 <= nowMs);
   const otherLessons = bookings.filter((booking) => !["completed", "confirmed", "rescheduled", "pending_payment"].includes(booking.status));
   const canDownloadOverallReport = studentSessionsComplete(bookings);
 
   function renderLesson(booking: BookingRecord) {
     const report = reportByBooking.get(booking.id);
+    const reportScores = Object.values(report?.rubric_scores ?? {}).filter((score): score is number => typeof score === "number");
+    const reportAverage = reportScores.length ? (reportScores.reduce((sum, score) => sum + score, 0) / reportScores.length).toFixed(1) : null;
     return (
       <article key={booking.id} className="rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -70,13 +74,14 @@ export default async function AdminStudentDetailPage({
           </div>
           <Link href={`/admin/calendar?view=week&date=${encodeURIComponent(dayKeyOf(booking.startsAt))}&booking=${encodeURIComponent(booking.id)}`} className="inline-flex rounded-lg border border-line px-3 py-2 text-[11px] font-extrabold text-ink hover:border-gold hover:text-gold-deep">Open in calendar</Link>
         </div>
-        {booking.status === "completed" && (report ? (
+        {report ? (
           <details className="mt-3 rounded-lg bg-mist p-3" open>
-            <summary className="cursor-pointer text-xs font-extrabold text-ink">Lesson report · {report.assessment_date}</summary>
+            <summary className="cursor-pointer text-xs font-extrabold text-ink">Lesson report · {report.assessment_date}{reportAverage ? ` · Overall ${reportAverage}/10` : ""}</summary>
             {report.rubric_scores ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{TUTOR_REPORT_RUBRIC.map((section) => <section key={section.key} className="rounded-lg border border-line bg-white p-3"><h4 className="text-xs font-extrabold text-ink">{section.title}</h4><ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">{section.items.map((item) => <li key={item.key} className="text-soft">{item.label}: <strong className="text-ink">{report.rubric_scores?.[item.key] ?? "—"}/10</strong></li>)}</ul>{report.section_comments?.[section.key] && <p className="mt-2 whitespace-pre-wrap text-xs text-soft">{report.section_comments[section.key]}</p>}</section>)}</div> : <p className="mt-2 text-xs text-soft">Older report; detailed skill ratings were not recorded.</p>}
             {report.notes && <p className="mt-3 whitespace-pre-wrap border-t border-line pt-2 text-xs text-soft">{report.notes}</p>}
+            {(report.road_test_date || report.road_test_location || report.road_test_outcome) && <p className="mt-3 border-t border-line pt-2 text-xs text-soft"><strong className="text-ink">Road test:</strong> {report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}{report.road_test_date ? ` · ${report.road_test_date}` : ""}{report.road_test_location ? ` · ${report.road_test_location}` : ""}</p>}
           </details>
-        ) : <p className="mt-3 text-xs text-soft">No report saved for this lesson.</p>)}
+        ) : booking.status === "completed" || (Date.parse(booking.startsAt) + booking.durationMin * 60_000 <= nowMs && ["confirmed", "rescheduled", "pending_payment"].includes(booking.status)) ? <p className="mt-3 text-xs text-soft">No report saved for this lesson yet.</p> : null}
       </article>
     );
   }
@@ -129,6 +134,7 @@ export default async function AdminStudentDetailPage({
 
       <section className="mt-6 grid gap-5 print:hidden">
         <div><h2 className="mb-3 text-[16px] font-extrabold text-ink">Completed lessons</h2>{completedLessons.length ? <div className="grid gap-3">{completedLessons.map(renderLesson)}</div> : <p className="rounded-xl border border-line bg-white p-4 text-sm text-soft">No completed lessons yet.</p>}</div>
+        {pastIncompleteLessons.length > 0 && <div><h2 className="mb-3 text-[16px] font-extrabold text-ink">Past lessons awaiting completion</h2><div className="grid gap-3">{pastIncompleteLessons.map(renderLesson)}</div></div>}
         <div><h2 className="mb-3 text-[16px] font-extrabold text-ink">Upcoming lessons</h2>{upcomingLessons.length ? <div className="grid gap-3">{upcomingLessons.map(renderLesson)}</div> : <p className="rounded-xl border border-line bg-white p-4 text-sm text-soft">No upcoming lessons.</p>}</div>
         {otherLessons.length > 0 && <details><summary className="cursor-pointer text-sm font-bold text-soft">Cancelled or missed lessons ({otherLessons.length})</summary><div className="mt-3 grid gap-3">{otherLessons.map(renderLesson)}</div></details>}
       </section>

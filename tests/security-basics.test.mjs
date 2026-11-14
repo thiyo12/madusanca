@@ -892,6 +892,7 @@ test("tutor reports gate lesson completion and course closure preserves unused s
 
 test("tutor lesson reports use the requested detailed 1–10 rubric and retain category comments in exports", () => {
   const migration = readFileSync(new URL("../supabase/migrations/0048_detailed_tutor_report_rubric.sql", import.meta.url), "utf8");
+  const partialMigration = readFileSync(new URL("../supabase/migrations/0058_allow_partial_tutor_reports.sql", import.meta.url), "utf8");
   const calendar = readFileSync(new URL("../src/app/admin/(panel)/calendar/day-bookings-accordion.tsx", import.meta.url), "utf8");
   const scheduleGrid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
   const action = readFileSync(new URL("../src/app/admin/(panel)/calendar/actions.ts", import.meta.url), "utf8");
@@ -913,7 +914,9 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.match(scheduleGrid, /selectedRangeTop/);
   assert.match(scheduleGrid, /selectedRange\.durationMin/);
   assert.doesNotMatch(scheduleGrid, /Selected range:/);
-  assert.match(action, /z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(10\)/);
+  assert.match(calendar, /Not rated/);
+  assert.match(action, /if \(!rawScore\) continue/);
+  assert.match(partialMigration, /jsonb_object_length\(p_rubric_scores\) < 1/);
   assert.match(migration, /rubric_scores jsonb/);
   assert.match(migration, /section_comments jsonb/);
   assert.match(studentPage, /report\.rubric_scores/);
@@ -924,7 +927,31 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.match(studentPage, /Download overall report PDF/);
   assert.match(pdf, /studentSessionsComplete/);
   assert.match(csv, /Skill ratings|rubricHeaders/);
-  assert.match(pdf, /assessment\.section_comments/);
+  assert.match(pdf, /createStudentAssessmentPdf/);
+});
+
+test("student search and global export are admin-gated and omit credentials", () => {
+  const page = readFileSync(new URL("../src/app/admin/(panel)/students/page.tsx", import.meta.url), "utf8");
+  const route = readFileSync(new URL("../src/app/admin/(panel)/students/export/route.ts", import.meta.url), "utf8");
+  assert.match(page, /profile\.license_number/);
+  assert.match(page, /booking\.reference/);
+  assert.match(page, /name="start"/);
+  assert.match(page, /name="end"/);
+  assert.match(route, /await requireAdmin\("\/admin\/students"\)/);
+  assert.match(route, /assessmentsForStudent/);
+  assert.match(route, /Content-Disposition/);
+  assert.doesNotMatch(route, /password|verification_token|otp_hash/i);
+  assert.match(route, /day >= parsed\.data\.start && day <= parsed\.data\.end/);
+});
+
+test("global booking guard rejects active overlaps, including admin override paths", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0059_global_booking_overlap_guard.sql", import.meta.url), "utf8");
+  const grid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
+  assert.match(migration, /current_setting\('app\.admin_calendar_override', true\)/);
+  assert.match(migration, /booking_overlaps\(new\.starts_at, new\.ends_at, new\.id\)/);
+  assert.match(migration, /pg_advisory_xact_lock|lock_booking_day/);
+  assert.match(grid, /Active booking time conflict detected/);
+  assert.match(grid, /TIME CONFLICT/);
 });
 
 test("passwordless admin bypass is limited to loopback hosts in development", () => {

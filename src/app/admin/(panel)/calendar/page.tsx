@@ -240,7 +240,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
         </div>
       </div>
 
-      {pageError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{pageError === "report" ? "Please rate each skill in the lesson report, then save it." : pageError === "student" ? "This student record needs to be linked before a report can be saved." : pageError}</p>}
+      {pageError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{pageError === "report" ? "Give at least one skill a score from 1–10, then save the report." : pageError === "student" ? "This student record needs to be linked before a report can be saved." : pageError}</p>}
 
       <form action={searchStudentByLicenseAction} className="mt-4 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
         <input type="hidden" name="view" value={view} />

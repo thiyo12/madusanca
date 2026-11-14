@@ -101,6 +101,26 @@ export function ScheduleGrid({
   const hours = Array.from({ length: endHour - startHour }, (_, index) => startHour + index);
   const blackoutByDate = new Map(blackouts.map((b) => [b.date, b]));
   const template = `56px repeat(${dayKeys.length}, minmax(0, 1fr))`;
+  const activeOverlapIds = new Set<string>();
+  const activeOverlapPairs: Array<{ first: BookingRecord; second: BookingRecord }> = [];
+  for (const dayKey of dayKeys) {
+    const active = dayBookings(dayKey).filter(isActive);
+    for (let left = 0; left < active.length; left += 1) {
+      for (let right = left + 1; right < active.length; right += 1) {
+        const first = active[left]!;
+        const second = active[right]!;
+        const firstStart = Date.parse(first.startsAt);
+        const secondStart = Date.parse(second.startsAt);
+        const firstEnd = firstStart + occupiedDurationMin(first.durationMin) * 60_000;
+        const secondEnd = secondStart + occupiedDurationMin(second.durationMin) * 60_000;
+        if (firstStart < secondEnd && secondStart < firstEnd) {
+          activeOverlapIds.add(first.id);
+          activeOverlapIds.add(second.id);
+          activeOverlapPairs.push({ first, second });
+        }
+      }
+    }
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentNowMs(Date.now()), 15_000);
@@ -196,6 +216,10 @@ export function ScheduleGrid({
 
   return (
     <div>
+      {activeOverlapPairs.length > 0 && <div role="alert" className="mb-3 rounded-xl border border-[#e6b7b1] bg-[#fff0ed] p-3 text-[12px] font-semibold text-[#8f3429]">
+        <p className="font-extrabold">Active booking time conflict detected</p>
+        <ul className="mt-1 grid gap-1">{activeOverlapPairs.map(({ first, second }) => <li key={`${first.id}:${second.id}`}>{first.studentName} ({first.reference}) overlaps {second.studentName} ({second.reference}). Review and correct these existing bookings.</li>)}</ul>
+      </div>}
       {/* ---- Desktop: time-grid schedule (BookingTimes model) ---- */}
       <div className="block overflow-x-auto">
         <div
@@ -363,6 +387,7 @@ export function ScheduleGrid({
                     const dim =
                       booking.status === "cancelled" || booking.status === "completed";
                     const overdue = isBookingOverdue(booking, currentDay);
+                    const activeOverlap = activeOverlapIds.has(booking.id);
                     return (
                       <Link
                         key={booking.id}
@@ -395,7 +420,7 @@ export function ScheduleGrid({
                           draggedBooking.current = false;
                         }}
                         title={overdue ? "Warning: past lesson is not marked complete or missed." : "Drag the lesson’s top edge to its new start time, or click to view booking actions"}
-                          className={`absolute z-20 overflow-hidden rounded-[7px] border-l-[3px] px-2 py-1 shadow-sm transition-shadow hover:shadow-md ${overdue ? "border-l-[#dc2626] bg-[#fff0ed]" : `bg-mist ${CHIP_TONES[booking.status]}`} ${booking.id === selectedBookingId ? "calendar-focus-blink" : ""} ${
+                          className={`absolute z-20 overflow-hidden rounded-[7px] border-l-[3px] px-2 py-1 shadow-sm transition-shadow hover:shadow-md ${activeOverlap ? "outline outline-2 outline-[#dc2626]" : ""} ${overdue ? "border-l-[#dc2626] bg-[#fff0ed]" : `bg-mist ${CHIP_TONES[booking.status]}`} ${booking.id === selectedBookingId ? "calendar-focus-blink" : ""} ${
                           dim ? "opacity-60" : ""
                         }`}
                       >
@@ -403,7 +428,7 @@ export function ScheduleGrid({
                           {formatSlotTime(booking.startsAt)} · {booking.studentName}
                         </span>
                         <span className="block truncate text-[10px] text-soft">
-                          {booking.lessonName}
+                          {booking.lessonName} · {booking.status.replaceAll("_", " ")}{activeOverlap ? " · TIME CONFLICT" : ""}
                         </span>
                         {overdue && <span className="block truncate text-[9px] font-extrabold text-[#bc2323]">⚠ Past — mark complete or no-show</span>}
                       </Link>

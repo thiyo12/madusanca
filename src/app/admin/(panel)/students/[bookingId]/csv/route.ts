@@ -21,14 +21,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ boo
     const assessments = await assessmentsForStudent(profile.id);
     const rubricHeaders = TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => `${section.title}: ${item.label} (1–10)`));
     const commentHeaders = TUTOR_REPORT_RUBRIC.map((section) => `${section.title} comment`);
-    const profileColumns = [profile.full_name, profile.email, profile.phone, profile.date_of_birth, profile.gender, profile.license_number];
+    const profileColumns = [profile.full_name, profile.first_name, profile.last_name, profile.email, profile.phone, profile.date_of_birth, profile.gender, profile.license_number, profile.license_class, profile.street, profile.city, profile.province, profile.postal_code];
     const rubricValues = (assessment: (typeof assessments)[number]) => TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => assessment.rubric_scores?.[item.key] ?? ""));
     const commentValues = (assessment: (typeof assessments)[number]) => TUTOR_REPORT_RUBRIC.map((section) => assessment.section_comments?.[section.key] ?? "");
     const emptyRubric = Array.from({ length: rubricHeaders.length + commentHeaders.length }, () => "");
     const lines = [
-      ["Record","Name","Email","Phone","Date of birth","Gender","Driver licence","Booking reference","Lesson","Start","Status","Payment","Assessment date",...rubricHeaders,...commentHeaders,"Road test date","Road test location","Road test outcome","Additional notes"],
-      ...bookings.map((b) => ["Booking",...profileColumns,b.reference,b.lessonName,b.startsAt,b.status,b.paymentStatus,"",...emptyRubric,"","","",b.notes]),
-      ...assessments.map((a) => ["School assessment",...profileColumns,"","","","",a.assessment_date,...rubricValues(a),...commentValues(a),a.road_test_date,a.road_test_location,a.road_test_outcome,a.notes]),
+      ["Record","Full name","First name","Last name","Email","Phone","Date of birth","Gender","Driver licence","Licence class","Street","City","Province","Postal code","Booking reference","Lesson","Start","End","Duration minutes","Status","Active booking","Payment","Price CAD","Assessment date",...rubricHeaders,...commentHeaders,"Road test date","Road test location","Road test outcome","Additional notes"],
+      ...bookings.map((b) => ["Booking",...profileColumns,b.reference,b.lessonName,b.startsAt,b.endsAt,b.durationMin,b.status,["pending_payment","confirmed","rescheduled"].includes(b.status) ? "yes" : "no",b.paymentStatus,b.packagePriceCad ?? b.priceCad,"",...emptyRubric,"","","",b.notes]),
+      ...assessments.map((a) => ["School assessment",...profileColumns,...Array(13).fill(""),a.assessment_date,...rubricValues(a),...commentValues(a),a.road_test_date,a.road_test_location,a.road_test_outcome,a.notes]),
     ].map((row) => row.map(cell).join(",")).join("\r\n");
     return new Response(`\uFEFF${lines}`, { headers:{...headers,"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename=student-progress.csv"} });
   } catch (error) {

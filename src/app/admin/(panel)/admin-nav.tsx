@@ -31,7 +31,7 @@ export function AdminNav({ email, localBypass = false }: AdminNavProps) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[#23262a] bg-ink px-4 py-6 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[#23262a] bg-ink px-4 py-6 lg:flex print:hidden">
         <div className="px-2">
           <Logo compact href="/admin" />
         </div>
@@ -78,7 +78,7 @@ export function AdminNav({ email, localBypass = false }: AdminNavProps) {
       </aside>
 
       {/* Mobile top bar */}
-      <div className="lg:hidden">
+      <div className="lg:hidden print:hidden">
         <header className="sticky top-0 z-30 border-b border-[#23262a] bg-ink px-5 py-4">
           <div className="flex items-center justify-between gap-3">
             <Logo compact href="/admin" />

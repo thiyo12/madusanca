@@ -28,10 +28,13 @@ export async function saveTutorLessonReportAction(formData: FormData): Promise<v
   const bookingId = String(formData.get("bookingId") ?? "");
   const rubricScores: Record<string, number> = {};
   for (const item of TUTOR_REPORT_ITEMS) {
-    const parsedScore = z.coerce.number().int().min(1).max(10).safeParse(formData.get(`score_${item.key}`));
+    const rawScore = String(formData.get(`score_${item.key}`) ?? "").trim();
+    if (!rawScore) continue;
+    const parsedScore = z.coerce.number().int().min(1).max(10).safeParse(rawScore);
     if (!parsedScore.success) redirect(reportReturn(String(formData.get("day") ?? ""), bookingId, "report"));
     rubricScores[item.key] = parsedScore.data;
   }
+  if (Object.keys(rubricScores).length === 0) redirect(reportReturn(String(formData.get("day") ?? ""), bookingId, "report"));
   const sectionComments: Record<string, string> = {};
   for (const section of TUTOR_REPORT_RUBRIC) {
     const parsedComment = z.string().trim().max(2000).safeParse(formData.get(`comment_${section.key}`));
@@ -47,9 +50,10 @@ export async function saveTutorLessonReportAction(formData: FormData): Promise<v
   const student = await studentForBooking(parsed.data.bookingId);
   if (!student) redirect(reportReturn(parsed.data.day, parsed.data.bookingId, "student"));
   const d = parsed.data;
-  const legacyScore = (sectionKeys: string[]): number => {
+  const legacyScore = (sectionKeys: string[]): number | null => {
     const values = TUTOR_REPORT_RUBRIC.filter((section) => sectionKeys.includes(section.key))
-      .flatMap((section) => section.items.map((item) => rubricScores[item.key]!));
+      .flatMap((section) => section.items.map((item) => rubricScores[item.key]).filter((value): value is number => value !== undefined));
+    if (values.length === 0) return null;
     return Math.max(1, Math.min(5, Math.round(values.reduce((sum, value) => sum + value, 0) / values.length / 2)));
   };
   await saveBookingAssessment(student.id, d.bookingId, admin.userId, {

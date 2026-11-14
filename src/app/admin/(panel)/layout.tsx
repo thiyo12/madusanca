@@ -20,9 +20,9 @@ export default async function PanelLayout({
   const localBypass = isLocalAdminBypassEnabled(process.env.NODE_ENV, host);
 
   return (
-    <div className="min-h-screen bg-mist lg:flex">
+    <div className="min-h-screen bg-mist lg:flex print:block print:bg-white">
       <AdminNav email={admin.email} localBypass={localBypass} />
-      <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:py-9">{children}</main>
+      <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 lg:px-10 lg:py-9 print:p-0">{children}</main>
     </div>
   );
 }
