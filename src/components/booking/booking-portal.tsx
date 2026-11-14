@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BookingFind, type BookingAction } from "@/components/booking/booking-find";
+import { BookingFind, type BookingAction, type FoundBooking, type FoundPurchase } from "@/components/booking/booking-find";
 import { BookingManage } from "@/components/booking/booking-manage";
 import { clearManageAddonSelection } from "@/lib/booking/manage-session-client";
 
@@ -29,6 +29,7 @@ export function BookingPortal({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [returnSessionReady, setReturnSessionReady] = useState(!successfulAddonReturn);
   const [forceVerifiedHistory, setForceVerifiedHistory] = useState(false);
+  const [restoredHistory, setRestoredHistory] = useState<{ bookings: FoundBooking[]; purchases: FoundPurchase[]; studentName?: string | null; version: number } | null>(null);
 
   const clearReturnSession = useCallback(() => fetch("/api/bookings/session", {
     method: "POST",
@@ -56,6 +57,18 @@ export function BookingPortal({
     // This is an in-session return to the already-verified lesson history,
     // not a logout. Keep the short-lived manage cookie so the student can
     // open another lesson or start the add-on flow without re-entering OTP.
+    try {
+      const response = await fetch("/api/bookings/manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ action: "history" }),
+      });
+      const history = await response.json() as { ok?: boolean; bookings?: FoundBooking[]; purchases?: FoundPurchase[]; studentName?: string | null };
+      if (response.ok && history.ok && (history.bookings?.length || history.purchases?.length)) {
+        setRestoredHistory({ bookings: history.bookings ?? [], purchases: history.purchases ?? [], studentName: history.studentName, version: Date.now() });
+      }
+    } catch { /* keep the existing verified list if the request temporarily fails */ }
     setShowManage(false);
     setActiveReference("");
     setActiveAction("details");
@@ -77,6 +90,7 @@ export function BookingPortal({
             refreshVersion={refreshVersion}
             forceVerifiedHistory={forceVerifiedHistory}
             onDismissForcedHistory={() => setForceVerifiedHistory(false)}
+            restoredHistory={restoredHistory}
           />
         ) : successfulAddonReturn ? (
           <div role="status" className="grid gap-3 rounded-[14px] border border-line bg-white p-4 text-[13px] text-soft">

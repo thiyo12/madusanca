@@ -275,6 +275,46 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
     }
 
+    if (action === "history") {
+      const store = getStore();
+      const found = await load(hash);
+      const purchase = found ? null : await store.getPackagePurchaseByToken(hash);
+      const email = found?.booking.email ?? purchase?.email;
+      if (!email) return errorResponse("not_found", "This booking session has expired. Verify your email to continue.");
+      const [bookings, purchases] = await Promise.all([
+        store.findBookingsByEmail(email),
+        store.findPackagePurchasesByEmail(email),
+      ]);
+      return NextResponse.json({
+        ok: true,
+        bookings: bookings.map((booking) => ({
+          id: booking.id,
+          studentName: booking.studentName,
+          reference: booking.reference,
+          lessonName: booking.lessonName,
+          durationMin: booking.durationMin,
+          priceCad: booking.priceCad,
+          startsAt: booking.startsAt,
+          status: booking.status,
+          paymentStatus: booking.paymentStatus ?? "due",
+          studentRescheduleCount: booking.studentRescheduleCount ?? 0,
+          canOpen: ["pending_payment", "confirmed", "rescheduled"].includes(booking.status),
+        })),
+        purchases: purchases.map((item) => ({
+          studentName: item.studentName,
+          reference: item.reference,
+          lessonName: item.lessonName,
+          creditsPurchased: item.creditsPurchased,
+          creditsAvailable: item.creditsAvailable,
+          paymentStatus: item.paymentStatus,
+          purchasedAt: item.purchasedAt,
+          validUntil: item.validUntil,
+          canOpen: item.paymentStatus === "paid" && item.creditsAvailable > 0,
+        })),
+        studentName: bookings[0]?.studentName ?? purchases[0]?.studentName ?? null,
+      });
+    }
+
     // action === "reschedule"
     if (!startsAt) {
       return NextResponse.json(

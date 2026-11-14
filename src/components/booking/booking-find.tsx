@@ -8,7 +8,7 @@ import { markManageSessionVerified } from "@/lib/booking/manage-session-client";
 
 type Step = "email" | "code" | "list";
 
-interface FoundBooking {
+export interface FoundBooking {
   id: string;
   studentName: string;
   reference: string;
@@ -22,7 +22,7 @@ interface FoundBooking {
   canOpen: boolean;
 }
 
-interface FoundPurchase {
+export interface FoundPurchase {
   studentName: string;
   reference: string;
   lessonName: string;
@@ -92,11 +92,13 @@ export function BookingFind({
   refreshVersion = 0,
   forceVerifiedHistory = false,
   onDismissForcedHistory,
+  restoredHistory,
 }: {
   onOpenManage: (reference: string, action: BookingAction, sessionId?: string) => void;
   refreshVersion?: number;
   forceVerifiedHistory?: boolean;
   onDismissForcedHistory?: () => void;
+  restoredHistory?: { bookings: FoundBooking[]; purchases: FoundPurchase[]; studentName?: string | null; version: number } | null;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
@@ -114,6 +116,16 @@ export function BookingFind({
   const [studentName, setStudentName] = useState("");
   const lastRefreshVersion = useRef(refreshVersion);
   const visibleStep = forceVerifiedHistory && (bookings.length > 0 || purchases.length > 0) ? "list" : step;
+
+  useEffect(() => {
+    if (!restoredHistory) return;
+    // The parent publishes this only after the manage-cookie history request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBookings(restoredHistory.bookings);
+    setPurchases(restoredHistory.purchases);
+    setStudentName(restoredHistory.studentName?.trim() ?? "");
+    setStep("list");
+  }, [restoredHistory]);
 
   const callOtp = useCallback(async (payload: Record<string, unknown>): Promise<OtpResponse> => {
     const response = await fetch("/api/bookings/otp", {

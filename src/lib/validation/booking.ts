@@ -72,7 +72,7 @@ export const createBookingSchema = z.object({
 });
 
 export const manageSchema = z.object({
-  action: z.enum(["get", "reschedule", "cancel"]),
+  action: z.enum(["get", "history", "reschedule", "cancel"]),
   sessionId: z.uuid().optional(),
   startsAt: isoDateTimeSchema.optional(),
 }).strict();

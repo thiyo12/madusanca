@@ -277,6 +277,10 @@ test("add-on Stripe returns preserve the manage session and reopen selections af
   const button = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   const session = readFileSync(new URL("../src/lib/booking/manage-session-client.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  const manageRoute = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
+  assert.match(manageRoute, /if \(action === "history"\)/);
+  assert.match(manageRoute, /store\.findBookingsByEmail\(email\)/);
+  assert.match(portal, /JSON\.stringify\(\{ action: "history" \}\)/);
   assert.match(portal, /setForceVerifiedHistory\(true\)/);
   assert.match(portal, /forceVerifiedHistory=\{forceVerifiedHistory\}/);
   assert.match(finder, /forceVerifiedHistory && \(bookings\.length > 0 \|\| purchases\.length > 0\) \? "list" : step/);
