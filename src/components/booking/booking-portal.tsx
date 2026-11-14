@@ -55,6 +55,9 @@ export function BookingPortal({
     // not a logout. Keep the short-lived manage cookie so the student can
     // open another lesson or start the add-on flow without re-entering OTP.
     setShowManage(false);
+    setActiveReference("");
+    setActiveAction("details");
+    setActiveSessionId(undefined);
   }, []);
 
   return (

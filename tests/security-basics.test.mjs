@@ -276,7 +276,7 @@ test("add-on Stripe returns preserve the manage session and reopen selections af
   const button = readFileSync(new URL("../src/components/booking/stripe-package-purchase-button.tsx", import.meta.url), "utf8");
   const session = readFileSync(new URL("../src/lib/booking/manage-session-client.ts", import.meta.url), "utf8");
   const route = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
-  assert.match(portal, /const backToBookings = useCallback\(async \(\) => \{\s*\/\/ This is an in-session return to the already-verified lesson history,/);
+  assert.match(portal, /const backToBookings = useCallback\(async \(\) => \{\s*\/\/ This is an in-session return to the already-verified lesson history,[\s\S]*?setShowManage\(false\);\s*setActiveReference\(""\);\s*setActiveAction\("details"\);\s*setActiveSessionId\(undefined\);/);
   assert.doesNotMatch(portal.match(/const backToBookings = useCallback\([\s\S]*?\}, \[\]\);/)?.[0] ?? "", /fetch\("\/api\/bookings\/session"/);
   assert.match(portal, /packagePurchaseAdded && paymentReturn === "cancelled" \? "addons" : "details"/);
   assert.match(portal, /hasManageCookie && !successfulAddonReturn/);

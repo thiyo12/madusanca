@@ -736,7 +736,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
         }}>
           <section role="dialog" aria-modal="true" aria-labelledby="exit-booking-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
             <h3 id="exit-booking-title" className="font-display text-xl font-extrabold text-ink">Return to lesson history?</h3>
-            <p className="mt-2 text-sm leading-relaxed text-soft">Return to your My Booking lesson list, or stay here to continue choosing add-on lessons. Your selections will be kept if you stay.</p>
+            <p className="mt-2 text-sm leading-relaxed text-soft">Return to your verified My Booking lesson list without signing out, or stay here to continue choosing add-on lessons. Your selections will be kept if you stay.</p>
             <div className="mt-5 flex flex-wrap justify-end gap-3">
               <Button variant="ghost" onClick={() => setShowExitConfirmation(false)}>Stay in add-on flow</Button>
               <Button variant="outline" onClick={() => {
