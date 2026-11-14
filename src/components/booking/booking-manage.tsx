@@ -95,6 +95,8 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addOnPlans, setAddOnPlans] = useState<Record<string, { quantity: number; startsAt: string[]; sessionIndex: number }>>({});
+  const [addOnStep, setAddOnStep] = useState<"select" | "schedule">("select");
+  const [showExitConfirmation, setShowExitConfirmation] = useState(false);
   const [creditStart, setCreditStart] = useState<string | null>(null);
   const sessionAuthorizedRef = useRef(false);
 
@@ -190,7 +192,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           : consumeManageAddonSelection();
         if (savedPlans.length > 0) {
           const options = result.booking?.addOnOptions ?? [];
-          setAddOnPlans(Object.fromEntries(savedPlans
+          const restoredPlans = Object.fromEntries(savedPlans
             .filter((plan) => options.some((option) => option.id === plan.lessonId))
             .map((plan) => {
               const option = options.find((item) => item.id === plan.lessonId)!;
@@ -199,7 +201,9 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
                 startsAt: plan.startsAt.slice(0, option.sessionCount * plan.quantity),
                 sessionIndex: Math.min(plan.startsAt.length, option.sessionCount * plan.quantity - 1),
               }];
-            })));
+            }));
+          setAddOnPlans(restoredPlans);
+          if (Object.keys(restoredPlans).length > 0) setAddOnStep("schedule");
         }
         if (packagePurchaseAdded && paymentReturn === "success") {
           clearManageAddonSelection();
@@ -620,18 +624,18 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
       )}
       {mode === "addons" && booking.paymentStatus === "paid" && !closed && (booking.addOnOptions?.length ?? 0) > 0 && (() => {
         return <section className="mt-5 min-w-0 max-w-full rounded-[14px] border border-line p-4">
-          <h3 className="text-sm font-extrabold text-ink">Add a lesson</h3>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">Choose a lesson package, select its time or times, then pay. Your current bookings stay unchanged.</p>
-          <div className="mt-4">
+          <h3 className="text-sm font-extrabold text-ink">{addOnStep === "select" ? "Choose a lesson" : "Choose lesson times"}</h3>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-soft">{addOnStep === "select" ? "Choose the add-on lesson package you want. Your current bookings stay unchanged." : "Select a date and time for every lesson, then continue to secure payment."}</p>
+          {addOnStep === "select" && <div className="mt-4">
             <LessonStep
               lessons={addOnOptions}
               selectedId={selectedAddOnOptions[0]?.id ?? null}
               onSelect={(option) => setAddOnPlans((current) => current[option.id]
-                ? {}
+                ? current
                 : { [option.id]: { quantity: 1, startsAt: [], sessionIndex: 0 } })}
             />
-          </div>
-          <div className="mt-4 grid min-w-0 gap-3">
+          </div>}
+          {addOnStep === "schedule" && <div className="mt-4 grid min-w-0 gap-3">
             {addOnOptions.map((option) => {
               const plan = addOnPlans[option.id];
               if (!plan) return null;
@@ -691,13 +695,20 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
                 </>
               </div>;
             })}
-          </div>
+          </div>}
           {selectedAddOnOptions.length > 0 && <p className="mt-3 text-[12px] font-bold text-soft">Checkout total: ${selectedAddOnOptions.reduce((sum, option) => sum + option.priceCad * addOnPlans[option.id]!.quantity, 0).toFixed(2)} CAD + applicable taxes</p>}
         </section>;
       })()}
       {(mode === "payment" || mode === "addons" || mode === "reschedule") && (
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
-          <Button variant="ghost" onClick={() => void returnToBookings()} disabled={busy}>Back</Button>
+          <Button variant="ghost" onClick={() => {
+            if (mode === "addons") {
+              if (addOnStep === "schedule") setAddOnStep("select");
+              else setShowExitConfirmation(true);
+              return;
+            }
+            void returnToBookings();
+          }} disabled={busy}>Back</Button>
           {mode === "reschedule" && (
             <Button onClick={() => void rescheduleBooking()} disabled={!pendingStart || busy}>
               {busy ? "Updating…" : "Next"}
@@ -706,7 +717,10 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           {mode === "payment" && booking.paymentStatus === "due" && !closed && !booking.isAdditionalPackage && (
             <StripeCheckoutButton buttonLabel="Next" />
           )}
-          {mode === "addons" && booking.paymentStatus === "paid" && !closed && (
+          {mode === "addons" && addOnStep === "select" && (
+            <Button onClick={() => setAddOnStep("schedule")} disabled={selectedAddOnOptions.length === 0 || busy}>Next</Button>
+          )}
+          {mode === "addons" && addOnStep === "schedule" && booking.paymentStatus === "paid" && !closed && (
             <StripePackagePurchaseButton
               packages={scheduledAddOnPackages}
               buttonLabel="Next"
@@ -714,6 +728,23 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
               onAvailabilityConflict={() => setAvailabilityRevision((revision) => revision + 1)}
             />
           )}
+        </div>
+      )}
+      {showExitConfirmation && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setShowExitConfirmation(false);
+        }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="exit-booking-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 id="exit-booking-title" className="font-display text-xl font-extrabold text-ink">Exit My Booking?</h3>
+            <p className="mt-2 text-sm leading-relaxed text-soft">Your add-on choices will stay here if you continue. Do you want to leave My Booking?</p>
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <Button variant="ghost" onClick={() => setShowExitConfirmation(false)}>Stay and continue</Button>
+              <Button variant="outline" onClick={() => {
+                setShowExitConfirmation(false);
+                void returnToBookings();
+              }}>Exit My Booking</Button>
+            </div>
+          </section>
         </div>
       )}
     </div>

@@ -140,7 +140,8 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /Add a lesson/);
   assert.match(manage, /StripePackagePurchaseButton/);
   assert.match(manage, /<LessonStep/);
-  assert.match(manage, /Choose a lesson package, select its time or times/);
+  assert.match(manage, /Choose the add-on lesson package you want/);
+  assert.match(manage, /Select a date and time for every lesson/);
   assert.ok(manage.indexOf(">Reschedule (") < manage.indexOf("Add a lesson"));
   assert.match(manage, /<DateTimeStep/);
   assert.match(manage, /withinCancellationWindow/);
@@ -158,7 +159,9 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /await returnToBookings\(\)/);
   assert.match(manage, /buttonLabel="Next"/);
   assert.match(manage, /Back<\/Button>/);
-  assert.doesNotMatch(manage, /Back to all bookings|Keep current time|Confirm new time|Exit My Booking/);
+  assert.doesNotMatch(manage, /Back to all bookings|Keep current time|Confirm new time/);
+  assert.match(manage, /addOnStep === "schedule"\) setAddOnStep\("select"\)/);
+  assert.match(manage, /setShowExitConfirmation\(true\)/);
 });
 
 test("each scheduled lesson has exactly one student reschedule", () => {
@@ -216,7 +219,9 @@ test("My Booking lets users add packages only after selecting all lesson times a
   assert.match(manage, /onBackToBookings\(\)/);
   assert.match(manage, /Back<\/Button>/);
   assert.doesNotMatch(manage, /showAddOns|Add an add-on lesson/);
-  assert.doesNotMatch(manage, /Exit My Booking/);
+  assert.match(manage, /role="dialog" aria-modal="true"/);
+  assert.match(manage, /Stay and continue/);
+  assert.match(manage, /Exit My Booking/);
   assert.doesNotMatch(manage, /Back to My Booking lookup/);
   assert.match(manage, /Your booking and add-on lessons/);
   assert.match(manage, /Reschedule lesson/);
@@ -281,7 +286,7 @@ test("add-on Stripe returns preserve the manage session and reopen selections af
   assert.match(session, /sessionStorage\.setItem\(ADDON_SELECTION_MARKER/);
   assert.match(route, /payment=success&purchase=added/);
   assert.match(route, /payment=cancelled&purchase=added/);
-  assert.match(manage, /<Button variant="ghost" onClick=\{\(\) => void returnToBookings\(\)\} disabled=\{busy\}>Back<\/Button>/);
+  assert.match(manage, /aria-labelledby="exit-booking-title"/);
   assert.match(manage, /buttonLabel="Next"/);
 });
 
