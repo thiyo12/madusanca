@@ -27,6 +27,7 @@ next-env.d.ts
 *secret*.json
 
 # Business and personal data (not for source control)
+/reports/
 backups/
 database-backups/
 exports/

@@ -2,6 +2,8 @@
 
 Website and booking application for a driving school. Built with Next.js, React, TypeScript, and Tailwind CSS.
 
+**Project owner and builder: Thiyoth.** For the codebase map, local workflow, and production-safety guidance, see [DEVELOPER_HANDOVER.md](./DEVELOPER_HANDOVER.md).
+
 ## Local development
 
 Requirements: Node.js and npm.
