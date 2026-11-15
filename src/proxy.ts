@@ -2,16 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomBytes } from "node:crypto";
 import { isLocalAdminBypassEnabled } from "@/lib/auth/local-admin-bypass";
-
-function supabaseOrigin(): string {
-  try {
-    const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
-    if (url.protocol !== "https:" && url.hostname !== "localhost") return "";
-    return url.origin;
-  } catch {
-    return "";
-  }
-}
+import { supabaseOrigin } from "@/lib/server/supabase-origin";
 
 function withCsp(response: NextResponse, policy: string): NextResponse {
   response.headers.set("Content-Security-Policy", policy);
@@ -38,7 +29,7 @@ export async function proxy(request: NextRequest) {
     "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self' ${supabaseOrigin()} https://api.stripe.com https://checkout.stripe.com`,
+    `connect-src 'self' ${supabaseOrigin(process.env.NEXT_PUBLIC_SUPABASE_URL)} https://api.stripe.com https://checkout.stripe.com`,
     "frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
     "upgrade-insecure-requests",
   ].join("; ");

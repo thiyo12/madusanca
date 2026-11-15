@@ -191,6 +191,18 @@ export function ScheduleGrid({
       setDropError("Choose a future date and time. Past times are not available.");
       return;
     }
+    const candidateStart = Date.parse(startsAt);
+    const candidateEnd = candidateStart + occupiedDurationMin(booking.durationMin) * 60_000;
+    const conflict = dayBookings(dayKey).find((other) => {
+      if (other.id === booking.id || !isActive(other)) return false;
+      const otherStart = Date.parse(other.startsAt);
+      const otherEnd = otherStart + occupiedDurationMin(other.durationMin) * 60_000;
+      return candidateStart < otherEnd && otherStart < candidateEnd;
+    });
+    if (conflict) {
+      setDropError(`That move would overlap ${conflict.studentName}’s ${conflict.lessonName} (${formatSlotTime(conflict.startsAt)}). Choose another time.`);
+      return;
+    }
     setPendingMove({ booking, dayKey, startMin: targetStartMin, startsAt });
   }
 

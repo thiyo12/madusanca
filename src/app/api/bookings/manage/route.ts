@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
+import { assessmentForBooking } from "@/lib/admin/student-profiles";
 import { validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { manageSchema } from "@/lib/validation/booking";
@@ -79,6 +80,21 @@ function safeView(booking: BookingRecord): {
     packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
     packageWindowStart: booking.packageWindowStart ?? dayKeyOf(booking.startsAt),
     isAdditionalPackage: booking.notes.startsWith(ADDON_SOURCE_PREFIX),
+  };
+}
+
+async function safeStudentView(booking: BookingRecord) {
+  const report = await assessmentForBooking(booking.id);
+  return {
+    ...safeView(booking),
+    ...(report ? {
+      report: {
+        assessmentDate: report.assessment_date,
+        rubricScores: report.rubric_scores ?? {},
+        sectionComments: report.section_comments ?? {},
+        notes: report.notes,
+      },
+    } : {}),
   };
 }
 
@@ -251,7 +267,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             ok: true,
             ...(context.purchase ? { purchase: safePurchaseView(context.purchase) } : {}),
             ...(activeBookingRecord ? { booking: { ...safeView(activeBookingRecord), addOnOptions } } : {}),
-            sessions: context.sessions.map(safeView),
+            sessions: await Promise.all(context.sessions.map(safeStudentView)),
           });
         }
         return errorResponse("not_found", "This booking link is invalid or has expired.");
@@ -270,7 +286,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           ...safeView(context.booking ?? found.booking),
           addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }) => ({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category })) : [],
         },
-        sessions: context.sessions.map(safeView),
+        sessions: await Promise.all(context.sessions.map(safeStudentView)),
         ...(context.purchase ? { purchase: safePurchaseView(context.purchase) } : {}),
       });
     }

@@ -32,6 +32,7 @@ import { calendarDropStartMin, generateSlots, HORIZON_DAYS, occupiedDurationMin,
 import { manageUrl } from "../src/lib/booking/urls.ts";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "../src/lib/booking/manage-policy.ts";
 import { isLocalAdminBypassEnabled } from "../src/lib/auth/local-admin-bypass.ts";
+import { supabaseOrigin } from "../src/lib/server/supabase-origin.ts";
 import { TUTOR_REPORT_ITEMS, TUTOR_REPORT_RUBRIC } from "../src/lib/admin/tutor-report-rubric.ts";
 import { studentSessionsComplete } from "../src/lib/admin/student-record-format.ts";
 
@@ -942,6 +943,20 @@ test("student search and global export are admin-gated and omit credentials", ()
   assert.match(route, /Content-Disposition/);
   assert.doesNotMatch(route, /password|verification_token|otp_hash/i);
   assert.match(route, /day >= parsed\.data\.start && day <= parsed\.data\.end/);
+  assert.match(route, /stripePaymentIntentId/);
+  assert.match(route, /stripeInvoiceId/);
+});
+
+test("student lesson reports are returned only from the verified My Booking flow", () => {
+  const route = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
+  const portal = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  assert.match(route, /const token = await getManageToken\(\)/);
+  assert.match(route, /assessmentForBooking\(booking\.id\)/);
+  assert.match(route, /assessmentDate: report\.assessment_date/);
+  assert.match(route, /sessions: await Promise\.all\(context\.sessions\.map\(safeStudentView\)\)/);
+  assert.match(portal, /Lesson report · \{report\.assessmentDate\}/);
+  assert.match(portal, /TUTOR_REPORT_RUBRIC/);
+  assert.doesNotMatch(portal, /href=["']\/admin\//);
 });
 
 test("global booking guard rejects active overlaps, including admin override paths", () => {
@@ -968,6 +983,15 @@ test("passwordless admin bypass is limited to loopback hosts in development", ()
   assert.match(adminGate, /supabase\.auth\.getUser\(\)/);
   assert.match(adminGate, /redirect\(`\/admin\/login/);
   assert.match(adminGate, /process\.env\.NODE_ENV === "production"/);
+});
+
+test("CSP allows Supabase over HTTPS or HTTP loopback only", () => {
+  assert.equal(supabaseOrigin("https://project.supabase.co"), "https://project.supabase.co");
+  assert.equal(supabaseOrigin("http://localhost:54321"), "http://localhost:54321");
+  assert.equal(supabaseOrigin("http://127.0.0.1:54321"), "http://127.0.0.1:54321");
+  assert.equal(supabaseOrigin("http://[::1]:54321"), "http://[::1]:54321");
+  assert.equal(supabaseOrigin("http://supabase.example"), "");
+  assert.equal(supabaseOrigin("not a URL"), "");
 });
 
 test("cash payment and expired-hold validation apply only to the selected lesson", () => {
@@ -1045,6 +1069,9 @@ test("admin calendar supports custom conflict-checked times and confirms moves b
 test("calendar drag target aligns the booking top edge to the chosen Pacific start time", () => {
   assert.equal(calendarDropStartMin(10 * 60, 60), 9 * 60);
   assert.equal(zonedToUtc(2026, 12, 10, calendarDropStartMin(10 * 60, 60)).toISOString(), "2026-12-10T16:00:00.000Z");
+  const grid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
+  assert.match(grid, /const candidateEnd = candidateStart \+ occupiedDurationMin\(booking\.durationMin\)/);
+  assert.match(grid, /That move would overlap/);
 });
 
 test("admin package calendar holds allow selected future times but remain admin-gated and conflict checked", () => {

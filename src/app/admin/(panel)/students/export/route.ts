@@ -33,7 +33,7 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const profiles = await allStudentProfiles();
     const profileColumns = ["Student ID", "Full name", "First name", "Last name", "Email", "Phone", "Date of birth", "Gender", "Licence number", "Licence class", "Street", "City", "Province", "Postal code"];
-    const bookingColumns = ["Booking reference", "Lesson", "Lesson ID", "Start (Pacific)", "End (Pacific)", "Duration minutes", "Booking status", "Active booking", "Payment status", "Price CAD", "Session index", "Session count", "Notes"];
+    const bookingColumns = ["Booking reference", "Lesson", "Lesson ID", "Start (Pacific)", "End (Pacific)", "Duration minutes", "Booking status", "Active booking", "Payment status", "Price CAD", "Stripe subtotal CAD", "Stripe tax CAD", "Stripe total CAD", "Currency", "Stripe payment intent ID", "Stripe invoice ID", "Session index", "Session count", "Notes"];
     const rubricColumns = TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => `${section.title}: ${item.label} (1–10)`));
     const commentColumns = TUTOR_REPORT_RUBRIC.map((section) => `${section.title} instructor comment`);
     const headersRow = ["Record type", ...profileColumns, ...bookingColumns, "Report date", "Road test date", "Road test location", "Road test outcome", ...rubricColumns, ...commentColumns, "Tutor notes"];
@@ -59,14 +59,20 @@ export async function GET(request: Request): Promise<Response> {
       for (const booking of bookings) {
         const bookingData = [booking.reference, booking.lessonName, booking.lessonId, booking.startsAt, booking.endsAt,
           booking.durationMin, booking.status, ["pending_payment", "confirmed", "rescheduled"].includes(booking.status) ? "yes" : "no",
-          booking.paymentStatus, booking.packagePriceCad ?? booking.priceCad, booking.sessionIndex, booking.sessionCount, booking.notes];
+          booking.paymentStatus, booking.packagePriceCad ?? booking.priceCad, booking.stripeSubtotalCad ?? "",
+          booking.stripeTaxCad ?? "", booking.stripeTotalCad ?? "", booking.stripeCurrency ?? "",
+          booking.stripePaymentIntentId ?? "", booking.stripeInvoiceId ?? "",
+          booking.sessionIndex, booking.sessionCount, booking.notes];
         rows.push(["Lesson", ...details, ...bookingData, ...Array(5 + rubricColumns.length + commentColumns.length).fill("")]);
       }
       for (const assessment of assessments) {
         const booking = bookings.find((item) => item.id === assessment.booking_id);
         const bookingData = booking ? [booking.reference, booking.lessonName, booking.lessonId, booking.startsAt, booking.endsAt,
           booking.durationMin, booking.status, ["pending_payment", "confirmed", "rescheduled"].includes(booking.status) ? "yes" : "no",
-          booking.paymentStatus, booking.packagePriceCad ?? booking.priceCad, booking.sessionIndex, booking.sessionCount, booking.notes] : Array(bookingColumns.length).fill("");
+          booking.paymentStatus, booking.packagePriceCad ?? booking.priceCad, booking.stripeSubtotalCad ?? "",
+          booking.stripeTaxCad ?? "", booking.stripeTotalCad ?? "", booking.stripeCurrency ?? "",
+          booking.stripePaymentIntentId ?? "", booking.stripeInvoiceId ?? "",
+          booking.sessionIndex, booking.sessionCount, booking.notes] : Array(bookingColumns.length).fill("");
         rows.push(["Lesson report", ...details, ...bookingData, assessment.assessment_date, assessment.road_test_date,
           assessment.road_test_location, assessment.road_test_outcome,
           ...TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => assessment.rubric_scores?.[item.key] ?? "")),
