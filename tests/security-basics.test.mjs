@@ -1088,6 +1088,14 @@ test("calendar drag target aligns the booking top edge to the chosen Pacific sta
   assert.match(grid, /That move would overlap/);
 });
 
+test("weekly calendar only splits the width of genuinely overlapping booking cards", () => {
+  const grid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
+  assert.match(grid, /if \(cluster\.length && start >= clusterEnd\) layoutCluster\(\)/);
+  assert.match(grid, /laneCount: number/);
+  assert.match(grid, /laidOut\.map\(\(\{ booking, lane, laneCount \}\)/);
+  assert.match(grid, /const width = 100 \/ laneCount/);
+});
+
 test("admin package calendar holds allow selected future times but remain admin-gated and conflict checked", () => {
   const holdRoute = readFileSync(new URL("../src/app/api/bookings/hold/route.ts", import.meta.url), "utf8");
   const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
