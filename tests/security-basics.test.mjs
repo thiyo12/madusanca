@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { generateToken, hashToken, isValidTokenFormat, tokensMatch } from "../src/lib/booking/tokens.ts";
 import { generateOtpCode, hashOtp, otpExpiry, OTP_TTL_MIN } from "../src/lib/booking/otp.ts";
 import { readBoundedBody } from "../src/lib/server/read-bounded-body.ts";
@@ -79,7 +79,7 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   const dailyLimitMigration = readFileSync(new URL("../supabase/migrations/0045_otp_daily_send_limit_fifteen.sql", import.meta.url), "utf8");
   const dailyLimitConstraintMigration = readFileSync(new URL("../supabase/migrations/0046_otp_send_count_check_fifteen.sql", import.meta.url), "utf8");
-  const latestCooldownMigration = readFileSync(new URL("../supabase/migrations/0058_enforce_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
+  const latestCooldownMigration = readFileSync(new URL("../supabase/migrations/0060_reconcile_0058_migration_history.sql", import.meta.url), "utf8");
   assert.match(otpRoute, /expiresAt,/);
   assert.match(otpRoute, /verifyOtp\(email, hashOtp\(email, code \?\? ""\)\)/);
   assert.doesNotMatch(otpRoute, /action === "token"\);/);
@@ -984,6 +984,15 @@ test("global booking guard rejects active overlaps, including admin override pat
   assert.match(migration, /pg_advisory_xact_lock|lock_booking_day/);
   assert.match(grid, /Active booking time conflict detected/);
   assert.match(grid, /TIME CONFLICT/);
+});
+
+test("migration 0060 reconciles either historical 0058 entry and restores both database functions", () => {
+  const files = readdirSync(new URL("../supabase/migrations/", import.meta.url));
+  const reconcile = readFileSync(new URL("../supabase/migrations/0060_reconcile_0058_migration_history.sql", import.meta.url), "utf8");
+  assert.equal(files.filter((file) => file.startsWith("0058_") && file.endsWith(".sql")).length, 1);
+  assert.match(reconcile, /create or replace function public\.consume_booking_otp_send_quota/);
+  assert.match(reconcile, /create or replace function public\.admin_save_booking_assessment/);
+  assert.match(reconcile, /jsonb_object_length\(p_rubric_scores\) < 1/);
 });
 
 test("passwordless admin bypass is limited to loopback hosts in development", () => {
