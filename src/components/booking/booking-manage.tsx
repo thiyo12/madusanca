@@ -462,6 +462,15 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
 
       {mode === "view" && creditPanel}
 
+      {mode === "view" && sessions.some((session) => session.report) && (
+        <a
+          href="/api/bookings/manage/report"
+          className="mt-5 inline-flex rounded-full border border-line px-4 py-2.5 text-sm font-bold text-ink transition-colors hover:bg-mist"
+        >
+          Download lesson report PDF
+        </a>
+      )}
+
       {mode === "view" && sessions.length > 1 && (
         <section className="mt-5 rounded-[16px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Your booking and add-on lessons ({sessions.length})</h3>
@@ -785,7 +794,7 @@ function StudentLessonReport({ report }: { report: NonNullable<BookingView["repo
             <section key={section.key} className="rounded-lg bg-mist p-3">
               <h4 className="text-xs font-extrabold text-ink">{section.title}</h4>
               {sectionScores.length > 0 && <ul className="mt-2 grid gap-1 text-xs text-soft">
-                {sectionScores.map((item) => <li key={item.key}>{item.label}: <strong className="text-ink">{report.rubricScores[item.key]}/10</strong></li>)}
+                {sectionScores.map((item) => <li key={item.key}>{item.label}: <strong className="text-ink">{report.rubricScores[item.key]}/10</strong><span className="block pl-2">{item.description}</span></li>)}
               </ul>}
               {comment && <p className="mt-2 whitespace-pre-wrap text-xs text-soft">{comment}</p>}
             </section>

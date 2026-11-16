@@ -75,7 +75,7 @@ export function createStudentAssessmentPdf(
     for (const section of TUTOR_REPORT_RUBRIC) {
       const marks = section.items.flatMap((item) => {
         const score = report.rubric_scores?.[item.key];
-        return typeof score === "number" ? [`${item.label} ${score}/10`] : [];
+        return typeof score === "number" ? [`${item.label} ${score}/10 — ${item.description}`] : [];
       });
       const comment = report.section_comments?.[section.key]?.trim();
       if (marks.length) detailLines.push({ text: `${section.title}: ${marks.join(" · ")}`, indent: 10 });

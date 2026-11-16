@@ -947,6 +947,20 @@ test("student search and global export are admin-gated and omit credentials", ()
   assert.match(route, /stripeInvoiceId/);
 });
 
+test("verified My Booking can download a private lesson report PDF with described rubric scores", () => {
+  const route = readFileSync(new URL("../src/app/api/bookings/manage/report/route.ts", import.meta.url), "utf8");
+  const component = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  const rubric = readFileSync(new URL("../src/lib/admin/tutor-report-rubric.ts", import.meta.url), "utf8");
+  const pdf = readFileSync(new URL("../src/lib/admin/student-assessment-pdf.ts", import.meta.url), "utf8");
+  assert.match(route, /getManageToken\(\)/);
+  assert.match(route, /getBookingByToken\(tokenHash\)/);
+  assert.match(route, /createStudentAssessmentPdf/);
+  assert.match(route, /Cache-Control": "private, no-store/);
+  assert.match(component, /Download lesson report PDF/);
+  assert.match(rubric, /description:/);
+  assert.match(pdf, /item\.description/);
+});
+
 test("student lesson reports are returned only from the verified My Booking flow", () => {
   const route = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
   const portal = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
