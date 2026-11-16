@@ -1053,6 +1053,31 @@ export const supabaseStore: BookingStore = {
     return rows.map((row) => toPackagePurchase(row, balances.get(row.id) ?? 0));
   },
 
+  async listAllPackagePurchases(): Promise<PackagePurchaseRecord[]> {
+    const pageSize = 1000;
+    const rows: PackagePurchaseRow[] = [];
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await adminClient().from("package_purchases").select("*")
+        .order("created_at", { ascending: true }).range(from, from + pageSize - 1);
+      if (error) throw new Error(`Failed to export package purchases: ${error.message}`);
+      const page = (data ?? []) as PackagePurchaseRow[];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+    if (!rows.length) return [];
+    const balances = new Map<string, number>();
+    for (let from = 0; from < rows.length; from += 500) {
+      const ids = rows.slice(from, from + 500).map((row) => row.id);
+      const { data, error } = await adminClient().from("package_credit_events")
+        .select("purchase_id, quantity_delta").in("purchase_id", ids);
+      if (error) throw new Error(`Failed to load exported package credit balances: ${error.message}`);
+      for (const event of data ?? []) {
+        balances.set(event.purchase_id, (balances.get(event.purchase_id) ?? 0) + event.quantity_delta);
+      }
+    }
+    return rows.map((row) => toPackagePurchase(row, balances.get(row.id) ?? 0));
+  },
+
   async listPackageCreditEvents(purchaseIds: string[]): Promise<PackageCreditEventRecord[]> {
     if (!purchaseIds.length) return [];
     const { data, error } = await adminClient().from("package_credit_events").select("*")

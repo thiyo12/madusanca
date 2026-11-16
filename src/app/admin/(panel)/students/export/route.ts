@@ -5,6 +5,7 @@ import { allStudentProfiles, assessmentsForStudent, bookingsForStudent, profileB
 import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
 import { dayKeyOf } from "@/lib/booking/format";
 import { logSafeError } from "@/lib/server/safe-log";
+import { getStore } from "@/lib/booking/store";
 
 export const dynamic = "force-dynamic";
 const headers = {
@@ -34,9 +35,10 @@ export async function GET(request: Request): Promise<Response> {
     const profiles = await allStudentProfiles();
     const profileColumns = ["Student ID", "Full name", "First name", "Last name", "Email", "Phone", "Date of birth", "Gender", "Licence number", "Licence class", "Street", "City", "Province", "Postal code"];
     const bookingColumns = ["Booking reference", "Lesson", "Lesson ID", "Start (Pacific)", "End (Pacific)", "Duration minutes", "Booking status", "Active booking", "Payment status", "Price CAD", "Stripe subtotal CAD", "Stripe tax CAD", "Stripe total CAD", "Currency", "Stripe payment intent ID", "Stripe invoice ID", "Session index", "Session count", "Notes"];
+    const purchaseColumns = ["Purchase reference", "Purchase student name", "Purchase email", "Purchase phone", "Purchase lesson", "Purchase lesson ID", "Purchase ID", "Purchased at", "Credits purchased", "Credits remaining", "Amount CAD", "Payment status", "Stripe subtotal CAD", "Stripe tax CAD", "Stripe total CAD", "Currency", "Stripe payment intent ID", "Stripe invoice ID", "Valid until", "Purchase source", "Purchase notes"];
     const rubricColumns = TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => `${section.title}: ${item.label} (1–10)`));
     const commentColumns = TUTOR_REPORT_RUBRIC.map((section) => `${section.title} instructor comment`);
-    const headersRow = ["Record type", ...profileColumns, ...bookingColumns, "Report date", "Road test date", "Road test location", "Road test outcome", ...rubricColumns, ...commentColumns, "Tutor notes"];
+    const headersRow = ["Record type", ...profileColumns, ...bookingColumns, "Report date", "Road test date", "Road test location", "Road test outcome", ...rubricColumns, ...commentColumns, "Tutor notes", ...purchaseColumns];
     const rows: unknown[][] = [headersRow];
 
     for (const listedProfile of profiles) {
@@ -55,7 +57,7 @@ export async function GET(request: Request): Promise<Response> {
         profile.province, profile.postal_code];
       const bookingIds = new Set(bookings.map((booking) => booking.id));
       const assessments = (await assessmentsForStudent(profile.id)).filter((assessment) => assessment.booking_id && bookingIds.has(assessment.booking_id));
-      rows.push(["Student", ...details, ...Array(bookingColumns.length + 5 + rubricColumns.length + commentColumns.length).fill("")]);
+      rows.push(["Student", ...details, ...Array(bookingColumns.length + 5 + rubricColumns.length + commentColumns.length + purchaseColumns.length).fill("")]);
       for (const booking of bookings) {
         const bookingData = [booking.reference, booking.lessonName, booking.lessonId, booking.startsAt, booking.endsAt,
           booking.durationMin, booking.status, ["pending_payment", "confirmed", "rescheduled"].includes(booking.status) ? "yes" : "no",
@@ -63,7 +65,7 @@ export async function GET(request: Request): Promise<Response> {
           booking.stripeTaxCad ?? "", booking.stripeTotalCad ?? "", booking.stripeCurrency ?? "",
           booking.stripePaymentIntentId ?? "", booking.stripeInvoiceId ?? "",
           booking.sessionIndex, booking.sessionCount, booking.notes];
-        rows.push(["Lesson", ...details, ...bookingData, ...Array(5 + rubricColumns.length + commentColumns.length).fill("")]);
+        rows.push(["Lesson", ...details, ...bookingData, ...Array(5 + rubricColumns.length + commentColumns.length + purchaseColumns.length).fill("")]);
       }
       for (const assessment of assessments) {
         const booking = bookings.find((item) => item.id === assessment.booking_id);
@@ -76,8 +78,30 @@ export async function GET(request: Request): Promise<Response> {
         rows.push(["Lesson report", ...details, ...bookingData, assessment.assessment_date, assessment.road_test_date,
           assessment.road_test_location, assessment.road_test_outcome,
           ...TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => assessment.rubric_scores?.[item.key] ?? "")),
-          ...TUTOR_REPORT_RUBRIC.map((section) => assessment.section_comments?.[section.key] ?? ""), assessment.notes]);
+           ...TUTOR_REPORT_RUBRIC.map((section) => assessment.section_comments?.[section.key] ?? ""), assessment.notes,
+           ...Array(purchaseColumns.length).fill("")]);
       }
+    }
+
+    // Purchases remain standalone rows: email/name similarity is not a reliable
+    // identity link to a student profile or its bookings.
+    const purchases = await getStore().listAllPackagePurchases();
+    for (const purchase of purchases) {
+      const purchaseDate = dayKeyOf(purchase.purchasedAt ?? purchase.createdAt);
+      if (purchaseDate < parsed.data.start || purchaseDate > parsed.data.end) continue;
+      rows.push([
+        "Package purchase",
+        ...Array(profileColumns.length).fill(""),
+        ...Array(bookingColumns.length).fill(""),
+        ...Array(4 + rubricColumns.length + commentColumns.length).fill(""),
+        "",
+        purchase.reference, purchase.studentName, purchase.email, purchase.phone,
+        purchase.lessonName, purchase.lessonId, purchase.id, purchase.purchasedAt ?? purchase.createdAt,
+        purchase.creditsPurchased, purchase.creditsAvailable, purchase.amountCad, purchase.paymentStatus,
+        purchase.stripeSubtotalCad ?? "", purchase.stripeTaxCad ?? "", purchase.stripeTotalCad ?? "",
+        purchase.currency, purchase.stripePaymentIntentId ?? "", purchase.stripeInvoiceId ?? "",
+        purchase.validUntil ?? "", purchase.source, purchase.notes,
+      ]);
     }
 
     const csv = `\uFEFF${rows.map((row) => row.map(cell).join(",")).join("\r\n")}`;

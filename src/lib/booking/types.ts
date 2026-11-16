@@ -450,6 +450,8 @@ export interface BookingStore {
   findPackagePurchasesByEmail(email: string): Promise<PackagePurchaseRecord[]>;
   /** Admin: recent purchase snapshots with ledger-derived credit balances. */
   listPackagePurchases(limit?: number): Promise<PackagePurchaseRecord[]>;
+  /** Admin export: every purchase with ledger-derived credit balances. */
+  listAllPackagePurchases(): Promise<PackagePurchaseRecord[]>;
   listPackageCreditEvents(purchaseIds: string[]): Promise<PackageCreditEventRecord[]>;
   getPackagePurchaseByToken(tokenHash: string): Promise<PackagePurchaseRecord | null>;
   getPackagePurchaseById(purchaseId: string): Promise<PackagePurchaseRecord | null>;

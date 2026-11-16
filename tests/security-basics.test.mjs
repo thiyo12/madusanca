@@ -945,6 +945,9 @@ test("student search and global export are admin-gated and omit credentials", ()
   assert.match(route, /day >= parsed\.data\.start && day <= parsed\.data\.end/);
   assert.match(route, /stripePaymentIntentId/);
   assert.match(route, /stripeInvoiceId/);
+  assert.match(route, /listAllPackagePurchases\(\)/);
+  assert.match(route, /"Package purchase"/);
+  assert.match(route, /Purchases remain standalone rows/);
 });
 
 test("verified My Booking can download a private lesson report PDF with described rubric scores", () => {

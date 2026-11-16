@@ -1567,6 +1567,18 @@ export const fileStore: BookingStore = {
       }));
   },
 
+  async listAllPackagePurchases() {
+    const data = load();
+    return [...data.packagePurchases]
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+      .map((purchase) => ({
+        ...purchase,
+        creditsAvailable: data.packageCreditEvents
+          .filter((event) => event.purchaseId === purchase.id)
+          .reduce((balance, event) => balance + event.quantityDelta, 0),
+      }));
+  },
+
   async listPackageCreditEvents(purchaseIds): Promise<PackageCreditEventRecord[]> {
     if (!purchaseIds.length) return [];
     const wanted = new Set(purchaseIds);
