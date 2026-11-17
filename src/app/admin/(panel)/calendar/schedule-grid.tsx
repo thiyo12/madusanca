@@ -48,24 +48,46 @@ function startsAtFor(dayKey: string, startMin: number): Date {
   return zonedToUtc(year, month, day, startMin);
 }
 
-/** Greedy lane assignment so overlapping bookings split the column width. */
-function assignLanes(bookings: BookingRecord[]): Array<{ booking: BookingRecord; lane: number }> {
+/** Split only genuinely overlapping bookings into lanes; unrelated lessons
+ * later in the day keep the full column width for easy selection. */
+function assignLanes(bookings: BookingRecord[]): Array<{ booking: BookingRecord; lane: number; laneCount: number }> {
   const sorted = [...bookings].sort(
     (a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt) || Date.parse(a.endsAt) - Date.parse(b.endsAt),
   );
-  const laneEnds: number[] = [];
-  return sorted.map((booking) => {
+  const result: Array<{ booking: BookingRecord; lane: number; laneCount: number }> = [];
+  let cluster: BookingRecord[] = [];
+  let clusterEnd = Number.NEGATIVE_INFINITY;
+
+  const layoutCluster = () => {
+    if (!cluster.length) return;
+    const laneEnds: number[] = [];
+    const assignments = cluster.map((booking) => {
+      const start = Date.parse(booking.startsAt);
+      const end = start + occupiedDurationMin(booking.durationMin) * 60_000;
+      let lane = laneEnds.findIndex((laneEnd) => laneEnd <= start);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(end);
+      } else {
+        laneEnds[lane] = end;
+      }
+      return { booking, lane };
+    });
+    const laneCount = laneEnds.length;
+    result.push(...assignments.map((entry) => ({ ...entry, laneCount })));
+    cluster = [];
+    clusterEnd = Number.NEGATIVE_INFINITY;
+  };
+
+  for (const booking of sorted) {
     const start = Date.parse(booking.startsAt);
     const end = start + occupiedDurationMin(booking.durationMin) * 60_000;
-    let lane = laneEnds.findIndex((laneEnd) => laneEnd <= start);
-    if (lane === -1) {
-      lane = laneEnds.length;
-      laneEnds.push(end);
-    } else {
-      laneEnds[lane] = end;
-    }
-    return { booking, lane };
-  });
+    if (cluster.length && start >= clusterEnd) layoutCluster();
+    cluster.push(booking);
+    clusterEnd = Math.max(clusterEnd, end);
+  }
+  layoutCluster();
+  return result;
 }
 
 const CLOSED_CELL =
@@ -191,6 +213,18 @@ export function ScheduleGrid({
       setDropError("Choose a future date and time. Past times are not available.");
       return;
     }
+    const candidateStart = Date.parse(startsAt);
+    const candidateEnd = candidateStart + occupiedDurationMin(booking.durationMin) * 60_000;
+    const conflict = dayBookings(dayKey).find((other) => {
+      if (other.id === booking.id || !isActive(other)) return false;
+      const otherStart = Date.parse(other.startsAt);
+      const otherEnd = otherStart + occupiedDurationMin(other.durationMin) * 60_000;
+      return candidateStart < otherEnd && otherStart < candidateEnd;
+    });
+    if (conflict) {
+      setDropError(`That move would overlap ${conflict.studentName}’s ${conflict.lessonName} (${formatSlotTime(conflict.startsAt)}). Choose another time.`);
+      return;
+    }
     setPendingMove({ booking, dayKey, startMin: targetStartMin, startsAt });
   }
 
@@ -281,7 +315,6 @@ export function ScheduleGrid({
             const blackout = blackoutByDate.get(dayKey);
             const bookings = dayBookings(dayKey);
             const laidOut = assignLanes(bookings);
-            const laneCount = Math.max(1, ...laidOut.map((entry) => entry.lane + 1));
             const selectedRange = rangeSelection?.dayKey === dayKey ? {
               startMin: Math.min(rangeSelection.anchor, rangeSelection.current),
               durationMin: Math.abs(rangeSelection.current - rangeSelection.anchor) + SLOT_STEP_MIN,
@@ -375,7 +408,7 @@ export function ScheduleGrid({
 
                 {/* Booking chips */}
                 <div className="pointer-events-none absolute inset-0">
-                  {laidOut.map(({ booking, lane }) => {
+                  {laidOut.map(({ booking, lane, laneCount }) => {
                     const startMin = vancouverMinutes(booking.startsAt);
                     const endMin = startMin + occupiedDurationMin(booking.durationMin);
                     const topPx =

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { generateToken, hashToken, isValidTokenFormat, tokensMatch } from "../src/lib/booking/tokens.ts";
 import { generateOtpCode, hashOtp, otpExpiry, OTP_TTL_MIN } from "../src/lib/booking/otp.ts";
 import { readBoundedBody } from "../src/lib/server/read-bounded-body.ts";
@@ -12,6 +12,7 @@ import {
   matchesPackagePurchasePayment,
   isStripePaymentsEnabled,
   isTestModeStripeSecretKey,
+  stripeEventModeMatchesKey,
 } from "../src/lib/stripe/payment-validation.ts";
 import { logSafeError } from "../src/lib/server/safe-log.ts";
 import {
@@ -32,6 +33,7 @@ import { calendarDropStartMin, generateSlots, HORIZON_DAYS, occupiedDurationMin,
 import { manageUrl } from "../src/lib/booking/urls.ts";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "../src/lib/booking/manage-policy.ts";
 import { isLocalAdminBypassEnabled } from "../src/lib/auth/local-admin-bypass.ts";
+import { supabaseOrigin } from "../src/lib/server/supabase-origin.ts";
 import { TUTOR_REPORT_ITEMS, TUTOR_REPORT_RUBRIC } from "../src/lib/admin/tutor-report-rubric.ts";
 import { studentSessionsComplete } from "../src/lib/admin/student-record-format.ts";
 
@@ -78,7 +80,7 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   const dailyLimitMigration = readFileSync(new URL("../supabase/migrations/0045_otp_daily_send_limit_fifteen.sql", import.meta.url), "utf8");
   const dailyLimitConstraintMigration = readFileSync(new URL("../supabase/migrations/0046_otp_send_count_check_fifteen.sql", import.meta.url), "utf8");
-  const latestCooldownMigration = readFileSync(new URL("../supabase/migrations/0058_enforce_ten_minute_otp_resend_cooldown.sql", import.meta.url), "utf8");
+  const latestCooldownMigration = readFileSync(new URL("../supabase/migrations/0060_reconcile_0058_migration_history.sql", import.meta.url), "utf8");
   assert.match(otpRoute, /expiresAt,/);
   assert.match(otpRoute, /verifyOtp\(email, hashOtp\(email, code \?\? ""\)\)/);
   assert.doesNotMatch(otpRoute, /action === "token"\);/);
@@ -594,7 +596,7 @@ test("production payment gate accepts test keys and rejects live or malformed ke
   assert.equal(isTestModeStripeSecretKey("sk_test_bad-value"), false);
 });
 
-test("live Checkout is fail-closed unless explicitly enabled with live credentials and a webhook secret", () => {
+test("production live Checkout requires live credentials and explicit opt-in", () => {
   const liveConfig = {
     nodeEnv: "production",
     secretKey: "sk_live_1234567890",
@@ -604,11 +606,39 @@ test("live Checkout is fail-closed unless explicitly enabled with live credentia
   assert.equal(isStripePaymentsEnabled(liveConfig), true);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, livePaymentsEnabled: "false" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, livePaymentsEnabled: undefined }), false);
-  assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_test_1234567890" }), true);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_test_1234567890" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_live_bad-value" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, webhookSecret: undefined }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, webhookSecret: "whsec_" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, nodeEnv: "development" }), false);
+});
+
+test("production test Checkout is restricted to explicitly marked, isolated HTTPS staging", () => {
+  const stagingConfig = {
+    nodeEnv: "production",
+    secretKey: "sk_test_1234567890",
+    livePaymentsEnabled: "false",
+    testPaymentsEnabled: "true",
+    deploymentEnvironment: "staging",
+    siteUrl: "https://wda-staging.example.net",
+    webhookSecret: "whsec_1234567890",
+  };
+  assert.equal(isStripePaymentsEnabled(stagingConfig), true);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, deploymentEnvironment: "production" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, testPaymentsEnabled: "false" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "https://wisdomdrivingacademy.com" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "https://staging.wisdomdrivingacademy.com" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "http://wda-staging.example.net" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, webhookSecret: undefined }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, secretKey: "sk_live_1234567890" }), false);
+});
+
+test("Stripe event livemode must match the configured API key mode", () => {
+  assert.equal(stripeEventModeMatchesKey(true, "sk_live_1234567890"), true);
+  assert.equal(stripeEventModeMatchesKey(false, "sk_live_1234567890"), false);
+  assert.equal(stripeEventModeMatchesKey(false, "sk_test_1234567890"), true);
+  assert.equal(stripeEventModeMatchesKey(true, "sk_test_1234567890"), false);
+  assert.equal(stripeEventModeMatchesKey(false, undefined), false);
 });
 
 test("paid initial Checkout must match the stored booking, session, CAD price, and total", () => {
@@ -734,7 +764,7 @@ test("booking holds are consistently twenty minutes across API, UI and database"
   assert.doesNotMatch(fileStore, /createdAt\) \+ 10 \* 60/);
 });
 
-test("admin student records require explicit booking links and protect licence search", () => {
+test("student records keep profiles distinct by package and protect licence search", () => {
   const migration = readFileSync(new URL("../supabase/migrations/0041_secure_student_profiles_and_progress.sql", import.meta.url), "utf8");
   const search = readFileSync(new URL("../src/app/admin/(panel)/calendar/actions.ts", import.meta.url), "utf8");
   const csv = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/csv/route.ts", import.meta.url), "utf8");
@@ -750,6 +780,19 @@ test("admin student records require explicit booking links and protect licence s
   assert.match(csv, /Cache-Control.*private, no-store/);
   assert.match(migration, /student_profile_audit/);
   assert.match(migration, /student_assessments/);
+});
+
+test("returning bookings and authenticated add-ons reuse one student profile safely", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0063_link_returning_student_bookings.sql", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/admin/(panel)/students/page.tsx", import.meta.url), "utf8");
+  assert.match(migration, /coalesce\(existing\.package_id, existing\.id\) = coalesce\(new\.package_id, new\.id\)/);
+  assert.match(migration, /lower\(btrim\(s\.email\)\) = lower\(btrim\(new\.email\)\)/);
+  assert.match(migration, /regexp_replace\(btrim\(s\.full_name\)/);
+  assert.match(migration, /if v_match_count <> 1 then/);
+  assert.match(migration, /pg_advisory_xact_lock\(hashtextextended/);
+  assert.match(migration, /Added from My Booking /);
+  assert.match(migration, /join public\.student_profile_bookings l on l\.booking_id = source\.id/);
+  assert.match(page, /Email alone never merges students/);
 });
 
 test("overall student report unlocks only after every booked lesson is complete or cancelled", () => {
@@ -942,6 +985,37 @@ test("student search and global export are admin-gated and omit credentials", ()
   assert.match(route, /Content-Disposition/);
   assert.doesNotMatch(route, /password|verification_token|otp_hash/i);
   assert.match(route, /day >= parsed\.data\.start && day <= parsed\.data\.end/);
+  assert.match(route, /stripePaymentIntentId/);
+  assert.match(route, /stripeInvoiceId/);
+  assert.match(route, /listAllPackagePurchases\(\)/);
+  assert.match(route, /"Package purchase"/);
+  assert.match(route, /Purchases remain standalone rows/);
+});
+
+test("verified My Booking can download a private lesson report PDF with described rubric scores", () => {
+  const route = readFileSync(new URL("../src/app/api/bookings/manage/report/route.ts", import.meta.url), "utf8");
+  const component = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  const rubric = readFileSync(new URL("../src/lib/admin/tutor-report-rubric.ts", import.meta.url), "utf8");
+  const pdf = readFileSync(new URL("../src/lib/admin/student-assessment-pdf.ts", import.meta.url), "utf8");
+  assert.match(route, /getManageToken\(\)/);
+  assert.match(route, /getBookingByToken\(tokenHash\)/);
+  assert.match(route, /createStudentAssessmentPdf/);
+  assert.match(route, /Cache-Control": "private, no-store/);
+  assert.match(component, /Download lesson report PDF/);
+  assert.match(rubric, /description:/);
+  assert.match(pdf, /item\.description/);
+});
+
+test("student lesson reports are returned only from the verified My Booking flow", () => {
+  const route = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
+  const portal = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  assert.match(route, /const token = await getManageToken\(\)/);
+  assert.match(route, /assessmentForBooking\(booking\.id\)/);
+  assert.match(route, /assessmentDate: report\.assessment_date/);
+  assert.match(route, /sessions: await Promise\.all\(context\.sessions\.map\(safeStudentView\)\)/);
+  assert.match(portal, /Lesson report · \{report\.assessmentDate\}/);
+  assert.match(portal, /TUTOR_REPORT_RUBRIC/);
+  assert.doesNotMatch(portal, /href=["']\/admin\//);
 });
 
 test("global booking guard rejects active overlaps, including admin override paths", () => {
@@ -952,6 +1026,38 @@ test("global booking guard rejects active overlaps, including admin override pat
   assert.match(migration, /pg_advisory_xact_lock|lock_booking_day/);
   assert.match(grid, /Active booking time conflict detected/);
   assert.match(grid, /TIME CONFLICT/);
+});
+
+test("migration 0060 reconciles either historical 0058 entry and restores both database functions", () => {
+  const files = readdirSync(new URL("../supabase/migrations/", import.meta.url));
+  const reconcile = readFileSync(new URL("../supabase/migrations/0060_reconcile_0058_migration_history.sql", import.meta.url), "utf8");
+  assert.equal(files.filter((file) => file.startsWith("0058_") && file.endsWith(".sql")).length, 1);
+  assert.match(reconcile, /create or replace function public\.consume_booking_otp_send_quota/);
+  assert.match(reconcile, /create or replace function public\.admin_save_booking_assessment/);
+  assert.match(reconcile, /jsonb_object_length\(p_rubric_scores\) < 1/);
+});
+
+test("migration 0061 removes the implicit administrator role default", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/0061_remove_admin_profile_default.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /alter column role drop default/i);
+  assert.doesNotMatch(migration, /set default\s+['"]admin/i);
+});
+
+test("migration 0062 records admin cancellation reasons and refunds only unused package credits", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/0062_admin_refunds_and_cancellation_reasons.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /add column if not exists cancellation_reason text/i);
+  assert.match(migration, /length\(v_reason\) < 3 or length\(v_reason\) > 500/i);
+  assert.match(migration, /sum\(quantity_delta\)/i);
+  assert.match(migration, /quantity_delta, source_key, note/i);
+  assert.match(migration, /-v_balance/i);
+  assert.match(migration, /payment_status = 'refunded', refund_reason = v_reason/i);
+  assert.match(migration, /revoke all on function public\.admin_mark_package_purchase_refunded\(uuid, text\) from public, anon, authenticated/i);
 });
 
 test("passwordless admin bypass is limited to loopback hosts in development", () => {
@@ -968,6 +1074,15 @@ test("passwordless admin bypass is limited to loopback hosts in development", ()
   assert.match(adminGate, /supabase\.auth\.getUser\(\)/);
   assert.match(adminGate, /redirect\(`\/admin\/login/);
   assert.match(adminGate, /process\.env\.NODE_ENV === "production"/);
+});
+
+test("CSP allows Supabase over HTTPS or HTTP loopback only", () => {
+  assert.equal(supabaseOrigin("https://project.supabase.co"), "https://project.supabase.co");
+  assert.equal(supabaseOrigin("http://localhost:54321"), "http://localhost:54321");
+  assert.equal(supabaseOrigin("http://127.0.0.1:54321"), "http://127.0.0.1:54321");
+  assert.equal(supabaseOrigin("http://[::1]:54321"), "http://[::1]:54321");
+  assert.equal(supabaseOrigin("http://supabase.example"), "");
+  assert.equal(supabaseOrigin("not a URL"), "");
 });
 
 test("cash payment and expired-hold validation apply only to the selected lesson", () => {
@@ -1045,6 +1160,17 @@ test("admin calendar supports custom conflict-checked times and confirms moves b
 test("calendar drag target aligns the booking top edge to the chosen Pacific start time", () => {
   assert.equal(calendarDropStartMin(10 * 60, 60), 9 * 60);
   assert.equal(zonedToUtc(2026, 12, 10, calendarDropStartMin(10 * 60, 60)).toISOString(), "2026-12-10T16:00:00.000Z");
+  const grid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
+  assert.match(grid, /const candidateEnd = candidateStart \+ occupiedDurationMin\(booking\.durationMin\)/);
+  assert.match(grid, /That move would overlap/);
+});
+
+test("weekly calendar only splits the width of genuinely overlapping booking cards", () => {
+  const grid = readFileSync(new URL("../src/app/admin/(panel)/calendar/schedule-grid.tsx", import.meta.url), "utf8");
+  assert.match(grid, /if \(cluster\.length && start >= clusterEnd\) layoutCluster\(\)/);
+  assert.match(grid, /laneCount: number/);
+  assert.match(grid, /laidOut\.map\(\(\{ booking, lane, laneCount \}\)/);
+  assert.match(grid, /const width = 100 \/ laneCount/);
 });
 
 test("admin package calendar holds allow selected future times but remain admin-gated and conflict checked", () => {

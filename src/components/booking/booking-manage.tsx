@@ -10,6 +10,7 @@ import { DateTimeStep } from "@/components/booking/date-time-step";
 import { addMonthsToKey, dayKeyOf, formatSlotFull, todayKey } from "@/lib/booking/format";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import type { Lesson } from "@/lib/data/lessons";
+import { TUTOR_REPORT_RUBRIC, type TutorRubricScores, type TutorSectionComments } from "@/lib/admin/tutor-report-rubric";
 import { clearManageAddonSelection, consumeManageAddonSelection, consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
@@ -43,6 +44,12 @@ interface BookingView {
   packageWindowStart: string;
   isAdditionalPackage: boolean;
   addOnOptions?: Lesson[];
+  report?: {
+    assessmentDate: string;
+    rubricScores: TutorRubricScores;
+    sectionComments: TutorSectionComments;
+    notes: string;
+  };
 }
 
 interface ManageResponse {
@@ -371,9 +378,12 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
             <h3 className="text-sm font-extrabold text-ink">Scheduled lessons</h3>
             <ol className="mt-3 grid gap-2">
               {sessions.map((session) => (
-                <li key={session.id} className="flex flex-wrap justify-between gap-2 rounded-[10px] bg-mist px-3 py-2 text-[12.5px]">
-                  <span className="font-bold text-ink">Lesson {session.sessionIndex}: {formatSlotFull(session.startsAt)}</span>
-                  <span className="text-right text-soft">{STATUS_LABEL[session.status] ?? session.status} · {session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION ? "reschedule used" : "1 reschedule available"}</span>
+                <li key={session.id} className="grid gap-2 rounded-[10px] bg-mist px-3 py-2 text-[12.5px]">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span className="font-bold text-ink">Lesson {session.sessionIndex}: {formatSlotFull(session.startsAt)}</span>
+                    <span className="text-right text-soft">{STATUS_LABEL[session.status] ?? session.status} · {session.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION ? "reschedule used" : "1 reschedule available"}</span>
+                  </div>
+                  {session.report && <StudentLessonReport report={session.report} />}
                 </li>
               ))}
             </ol>
@@ -452,6 +462,15 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
 
       {mode === "view" && creditPanel}
 
+      {mode === "view" && sessions.some((session) => session.report) && (
+        <a
+          href="/api/bookings/manage/report"
+          className="mt-5 inline-flex rounded-full border border-line px-4 py-2.5 text-sm font-bold text-ink transition-colors hover:bg-mist"
+        >
+          Download lesson report PDF
+        </a>
+      )}
+
       {mode === "view" && sessions.length > 1 && (
         <section className="mt-5 rounded-[16px] border border-line p-4">
           <h3 className="text-sm font-extrabold text-ink">Your booking and add-on lessons ({sessions.length})</h3>
@@ -469,6 +488,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
                     {session.paymentStatus === "paid" ? " · Paid" : session.paymentStatus === "due" ? " · Payment due" : ""}
                     {activeSessionId === session.id ? " · Selected" : ""}
                   </p>
+                  {session.report && <StudentLessonReport report={session.report} />}
                 </div>
                 {session.status === "confirmed" || session.status === "rescheduled" ? (
                   <button
@@ -496,6 +516,10 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
           </ol>
         </section>
       )}
+
+      {mode === "view" && sessions.length <= 1 && sessions.map((session) => session.report && (
+        <StudentLessonReport key={session.id} report={session.report} />
+      ))}
 
       {(mode === "view" || mode === "payment") && paymentReturn === "success" && (
         <p role="status" className={`mt-4 rounded-[14px] border px-4 py-3 text-[13px] font-semibold leading-relaxed ${booking.paymentStatus === "paid" ? "border-[#cce6b1] bg-[#f1f9e9] text-[#385a22]" : "border-[#eadcb1] bg-[#fff9e9] text-[#735c1e]"}`}>
@@ -749,5 +773,35 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
         </div>
       )}
     </div>
+  );
+}
+
+function StudentLessonReport({ report }: { report: NonNullable<BookingView["report"]> }) {
+  const scores = Object.values(report.rubricScores).filter((score): score is number => typeof score === "number");
+  return (
+    <details className="mt-3 rounded-xl border border-line bg-white p-4">
+      <summary className="cursor-pointer text-sm font-extrabold text-ink">
+        Lesson report · {report.assessmentDate}
+        {scores.length > 0 && ` · Overall ${(scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1)}/10`}
+      </summary>
+      <p className="mt-2 text-[11px] text-soft">Instructor ratings and comments for this lesson. School teaching assessment only; not an official ICBC score.</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {TUTOR_REPORT_RUBRIC.map((section) => {
+          const sectionScores = section.items.filter((item) => typeof report.rubricScores[item.key] === "number");
+          const comment = report.sectionComments[section.key]?.trim();
+          if (!sectionScores.length && !comment) return null;
+          return (
+            <section key={section.key} className="rounded-lg bg-mist p-3">
+              <h4 className="text-xs font-extrabold text-ink">{section.title}</h4>
+              {sectionScores.length > 0 && <ul className="mt-2 grid gap-1 text-xs text-soft">
+                {sectionScores.map((item) => <li key={item.key}>{item.label}: <strong className="text-ink">{report.rubricScores[item.key]}/10</strong><span className="block pl-2">{item.description}</span></li>)}
+              </ul>}
+              {comment && <p className="mt-2 whitespace-pre-wrap text-xs text-soft">{comment}</p>}
+            </section>
+          );
+        })}
+      </div>
+      {report.notes.trim() && <p className="mt-3 whitespace-pre-wrap border-t border-line pt-3 text-xs text-soft">{report.notes}</p>}
+    </details>
   );
 }

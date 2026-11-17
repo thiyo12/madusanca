@@ -175,6 +175,7 @@ export default async function AdminBookingsPage({ searchParams }: BookingsPagePr
                     </td>
                     <td className="px-4 py-3.5">
                       <StatusChip status={booking.status} />
+                      {booking.cancellationReason && <p className="mt-1 max-w-56 text-[10.5px] leading-relaxed text-soft">Cancellation: {booking.cancellationReason}</p>}
                     </td>
                     <td className="px-4 py-3.5">
                       <span className={`inline-flex items-center rounded-[8px] px-2 py-1 text-[11px] font-extrabold ${

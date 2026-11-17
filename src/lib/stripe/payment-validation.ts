@@ -12,22 +12,58 @@ function isLiveModeStripeSecretKey(key: string | undefined): boolean {
 }
 
 /**
- * Fail-closed production payment gate. Test mode remains available for pre-launch
- * checks; live mode requires an explicit opt-in, a live key, and webhook signing
- * secret so paid sessions cannot be enabled without fulfillment notifications.
+ * Fail-closed production payment gate. Live mode requires an explicit opt-in,
+ * live credentials, and a webhook secret. Test mode is restricted to an
+ * explicitly marked staging deployment on a separate HTTPS origin.
  */
 export function isStripePaymentsEnabled(config: {
   nodeEnv: string | undefined;
   secretKey: string | undefined;
   livePaymentsEnabled: string | undefined;
+  testPaymentsEnabled?: string | undefined;
+  deploymentEnvironment?: string | undefined;
+  siteUrl?: string | undefined;
   webhookSecret: string | undefined;
 }): boolean {
   if (config.nodeEnv !== "production") return isTestModeStripeSecretKey(config.secretKey);
-  if (isTestModeStripeSecretKey(config.secretKey)) return true;
-  return config.livePaymentsEnabled === "true" &&
-    isLiveModeStripeSecretKey(config.secretKey) &&
+  if (isLiveModeStripeSecretKey(config.secretKey)) {
+    return config.deploymentEnvironment !== "staging" &&
+      config.livePaymentsEnabled === "true" &&
+      typeof config.webhookSecret === "string" &&
+      /^whsec_[A-Za-z0-9]+$/.test(config.webhookSecret);
+  }
+  return isTestModeStripeSecretKey(config.secretKey) &&
+    config.deploymentEnvironment === "staging" &&
+    config.testPaymentsEnabled === "true" &&
+    isNonProductionHttpsOrigin(config.siteUrl) &&
     typeof config.webhookSecret === "string" &&
     /^whsec_[A-Za-z0-9]+$/.test(config.webhookSecret);
+}
+
+function isNonProductionHttpsOrigin(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:" &&
+      host !== "wisdomdrivingacademy.com" &&
+      !host.endsWith(".wisdomdrivingacademy.com") &&
+      host !== "localhost" &&
+      host !== "127.0.0.1" &&
+      host !== "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+/** A valid Stripe signature must also come from the configured key's mode. */
+export function stripeEventModeMatchesKey(
+  eventIsLive: boolean,
+  secretKey: string | undefined,
+): boolean {
+  if (isLiveModeStripeSecretKey(secretKey)) return eventIsLive;
+  if (isTestModeStripeSecretKey(secretKey)) return !eventIsLive;
+  return false;
 }
 
 /** Checkout has one pre-tax line item and Stripe Tax is additive. */

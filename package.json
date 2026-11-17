@@ -3,18 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev-local.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:security": "node --experimental-strip-types --test tests/security-basics.test.mjs",
+    "test:security": "node --experimental-strip-types --test tests/security-basics.test.mjs tests/workflow-safety.test.mjs",
+    "db:migrations:check": "node scripts/check-migration-versions.mjs",
     "admin:reset-password": "node --env-file=.env.local scripts/reset-admin-password.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "framer-motion": "^14.6.0",
-    "next": "16.4.2",
+    "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "stripe": "^23.0.1",

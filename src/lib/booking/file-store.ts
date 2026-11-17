@@ -155,7 +155,7 @@ function activeBookings(data: FileData): BookingRecord[] {
   );
 }
 
-function cancelPackage(data: FileData, booking: BookingRecord): boolean {
+function cancelPackage(data: FileData, booking: BookingRecord, reason: string): boolean {
   const packageId = booking.packageId ?? booking.id;
   const sessions = data.bookings.filter((item) => (item.packageId ?? item.id) === packageId);
   if (sessions.every((item) => ["cancelled", "completed"].includes(item.status))) return false;
@@ -163,6 +163,7 @@ function cancelPackage(data: FileData, booking: BookingRecord): boolean {
   sessions.forEach((session) => {
     if (session.status !== "completed") {
       session.status = "cancelled";
+      session.cancellationReason = reason;
       session.updatedAt = now;
     }
   });
@@ -683,7 +684,7 @@ export const fileStore: BookingStore = {
     };
   },
 
-  updateBookingStatus(id: string, status: BookingStatus): Promise<StoreResult<BookingRecord>> {
+  updateBookingStatus(id: string, status: BookingStatus, cancellationReason?: string): Promise<StoreResult<BookingRecord>> {
     return withLock((): Promise<StoreResult<BookingRecord>> => {
       const data = load();
       const booking = data.bookings.find((b) => b.id === id);
@@ -706,7 +707,7 @@ export const fileStore: BookingStore = {
           ));
         }
       } else if (status === "cancelled") {
-        if (!cancelPackage(data, booking)) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
+        if (!cancelPackage(data, booking, cancellationReason ?? "")) return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       } else if (status === "no_show") {
         if (["cancelled", "completed", "no_show"].includes(booking.status)) {
           return Promise.resolve({ ok: false, error: "not_modifiable" as const });
@@ -814,6 +815,34 @@ export const fileStore: BookingStore = {
     });
   },
 
+  markPackagePurchaseRefunded(id: string, reason: string) {
+    return withLock(async () => {
+      const data = load();
+      const purchase = data.packagePurchases.find((item) => item.id === id);
+      if (!purchase) return { ok: false as const, error: "not_found" as const };
+      if (purchase.paymentStatus === "refunded") {
+        const creditsAvailable = data.packageCreditEvents.filter((event) => event.purchaseId === id).reduce((sum, event) => sum + event.quantityDelta, 0);
+        return { ok: true as const, value: { ...purchase, creditsAvailable } };
+      }
+      if (purchase.paymentStatus !== "paid") return { ok: false as const, error: "not_modifiable" as const };
+      const now = new Date().toISOString();
+      const creditsAvailable = data.packageCreditEvents.filter((event) => event.purchaseId === id).reduce((sum, event) => sum + event.quantityDelta, 0);
+      if (creditsAvailable > 0) data.packageCreditEvents.push({
+        purchaseId: id,
+        eventType: "refund",
+        quantityDelta: -creditsAvailable,
+        sourceKey: `admin-refund:${id}`,
+        note: reason.trim(),
+        createdAt: now,
+      });
+      purchase.paymentStatus = "refunded";
+      purchase.refundReason = reason.trim();
+      purchase.updatedAt = now;
+      save(data);
+      return { ok: true as const, value: { ...purchase, creditsAvailable: Math.max(0, creditsAvailable) - Math.max(0, creditsAvailable) } };
+    });
+  },
+
   adminRescheduleBooking(
     id: string,
     startsAt: string,
@@ -855,12 +884,12 @@ export const fileStore: BookingStore = {
     });
   },
 
-  adminCancelBooking(id: string): Promise<StoreResult<BookingRecord>> {
+  adminCancelBooking(id: string, reason: string): Promise<StoreResult<BookingRecord>> {
     return withLock((): Promise<StoreResult<BookingRecord>> => {
       const data = load();
       const booking = data.bookings.find((b) => b.id === id);
       if (!booking) return Promise.resolve({ ok: false, error: "not_found" as const });
-      if (!cancelPackage(data, booking)) {
+      if (!cancelPackage(data, booking, reason)) {
         return Promise.resolve({ ok: false, error: "not_modifiable" as const });
       }
       save(data);
@@ -1559,6 +1588,18 @@ export const fileStore: BookingStore = {
     return [...data.packagePurchases]
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       .slice(0, Math.max(1, Math.min(500, limit)))
+      .map((purchase) => ({
+        ...purchase,
+        creditsAvailable: data.packageCreditEvents
+          .filter((event) => event.purchaseId === purchase.id)
+          .reduce((balance, event) => balance + event.quantityDelta, 0),
+      }));
+  },
+
+  async listAllPackagePurchases() {
+    const data = load();
+    return [...data.packagePurchases]
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
       .map((purchase) => ({
         ...purchase,
         creditsAvailable: data.packageCreditEvents
