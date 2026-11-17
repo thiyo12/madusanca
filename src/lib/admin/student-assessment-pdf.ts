@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import type { BookingRecord } from "@/lib/booking/types";
-import type { StudentAssessment } from "@/lib/admin/student-profiles";
+import type { StudentAssessment, StudentCourseCompletion, StudentProfile } from "@/lib/admin/student-profiles";
 import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
 
 const W = 612;
@@ -43,8 +43,8 @@ export function createStudentAssessmentPdf(
   const allScores = completedReports.flatMap((report) => Object.values(report.rubric_scores ?? {}).filter((score): score is number => typeof score === "number"));
   const overall = allScores.length ? (allScores.reduce((sum, score) => sum + score, 0) / allScores.length).toFixed(1) : "—";
   const pages: Canvas[] = [{ commands: [] }, { commands: [] }];
-  drawHeader(pages[0]!, "OVERALL RATING", studentName, generatedAt, 1);
-  drawHeader(pages[1]!, "DETAILED RATINGS", studentName, generatedAt, 2);
+  drawHeader(pages[0]!, "OVERALL RATING", studentName, generatedAt, 1, 2);
+  drawHeader(pages[1]!, "DETAILED RATINGS", studentName, generatedAt, 2, 2);
 
   const p1 = pages[0]!.commands;
   p1.push(`${rgb(INK)} rg 48 550 516 112 re f`);
@@ -103,7 +103,175 @@ export function createStudentAssessmentPdf(
   return assemble(pages);
 }
 
-function drawHeader(page: Canvas, title: string, studentName: string, date: Date, number: number): void {
+interface DocumentLine { text: string; bold?: boolean; indent?: number }
+
+/** Full private admin export: student profile, bookings, every lesson report, and overall ratings. */
+export function createFullStudentRecordPdf(
+  profile: StudentProfile,
+  generatedAt: Date,
+  bookings: BookingRecord[],
+  assessments: StudentAssessment[],
+  completions: StudentCourseCompletion[] = [],
+): Uint8Array {
+  const reportByBooking = latestReportsByBooking(assessments);
+  const completedReports = bookings
+    .filter((booking) => booking.status === "completed")
+    .map((booking) => reportByBooking.get(booking.id))
+    .filter((report): report is StudentAssessment => Boolean(report));
+  const allCompletedScores = completedReports.flatMap((report) =>
+    Object.values(report.rubric_scores ?? {}).filter((score): score is number => typeof score === "number"),
+  );
+  const overall = allCompletedScores.length
+    ? (allCompletedScores.reduce((sum, score) => sum + score, 0) / allCompletedScores.length).toFixed(1)
+    : "Not available yet";
+  const lines: DocumentLine[] = [
+    { text: "STUDENT DETAILS", bold: true },
+    { text: `Full legal name: ${profile.full_name}` },
+    { text: `First name: ${profile.first_name || "Not recorded"} · Last name: ${profile.last_name || "Not recorded"}` },
+    { text: `Email: ${profile.email} · Phone: ${profile.phone || "Not recorded"}` },
+    { text: `Date of birth: ${profile.date_of_birth || "Not recorded"} · Gender: ${profile.gender?.replaceAll("_", " ") || "Not recorded"}` },
+    { text: `Driver licence: ${profile.license_number || "Not recorded"} · Class: ${profile.license_class || "Not recorded"}` },
+    { text: `Address: ${[profile.street, profile.city, profile.province, profile.postal_code].filter(Boolean).join(", ") || "Not recorded"}` },
+    { text: "OVERALL PROGRESS", bold: true },
+    { text: `Overall rating: ${overall}/10 · Based on ${completedReports.length} completed lesson report${completedReports.length === 1 ? "" : "s"}.` },
+    { text: "Category averages (completed lessons only):" },
+  ];
+  for (const section of TUTOR_REPORT_RUBRIC) {
+    const scores = completedReports.flatMap((report) =>
+      section.items.map((item) => report.rubric_scores?.[item.key]).filter((score): score is number => typeof score === "number"),
+    );
+    const average = scores.length ? (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1) : "—";
+    lines.push({ text: `${section.title}: ${average}/10`, indent: 10 });
+  }
+  if (!completedReports.length) {
+    lines.push({ text: "No completed lesson reports with saved skill ratings yet.", indent: 10 });
+  }
+
+  const courseGroups = new Map<string, BookingRecord[]>();
+  for (const booking of bookings) {
+    const key = booking.packageId ?? booking.id;
+    courseGroups.set(key, [...(courseGroups.get(key) ?? []), booking]);
+  }
+  if (courseGroups.size) lines.push({ text: "COURSE COMPLETION", bold: true });
+  for (const [key, sessions] of courseGroups) {
+    const completion = completions.find((item) => item.course_key === key);
+    const completedCount = completion?.completed_lessons ?? sessions.filter((item) => item.status === "completed").length;
+    const expectedCount = completion?.expected_lessons ?? Math.max(...sessions.map((item) => item.sessionCount ?? sessions.length));
+    lines.push({
+      text: `${sessions[0]?.lessonName ?? "Driving course"}: ${completedCount} of ${expectedCount} lessons completed${completion ? ` · ${completion.ended_early ? "ended early" : "course complete"} · closed ${completion.finished_at}` : " · in progress"}`,
+      indent: 10,
+    });
+  }
+  lines.push({ text: "BOOKING HISTORY", bold: true });
+  for (const booking of [...bookings].sort((a, b) => a.startsAt.localeCompare(b.startsAt))) {
+    lines.push({ text: `${booking.reference} · ${booking.lessonName} · Class ${booking.sessionIndex ?? 1} of ${booking.sessionCount ?? 1}`, bold: true });
+    lines.push({ text: `${formatSlotDay(booking.startsAt)} ${formatSlotTime(booking.startsAt)}–${formatSlotTime(booking.endsAt)} Pacific · ${booking.durationMin} minutes · ${booking.status.replaceAll("_", " ")}`, indent: 10 });
+    lines.push({ text: `Payment: ${booking.paymentStatus ?? "due"} · $${booking.packagePriceCad ?? booking.priceCad} CAD${booking.stripeSubtotalCad != null ? ` · subtotal $${booking.stripeSubtotalCad} · tax $${booking.stripeTaxCad ?? 0} · total $${booking.stripeTotalCad ?? booking.priceCad} ${booking.stripeCurrency ?? "CAD"}` : ""}`, indent: 10 });
+    if (booking.chequeStatus && booking.chequeStatus !== "none") {
+      lines.push({ text: `Cheque: ${booking.chequeStatus}${booking.chequeReference ? ` · ${booking.chequeReference}` : ""}${booking.chequeReceivedAt ? ` · received ${booking.chequeReceivedAt}` : ""}`, indent: 10 });
+    }
+    if (booking.stripePaymentIntentId) lines.push({ text: `Payment reference: ${booking.stripePaymentIntentId}`, indent: 10 });
+    if (booking.stripeInvoiceId) lines.push({ text: `Invoice reference: ${booking.stripeInvoiceId}`, indent: 10 });
+    if (booking.cancellationReason) lines.push({ text: `Cancellation reason: ${booking.cancellationReason}`, indent: 10 });
+    if (booking.notes.trim()) lines.push({ text: `Booking notes: ${booking.notes.trim()}`, indent: 10 });
+    const report = reportByBooking.get(booking.id);
+    if (report) {
+      lines.push({ text: `LESSON REPORT · Assessed ${report.assessment_date}`, bold: true, indent: 10 });
+      appendReportLines(lines, report, 20);
+    } else if (booking.status === "completed") {
+      lines.push({ text: "No lesson report saved.", indent: 10 });
+    }
+  }
+  if (!bookings.length) lines.push({ text: "No bookings on record." });
+  lines.push({ text: "School teaching assessment only; not an official ICBC form or score." });
+  return renderDocumentPdf("FULL STUDENT RECORD", profile.full_name, generatedAt, lines);
+}
+
+/** Standalone, printable PDF for one saved lesson report. */
+export function createTutorLessonReportPdf(
+  profile: StudentProfile,
+  booking: BookingRecord,
+  report: StudentAssessment,
+  generatedAt: Date,
+): Uint8Array {
+  const scores = Object.values(report.rubric_scores ?? {}).filter((score): score is number => typeof score === "number");
+  const average = scores.length ? (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1) : "Not rated";
+  const lines: DocumentLine[] = [
+    { text: "STUDENT", bold: true },
+    { text: `${profile.full_name} · ${profile.email} · ${profile.phone || "No phone recorded"}` },
+    { text: "LESSON", bold: true },
+    { text: `${booking.reference} · ${booking.lessonName} · Class ${booking.sessionIndex ?? 1} of ${booking.sessionCount ?? 1}` },
+    { text: `${formatSlotDay(booking.startsAt)} ${formatSlotTime(booking.startsAt)} Pacific · ${booking.durationMin} minutes · ${booking.status.replaceAll("_", " ")}` },
+    { text: `Report date: ${report.assessment_date} · Overall lesson rating: ${average}/10` },
+  ];
+  appendReportLines(lines, report, 0);
+  lines.push({ text: "School teaching assessment only; not an official ICBC form or score." });
+  return renderDocumentPdf("LESSON REPORT", profile.full_name, generatedAt, lines);
+}
+
+function latestReportsByBooking(assessments: StudentAssessment[]): Map<string, StudentAssessment> {
+  const reports = new Map<string, StudentAssessment>();
+  for (const report of assessments) {
+    if (!report.booking_id) continue;
+    const current = reports.get(report.booking_id);
+    const timestamp = (item: StudentAssessment) => item.updated_at ?? item.assessment_date;
+    if (!current || timestamp(report).localeCompare(timestamp(current)) > 0) reports.set(report.booking_id, report);
+  }
+  return reports;
+}
+
+function appendReportLines(lines: DocumentLine[], report: StudentAssessment, indent: number): void {
+  const hasDetailedRatings = Object.values(report.rubric_scores ?? {}).some((score) => typeof score === "number");
+  for (const section of TUTOR_REPORT_RUBRIC) {
+    lines.push({ text: section.title, bold: true, indent });
+    for (const item of section.items) {
+      const score = report.rubric_scores?.[item.key];
+      lines.push({ text: `${item.label}: ${typeof score === "number" ? `${score}/10` : "Not marked"} — ${item.description}`, indent: indent + 10 });
+    }
+    const comment = report.section_comments?.[section.key]?.trim();
+    if (comment) lines.push({ text: `Instructor comment: ${comment}`, indent: indent + 10 });
+  }
+  if (!hasDetailedRatings) {
+    const legacy = [
+      ["Vehicle control", report.vehicle_control], ["Observation", report.observation],
+      ["Intersections", report.intersections], ["Lane changes", report.lane_changes],
+      ["Speed and space", report.speed_space], ["Parking", report.parking],
+      ["Hazard awareness", report.hazard_awareness],
+    ].filter((item): item is [string, number] => typeof item[1] === "number");
+    if (legacy.length) {
+      lines.push({ text: "Previously recorded category ratings · 1–5", bold: true, indent });
+      for (const [label, score] of legacy) lines.push({ text: `${label}: ${score}/5`, indent: indent + 10 });
+    }
+  }
+  if (report.road_test_date || report.road_test_location || report.road_test_outcome) {
+    lines.push({ text: `Road test: ${report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}${report.road_test_date ? ` · ${report.road_test_date}` : ""}${report.road_test_location ? ` · ${report.road_test_location}` : ""}`, indent });
+  }
+  if (report.notes.trim()) lines.push({ text: `Additional tutor notes: ${report.notes.trim()}`, indent });
+}
+
+function renderDocumentPdf(title: string, studentName: string, generatedAt: Date, lines: DocumentLine[]): Uint8Array {
+  const pages: Canvas[] = [{ commands: [] }];
+  let y = 666;
+  for (const line of lines) {
+    const fontSize = line.bold ? 9 : 7.5;
+    const wrapped = wrap(line.text, line.bold ? 88 : 104);
+    for (const text of wrapped) {
+      if (y < 68) {
+        pages.push({ commands: [] });
+        y = 666;
+      }
+      pages.at(-1)!.commands.push(
+        `BT /${line.bold ? "F2" : "F1"} ${fontSize} Tf ${rgb(line.bold ? INK : MUTED)} rg 1 0 0 1 ${48 + (line.indent ?? 0)} ${y.toFixed(2)} Tm (${esc(text)}) Tj ET`,
+      );
+      y -= line.bold ? 13 : 10;
+    }
+    if (line.bold) y -= 3;
+  }
+  pages.forEach((page, index) => drawHeader(page, title, studentName, generatedAt, index + 1, pages.length));
+  return assemble(pages);
+}
+
+function drawHeader(page: Canvas, title: string, studentName: string, date: Date, number: number, total: number): void {
   page.commands.push(`${rgb(INK)} rg 0 700 ${W} 92 re f`);
   page.commands.push(`q 58 0 0 38 47 724 cm /Logo Do Q`);
   page.commands.push(`BT /F2 8 Tf 0.74 0.91 0.42 rg 1 0 0 1 116 760 Tm (WISDOM DRIVING ACADEMY) Tj ET`);
@@ -112,7 +280,7 @@ function drawHeader(page: Canvas, title: string, studentName: string, date: Date
   page.commands.push(`${rgb(GOLD)} rg 0 696 ${W} 4 re f`);
   page.commands.push(`${rgb(MUTED)} RG 0.6 w 48 48 m 564 48 l S`);
   page.commands.push(`BT /F1 7 Tf ${rgb(MUTED)} rg 1 0 0 1 48 34 Tm (School teaching assessment only; not an official ICBC score.) Tj ET`);
-  page.commands.push(`BT /F1 7 Tf ${rgb(MUTED)} rg 1 0 0 1 520 34 Tm (PAGE ${number} OF 2) Tj ET`);
+  page.commands.push(`BT /F1 7 Tf ${rgb(MUTED)} rg 1 0 0 1 500 34 Tm (PAGE ${number} OF ${total}) Tj ET`);
 }
 
 function assemble(pages: Canvas[]): Uint8Array {

@@ -6,6 +6,6 @@ export function adminStudentPdfHref(bookingId: string): string {
   return `${adminStudentHref(bookingId)}/pdf`;
 }
 
-export function adminStudentCsvHref(bookingId: string): string {
-  return `${adminStudentHref(bookingId)}/csv`;
+export function adminStudentLessonPdfHref(studentBookingId: string, lessonBookingId: string): string {
+  return `${adminStudentHref(studentBookingId)}/reports/${encodeURIComponent(lessonBookingId)}/pdf`;
 }
