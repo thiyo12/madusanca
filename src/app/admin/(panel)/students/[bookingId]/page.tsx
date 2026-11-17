@@ -4,11 +4,9 @@ import { notFound } from "next/navigation";
 import { StatusChip } from "@/components/admin/status-chip";
 import { dayKeyOf, formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { getStudentBookingsByAnchor } from "@/lib/admin/student-record";
-import { studentSessionsComplete } from "@/lib/admin/student-record-format";
-import { adminStudentPdfHref } from "@/lib/admin/urls";
-import { assessmentsForStudent, courseCompletionsForStudent, profileById, studentForBooking } from "@/lib/admin/student-profiles";
+import { adminStudentLessonPdfHref, adminStudentPdfHref } from "@/lib/admin/urls";
+import { assessmentsForStudent, courseCompletionsForStudent, profileById, studentForBooking, type StudentAssessment } from "@/lib/admin/student-profiles";
 import { finishStudentCourseAction, saveStudentDetailsAction } from "../actions";
-import { adminStudentCsvHref } from "@/lib/admin/urls";
 import type { BookingRecord } from "@/lib/booking/types";
 import { PrintReportButton } from "./print-report-button";
 import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
@@ -37,7 +35,13 @@ export default async function AdminStudentDetailPage({
   const [studentDetails, assessments, completions] = await Promise.all([
     profileById(profile.id), assessmentsForStudent(profile.id), courseCompletionsForStudent(profile.id),
   ]);
-  const reportByBooking = new Map(assessments.filter((item) => item.booking_id).map((item) => [item.booking_id!, item]));
+  const reportByBooking = new Map<string, StudentAssessment>();
+  for (const report of assessments) {
+    if (!report.booking_id) continue;
+    const current = reportByBooking.get(report.booking_id);
+    const timestamp = (item: StudentAssessment) => item.updated_at ?? item.assessment_date;
+    if (!current || timestamp(report).localeCompare(timestamp(current)) > 0) reportByBooking.set(report.booking_id, report);
+  }
   const courseGroups = new Map<string, typeof bookings>();
   for (const booking of bookings) {
     const key = booking.packageId ?? booking.id;
@@ -59,12 +63,16 @@ export default async function AdminStudentDetailPage({
   const upcomingLessons = bookings.filter((booking) => ["confirmed", "rescheduled", "pending_payment"].includes(booking.status) && Date.parse(booking.startsAt) + booking.durationMin * 60_000 > nowMs);
   const pastIncompleteLessons = bookings.filter((booking) => ["confirmed", "rescheduled", "pending_payment"].includes(booking.status) && Date.parse(booking.startsAt) + booking.durationMin * 60_000 <= nowMs);
   const otherLessons = bookings.filter((booking) => !["completed", "confirmed", "rescheduled", "pending_payment"].includes(booking.status));
-  const canDownloadOverallReport = studentSessionsComplete(bookings);
-
   function renderLesson(booking: BookingRecord) {
     const report = reportByBooking.get(booking.id);
     const reportScores = Object.values(report?.rubric_scores ?? {}).filter((score): score is number => typeof score === "number");
     const reportAverage = reportScores.length ? (reportScores.reduce((sum, score) => sum + score, 0) / reportScores.length).toFixed(1) : null;
+    const legacyRatings = report ? [
+      ["Vehicle control", report.vehicle_control], ["Observation", report.observation],
+      ["Intersections", report.intersections], ["Lane changes", report.lane_changes],
+      ["Speed and space", report.speed_space], ["Parking", report.parking],
+      ["Hazard awareness", report.hazard_awareness],
+    ].filter((item): item is [string, number] => typeof item[1] === "number") : [];
     return (
       <article key={booking.id} className="rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -77,7 +85,8 @@ export default async function AdminStudentDetailPage({
         {report ? (
           <details className="mt-3 rounded-lg bg-mist p-3" open>
             <summary className="cursor-pointer text-xs font-extrabold text-ink">Lesson report · {report.assessment_date}{reportAverage ? ` · Overall ${reportAverage}/10` : ""}</summary>
-            {report.rubric_scores ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{TUTOR_REPORT_RUBRIC.map((section) => <section key={section.key} className="rounded-lg border border-line bg-white p-3"><h4 className="text-xs font-extrabold text-ink">{section.title}</h4><ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">{section.items.map((item) => <li key={item.key} className="text-soft">{item.label}: <strong className="text-ink">{report.rubric_scores?.[item.key] ?? "—"}/10</strong></li>)}</ul>{report.section_comments?.[section.key] && <p className="mt-2 whitespace-pre-wrap text-xs text-soft">{report.section_comments[section.key]}</p>}</section>)}</div> : <p className="mt-2 text-xs text-soft">Older report; detailed skill ratings were not recorded.</p>}
+            <a href={adminStudentLessonPdfHref(bookingId, booking.id)} className="mt-3 inline-flex rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-extrabold text-ink hover:border-gold hover:text-gold-deep">Download this lesson report PDF</a>
+            {reportScores.length ? <div className="mt-3 grid gap-3 sm:grid-cols-2">{TUTOR_REPORT_RUBRIC.map((section) => <section key={section.key} className="rounded-lg border border-line bg-white p-3"><h4 className="text-xs font-extrabold text-ink">{section.title}</h4><ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">{section.items.map((item) => <li key={item.key} className="text-soft">{item.label}: <strong className="text-ink">{report.rubric_scores?.[item.key] ?? "Not marked"}{report.rubric_scores?.[item.key] != null ? "/10" : ""}</strong></li>)}</ul>{report.section_comments?.[section.key] && <p className="mt-2 whitespace-pre-wrap text-xs text-soft">{report.section_comments[section.key]}</p>}</section>)}</div> : legacyRatings.length ? <section className="mt-3 rounded-lg border border-line bg-white p-3"><h4 className="text-xs font-extrabold text-ink">Previously recorded category ratings · 1–5</h4><ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">{legacyRatings.map(([label, score]) => <li key={label} className="text-soft">{label}: <strong className="text-ink">{score}/5</strong></li>)}</ul></section> : <p className="mt-2 text-xs text-soft">No skill ratings were recorded in this report.</p>}
             {report.notes && <p className="mt-3 whitespace-pre-wrap border-t border-line pt-2 text-xs text-soft">{report.notes}</p>}
             {(report.road_test_date || report.road_test_location || report.road_test_outcome) && <p className="mt-3 border-t border-line pt-2 text-xs text-soft"><strong className="text-ink">Road test:</strong> {report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}{report.road_test_date ? ` · ${report.road_test_date}` : ""}{report.road_test_location ? ` · ${report.road_test_location}` : ""}</p>}
           </details>
@@ -99,7 +108,7 @@ export default async function AdminStudentDetailPage({
           </h1>
           <p className="mt-1 text-sm text-soft">{profile.email} · {profile.phone || "No phone recorded"}</p>
         </div>
-        <a href={adminStudentCsvHref(bookingId)} className="inline-flex h-10 items-center rounded-[10px] border border-line bg-white px-4 text-[12px] font-extrabold text-ink">Download CSV</a>
+          <a href={adminStudentPdfHref(bookingId)} className="inline-flex h-10 items-center rounded-[10px] border border-line bg-white px-4 text-[12px] font-extrabold text-ink">Download full student PDF</a>
       </div>
 
       {studentDetails && (
@@ -128,7 +137,7 @@ export default async function AdminStudentDetailPage({
 
       <section className="mt-5 rounded-[16px] border border-line bg-white p-5 print:border-0 print:p-0">
         {courseError && <p role="alert" className="mb-3 rounded-lg bg-[#fff5f2] p-3 text-xs font-semibold text-[#bc4633]">{courseError === "lessons_remaining" ? "Complete all scheduled lessons before using Finish course, or choose End course early." : courseError === "report_missing" ? "A completed lesson is missing its saved report." : "Could not close this course. Refresh and try again."}</p>}
-         <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-gold-deep">Wisdom Driving Academy · Student assessment</p><h2 className="mt-1 text-[19px] font-extrabold text-ink">Course progress &amp; final report</h2><p className="mt-1 text-xs font-bold text-ink">{profile.full_name}</p><p className="mt-1 text-xs text-soft">School teaching assessment only. Skill ratings are 1–10; course averages use completed lessons with saved reports. This is not an official ICBC form or score.</p></div><div className="flex flex-wrap gap-2">{canDownloadOverallReport ? <a href={adminStudentPdfHref(bookingId)} className="inline-flex items-center rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-extrabold text-ink hover:border-gold">Download overall report PDF</a> : <p className="self-center text-[11px] text-soft">Overall report available after all booked lessons are complete.</p>}<PrintReportButton /></div></div>
+         <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-gold-deep">Wisdom Driving Academy · Student assessment</p><h2 className="mt-1 text-[19px] font-extrabold text-ink">Course progress &amp; final report</h2><p className="mt-1 text-xs font-bold text-ink">{profile.full_name}</p><p className="mt-1 text-xs text-soft">School teaching assessment only. Skill ratings are 1–10; course averages use completed lessons with saved reports. This is not an official ICBC form or score.</p></div><div className="flex flex-wrap gap-2"><a href={adminStudentPdfHref(bookingId)} className="inline-flex items-center rounded-lg border border-line bg-white px-3 py-2 text-[11px] font-extrabold text-ink hover:border-gold">Download full report &amp; overall PDF</a><PrintReportButton /></div></div>
         <div className="mt-4 grid gap-4">{courseSummaries.map((course) => { const completedCount = course.finished?.completed_lessons ?? course.done.length; const expectedCount = course.finished?.expected_lessons ?? course.expected; return <article key={course.key} className="rounded-xl border border-line p-4 print:break-inside-avoid"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold text-ink">{course.sessions[0]?.lessonName ?? "Driving course"}</h3><p className="mt-1 text-xs text-soft">{completedCount} of {expectedCount} lessons completed · {course.finished ? (course.finished.ended_early ? "Ended early" : "Course complete") : "In progress"}{course.finished ? ` · Closed ${formatSlotDay(course.finished.finished_at)}` : ""}</p></div>{!course.finished && course.done.length > 0 && <div className="flex flex-wrap gap-2"><form action={finishStudentCourseAction}><input type="hidden" name="studentId" value={profile.id}/><input type="hidden" name="anchorId" value={anchor.id}/><input type="hidden" name="courseKey" value={course.key}/><input type="hidden" name="endedEarly" value="false"/><button className="rounded-lg border border-line px-3 py-2 text-xs font-bold" disabled={course.done.length < course.expected}>Finish course</button></form>{course.done.length < course.expected && <form action={finishStudentCourseAction}><input type="hidden" name="studentId" value={profile.id}/><input type="hidden" name="anchorId" value={anchor.id}/><input type="hidden" name="courseKey" value={course.key}/><input type="hidden" name="endedEarly" value="true"/><button className="rounded-lg border border-[#eadcb1] bg-[#fff9e9] px-3 py-2 text-xs font-bold text-[#735c1e]">End course early</button></form>}</div>}</div><div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">{TUTOR_REPORT_RUBRIC.map((section,index)=><p key={section.key} className="rounded bg-mist px-2.5 py-2 text-soft">{section.title}: <strong className="text-ink">{course.averages[index]} / 10</strong></p>)}</div><ol className="mt-3 grid gap-1">{course.sessions.map((session) => { const report = reportByBooking.get(session.id); return <li key={session.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2 text-xs"><span className="text-ink">{formatSlotDay(session.startsAt)} · {session.lessonName}</span><span className="text-soft">{session.status === "completed" ? `Completed${report ? ` · Report ${report.assessment_date}` : " · Report missing"}` : session.status}</span></li>; })}</ol></article>; })}</div>
       </section>
 

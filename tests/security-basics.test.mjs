@@ -954,6 +954,8 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   const studentPage = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/page.tsx", import.meta.url), "utf8");
   const csv = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/csv/route.ts", import.meta.url), "utf8");
   const pdf = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/pdf/route.ts", import.meta.url), "utf8");
+  const reportPdf = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/reports/[reportBookingId]/pdf/route.ts", import.meta.url), "utf8");
+  const pdfBuilder = readFileSync(new URL("../src/lib/admin/student-assessment-pdf.ts", import.meta.url), "utf8");
   const calendarPage = readFileSync(new URL("../src/app/admin/(panel)/calendar/page.tsx", import.meta.url), "utf8");
   assert.equal(TUTOR_REPORT_RUBRIC.length, 9);
   assert.equal(TUTOR_REPORT_ITEMS.length, 32);
@@ -978,11 +980,25 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.match(calendarPage, /nextLessonAt/);
   assert.match(calendar, /Next lesson:/);
   assert.doesNotMatch(calendar, /Student details<\/Link>/);
-  assert.match(studentPage, /studentSessionsComplete/);
-  assert.match(studentPage, /Download overall report PDF/);
-  assert.match(pdf, /studentSessionsComplete/);
+  assert.match(studentPage, /Download full student PDF/);
+  assert.match(studentPage, /Download this lesson report PDF/);
+  assert.match(pdf, /createFullStudentRecordPdf/);
+  assert.match(pdfBuilder, /createFullStudentRecordPdf/);
+  assert.match(pdfBuilder, /createTutorLessonReportPdf/);
+  assert.match(pdfBuilder, /Overall rating:/);
+  assert.match(pdfBuilder, /Not marked/);
+  assert.match(reportPdf, /await requireAdmin/);
+  assert.match(reportPdf, /bookings\.find\(\(item\) => item\.id === reportBookingId\)/);
+  assert.match(reportPdf, /createTutorLessonReportPdf/);
   assert.match(csv, /Skill ratings|rubricHeaders/);
-  assert.match(pdf, /createStudentAssessmentPdf/);
+});
+
+test("tutor report migration removes the unsupported JSONB object-length call", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0064_fix_tutor_report_jsonb_validation.sql", import.meta.url), "utf8");
+  assert.match(migration, /create or replace function public\.admin_save_booking_assessment/);
+  assert.match(migration, /select count\(\*\) from jsonb_each\(p_rubric_scores\)/);
+  assert.match(migration, /select count\(\*\) from jsonb_each\(p_section_comments\)/);
+  assert.doesNotMatch(migration.replace(/^--.*$/gm, ""), /jsonb_object_length\s*\(/);
 });
 
 test("student search and global export are admin-gated and omit credentials", () => {
