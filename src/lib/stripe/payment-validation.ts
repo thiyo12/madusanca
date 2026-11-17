@@ -14,7 +14,9 @@ function isLiveModeStripeSecretKey(key: string | undefined): boolean {
 /**
  * Fail-closed production payment gate. Live mode requires an explicit opt-in,
  * live credentials, and a webhook secret. Test mode is restricted to an
- * explicitly marked staging deployment on a separate HTTPS origin.
+ * explicitly marked staging deployment on a separate HTTPS origin, or
+ * pre-launch production explicitly opted into test mode on the production
+ * HTTPS origin while live payments remain disabled.
  */
 export function isStripePaymentsEnabled(config: {
   nodeEnv: string | undefined;
@@ -32,12 +34,33 @@ export function isStripePaymentsEnabled(config: {
       typeof config.webhookSecret === "string" &&
       /^whsec_[A-Za-z0-9]+$/.test(config.webhookSecret);
   }
-  return isTestModeStripeSecretKey(config.secretKey) &&
+  if (
+    !isTestModeStripeSecretKey(config.secretKey) ||
+    config.livePaymentsEnabled === "true" ||
+    config.testPaymentsEnabled !== "true" ||
+    typeof config.webhookSecret !== "string" ||
+    !/^whsec_[A-Za-z0-9]+$/.test(config.webhookSecret)
+  ) return false;
+
+  const isolatedStaging =
     config.deploymentEnvironment === "staging" &&
-    config.testPaymentsEnabled === "true" &&
-    isNonProductionHttpsOrigin(config.siteUrl) &&
-    typeof config.webhookSecret === "string" &&
-    /^whsec_[A-Za-z0-9]+$/.test(config.webhookSecret);
+    isNonProductionHttpsOrigin(config.siteUrl);
+  const prelaunchProduction =
+    config.deploymentEnvironment !== "staging" &&
+    isProductionHttpsOrigin(config.siteUrl);
+
+  return isolatedStaging || prelaunchProduction;
+}
+
+function isProductionHttpsOrigin(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      ["wisdomdrivingacademy.com", "www.wisdomdrivingacademy.com"].includes(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 function isNonProductionHttpsOrigin(value: string | undefined): boolean {
