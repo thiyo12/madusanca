@@ -9,6 +9,7 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/booking/manage-cookie";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
+import { courseAccessForBooking } from "@/lib/admin/student-course-access";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 4_096;
@@ -149,7 +150,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (action === "verify") {
       return NextResponse.json({
         ok: true,
-        bookings: found.map((booking) => safeListItem(booking)),
+        bookings: await Promise.all(found.map(async (booking) => {
+          const access = await courseAccessForBooking(booking);
+          return safeListItem(booking, {
+            canOpen: access.canViewReports && (
+              ["pending_payment", "confirmed", "rescheduled"].includes(booking.status) ||
+              booking.status === "completed"
+            ),
+            readOnly: access.isReadOnly,
+          });
+        })),
         purchases: purchases.map(safePurchaseListItem),
         studentName: found[0]?.studentName ?? purchases[0]?.studentName ?? null,
       });
@@ -174,6 +184,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         { status: 404 },
       );
     }
+    if (target?.status === "completed" && !(await courseAccessForBooking(target)).canViewReports) {
+      return NextResponse.json({ ok: false, error: "Report access for this completed course has ended. Contact the school if you need help." }, { status: 410 });
+    }
     const token = target
       ? await store.issueManageToken(target.id)
       : await store.issuePackagePurchaseManageToken(purchaseTarget!.id);
@@ -196,7 +209,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 }
 
-function safeListItem(booking: BookingRecord): {
+function safeListItem(booking: BookingRecord, access: { canOpen: boolean; readOnly: boolean }): {
   id: string;
   studentName: string;
   reference: string;
@@ -208,6 +221,7 @@ function safeListItem(booking: BookingRecord): {
   paymentStatus: BookingRecord["paymentStatus"];
   studentRescheduleCount: number;
   canOpen: boolean;
+  readOnly: boolean;
 } {
   return {
     id: booking.id,
@@ -220,7 +234,8 @@ function safeListItem(booking: BookingRecord): {
     status: booking.status,
     paymentStatus: booking.paymentStatus ?? "due",
     studentRescheduleCount: booking.studentRescheduleCount ?? 0,
-    canOpen: booking.status === "pending_payment" || booking.status === "confirmed" || booking.status === "rescheduled",
+    canOpen: access.canOpen,
+    readOnly: access.readOnly,
   };
 }
 

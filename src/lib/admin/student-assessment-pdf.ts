@@ -4,6 +4,7 @@ import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import type { BookingRecord } from "@/lib/booking/types";
 import type { StudentAssessment, StudentProfile } from "@/lib/admin/student-profiles";
 import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
+import { bookingsByCourse } from "@/lib/admin/course-groups";
 
 const W = 612;
 const H = 792;
@@ -44,70 +45,60 @@ export function createStudentAssessmentPdf(
   bookings: BookingRecord[],
   assessments: StudentAssessment[],
 ): Uint8Array {
-  const scoresByBooking = new Map(assessments.filter((item) => item.booking_id).map((item) => [item.booking_id!, item]));
-  const completed = bookings.filter((booking) => booking.status === "completed");
-  const completedReports = completed.map((booking) => scoresByBooking.get(booking.id)).filter((item): item is StudentAssessment => Boolean(item));
-  const allScores = completedReports.flatMap((report) => Object.values(report.rubric_scores ?? {}).filter((score): score is number => typeof score === "number"));
-  const overall = allScores.length ? (allScores.reduce((sum, score) => sum + score, 0) / allScores.length).toFixed(1) : "—";
-  const pages: Canvas[] = [{ commands: [] }, { commands: [] }];
-  drawHeader(pages[0]!, "OVERALL RATING", studentName, generatedAt, 1, 2);
-  drawHeader(pages[1]!, "DETAILED RATINGS", studentName, generatedAt, 2, 2);
-
-  const p1 = pages[0]!.commands;
-  p1.push(`${rgb(INK)} rg 48 550 516 112 re f`);
-  p1.push(`BT /F2 11 Tf 1 1 1 rg 1 0 0 1 70 630 Tm (OVERALL COURSE RATING) Tj ET`);
-  p1.push(`BT /F2 45 Tf 1 1 1 rg 1 0 0 1 70 572 Tm (${esc(overall)} / 10) Tj ET`);
-  p1.push(`BT /F1 9 Tf 1 1 1 rg 1 0 0 1 350 590 Tm (${completedReports.length} completed lesson reports) Tj ET`);
-  p1.push(`BT /F1 8 Tf 1 1 1 rg 1 0 0 1 350 574 Tm (Report generated ${generatedAt.toISOString().slice(0, 10)}) Tj ET`);
-  p1.push(`BT /F2 10 Tf ${rgb(INK)} rg 1 0 0 1 48 516 Tm (Skill category averages) Tj ET`);
-  p1.push(`${rgb(GOLD)} RG 0.8 w 48 507 m 564 507 l S`);
-  let y = 485;
+  const reportByBooking = latestReportsByBooking(assessments);
+  const savedReports = bookings.flatMap((booking) => {
+    const report = reportByBooking.get(booking.id);
+    return report ? [{ booking, report }] : [];
+  });
+  const scores = savedReports.flatMap(({ report }) =>
+    Object.values(report.rubric_scores ?? {}).filter((score): score is number => typeof score === "number"),
+  );
+  const average = scores.length
+    ? (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1)
+    : "Not rated yet";
+  const lines: DocumentLine[] = [
+    { text: "OVERALL PERFORMANCE", kind: "section" },
+    { text: `Overall WDA skill rating: ${average}${scores.length ? "/10" : ""}`, kind: "subheading" },
+    { text: `Based on ${savedReports.length} saved lesson report${savedReports.length === 1 ? "" : "s"} and ${scores.length} marked skill${scores.length === 1 ? "" : "s"}.`, kind: "muted" },
+    { text: "Category averages", kind: "subheading" },
+  ];
   for (const section of TUTOR_REPORT_RUBRIC) {
-    const values = completedReports.flatMap((report) => section.items.map((item) => report.rubric_scores?.[item.key]).filter((score): score is number => typeof score === "number"));
-    const average = values.length ? (values.reduce((sum, score) => sum + score, 0) / values.length).toFixed(1) : "—";
-    p1.push(`BT /F1 9 Tf ${rgb(MUTED)} rg 1 0 0 1 54 ${y} Tm (${esc(section.title)}) Tj ET`);
-    p1.push(`BT /F2 10 Tf ${rgb(INK)} rg 1 0 0 1 515 ${y} Tm (${average}/10) Tj ET`);
-    y -= 22;
-  }
-  const summary = completed.length
-    ? `${completed.length} completed lesson${completed.length === 1 ? "" : "s"}; average is based only on saved ratings from completed lessons.`
-    : "No completed lesson reports are available for an overall rating yet.";
-  p1.push(`BT /F1 8 Tf ${rgb(MUTED)} rg 1 0 0 1 48 74 Tm (${esc(summary)}) Tj ET`);
-
-  const p2 = pages[1]!.commands;
-  const detailLines: Array<{ text: string; bold?: boolean; indent?: number }> = [];
-  const orderedReports = bookings.map((booking) => ({ booking, report: scoresByBooking.get(booking.id) })).filter((item): item is { booking: BookingRecord; report: StudentAssessment } => Boolean(item.report));
-  for (const { booking, report } of orderedReports) {
-    detailLines.push({ text: `${booking.lessonName} · ${formatSlotDay(booking.startsAt)} ${formatSlotTime(booking.startsAt)} Pacific · Assessed ${report.assessment_date}`, bold: true });
-    for (const section of TUTOR_REPORT_RUBRIC) {
-      const marks = section.items.flatMap((item) => {
-        const score = report.rubric_scores?.[item.key];
-        return typeof score === "number" ? [`${item.label} ${score}/10 — ${item.description}`] : [];
+    const values = savedReports.flatMap(({ report }) =>
+      section.items.map((item) => report.rubric_scores?.[item.key]).filter((value): value is number => typeof value === "number"),
+    );
+    if (values.length) {
+      lines.push({
+        text: `${section.title}: ${(values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)}/10`,
+        kind: "score",
+        indent: 10,
       });
-      const comment = report.section_comments?.[section.key]?.trim();
-      if (marks.length) detailLines.push({ text: `${section.title}: ${marks.join(" · ")}`, indent: 10 });
-      if (comment) detailLines.push({ text: `${section.title} instructor comment: ${comment}`, indent: 10 });
     }
-    if (report.road_test_date || report.road_test_outcome || report.road_test_location) {
-      detailLines.push({ text: `Road test: ${report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}${report.road_test_date ? ` · ${report.road_test_date}` : ""}${report.road_test_location ? ` · ${report.road_test_location}` : ""}`, indent: 10 });
-    }
-    if (report.notes.trim()) detailLines.push({ text: `Instructor notes: ${report.notes.trim()}`, indent: 10 });
   }
-  if (!detailLines.length) detailLines.push({ text: "No saved lesson ratings are available yet." });
+  if (!scores.length) lines.push({ text: "No skill ratings have been saved yet.", kind: "muted" });
 
-  const wrapped = detailLines.map((line) => ({ ...line, lines: wrap(line.text, line.bold ? 91 : 99) }));
-  const available = 620;
-  const totalLines = wrapped.reduce((sum, item) => sum + item.lines.length, 0);
-  const leading = Math.max(5, Math.min(10, available / totalLines));
-  let detailY = 680;
-  for (const item of wrapped) {
-    for (const text of item.lines) {
-      p2.push(`BT /${item.bold ? "F2" : "F1"} ${item.bold ? 8 : 6.8} Tf ${rgb(item.bold ? GREEN : MUTED)} rg 1 0 0 1 ${48 + (item.indent ?? 0)} ${detailY.toFixed(2)} Tm (${esc(text)}) Tj ET`);
-      detailY -= leading;
+  lines.push({ text: "COURSE-BY-COURSE REPORTS", kind: "section" });
+  const reportLookup = new Map(savedReports.map(({ booking, report }) => [booking.id, report]));
+  let courseNumber = 0;
+  for (const courseBookings of bookingsByCourse(bookings).values()) {
+    const courseReports = courseBookings.flatMap((booking) => {
+      const report = reportLookup.get(booking.id);
+      return report ? [{ booking, report }] : [];
+    });
+    if (!courseReports.length) continue;
+    courseNumber += 1;
+    const dates = courseReports.map(({ booking }) => formatSlotDay(booking.startsAt));
+    lines.push({ text: `COURSE ${courseNumber}  |  ${courseReports[0]!.booking.lessonName}`, kind: "subheading" });
+    lines.push({ text: `${courseReports.length} saved lesson report${courseReports.length === 1 ? "" : "s"}  |  ${dates[0]}${dates.at(-1) !== dates[0] ? ` to ${dates.at(-1)}` : ""}`, kind: "muted" });
+    for (const { booking, report } of courseReports) {
+      lines.push({
+        text: `Class ${booking.sessionIndex ?? 1}  |  ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`,
+        kind: "muted",
+      });
+      appendReportLines(lines, report);
     }
-    if (item.bold) detailY -= leading * 0.4;
   }
-  return assemble(pages);
+  lines.push({ text: "Ratings use WDA's instructional assessment scale (1–10). This is not an official Canadian or ICBC standard or road-test score.", kind: "muted" });
+  return renderDocumentPdf("OVERALL STUDENT REPORT", studentName, generatedAt, lines);
 }
 
 interface DocumentLine {
@@ -158,14 +149,26 @@ export function createFullStudentRecordPdf(
     lines.push({ text: "No skill ratings have been saved yet.", kind: "muted" });
   }
 
-  lines.push({ text: "LESSON-BY-LESSON REPORTS", kind: "section" });
-  for (const { booking, report } of reports) {
-    lines.push({ text: booking.lessonName, kind: "subheading" });
-    lines.push({ text: `Class ${booking.sessionIndex ?? 1}  |  Lesson: ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`, kind: "muted" });
-    appendReportLines(lines, report);
+  lines.push({ text: "COURSE-BY-COURSE LESSON REPORTS", kind: "section" });
+  const reportLookup = new Map(reports.map(({ booking, report }) => [booking.id, report]));
+  let courseNumber = 0;
+  for (const courseBookings of bookingsByCourse(bookings).values()) {
+    const courseReports = courseBookings.flatMap((booking) => {
+      const report = reportLookup.get(booking.id);
+      return report ? [{ booking, report }] : [];
+    });
+    if (!courseReports.length) continue;
+    courseNumber += 1;
+    const dates = courseReports.map(({ booking }) => formatSlotDay(booking.startsAt));
+    lines.push({ text: `COURSE ${courseNumber}  |  ${courseReports[0]!.booking.lessonName}`, kind: "subheading" });
+    lines.push({ text: `${courseReports.length} saved lesson report${courseReports.length === 1 ? "" : "s"}  |  ${dates[0]}${dates.at(-1) !== dates[0] ? ` to ${dates.at(-1)}` : ""}`, kind: "muted" });
+    for (const { booking, report } of courseReports) {
+      lines.push({ text: `Class ${booking.sessionIndex ?? 1}  |  ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`, kind: "muted" });
+      appendReportLines(lines, report);
+    }
   }
   if (!reports.length) lines.push({ text: "No lesson reports have been saved yet.", kind: "muted" });
-  lines.push({ text: "This is a school progress assessment. Ratings are instructional feedback and are not an official road-test score.", kind: "muted" });
+  lines.push({ text: "Ratings use WDA's instructional assessment scale (1–10). This is not an official Canadian or ICBC standard or road-test score.", kind: "muted" });
   return renderDocumentPdf("LESSON PROGRESS REPORT", profile.full_name, generatedAt, lines);
 }
 
@@ -188,7 +191,7 @@ export function createTutorLessonReportPdf(
     { text: `Overall lesson rating: ${average}${scores.length ? "/10" : ""}`, kind: "subheading" },
   ];
   appendReportLines(lines, report);
-  lines.push({ text: "This is a school progress assessment. Ratings are instructional feedback and are not an official road-test score.", kind: "muted" });
+  lines.push({ text: "Ratings use WDA's instructional assessment scale (1–10). This is not an official Canadian or ICBC standard or road-test score.", kind: "muted" });
   return renderDocumentPdf("LESSON REPORT", profile.full_name, generatedAt, lines);
 }
 
@@ -276,7 +279,10 @@ function drawHeader(page: Canvas, title: string, studentName: string, date: Date
   page.commands.push(`q 76 0 0 49 40 721 cm /Logo Do Q`);
   page.commands.push(`BT /F2 8 Tf 0.74 0.91 0.42 rg 1 0 0 1 130 760 Tm (WISDOM DRIVING ACADEMY) Tj ET`);
   page.commands.push(`BT /F2 17 Tf 1 1 1 rg 1 0 0 1 130 738 Tm (${esc(title)}) Tj ET`);
-  page.commands.push(`BT /F1 8 Tf 0.88 0.90 0.91 rg 1 0 0 1 48 680 Tm (Student: ${esc(studentName)}  |  Report date: ${date.toISOString().slice(0, 10)}) Tj ET`);
+  page.commands.push(`BT /F2 7 Tf 0.74 0.91 0.42 rg 1 0 0 1 48 680 Tm (STUDENT) Tj ET`);
+  page.commands.push(`BT /F1 8 Tf 0.88 0.90 0.91 rg 1 0 0 1 98 680 Tm (${esc(wrap(studentName, 48)[0] ?? studentName)}) Tj ET`);
+  page.commands.push(`BT /F2 7 Tf 0.74 0.91 0.42 rg 1 0 0 1 425 680 Tm (REPORT DATE) Tj ET`);
+  page.commands.push(`BT /F1 8 Tf 0.88 0.90 0.91 rg 1 0 0 1 495 680 Tm (${esc(date.toISOString().slice(0, 10))}) Tj ET`);
   page.commands.push(`${rgb(GOLD)} rg 0 696 ${W} 4 re f`);
   page.commands.push(`${rgb(MUTED)} RG 0.6 w 48 48 m 564 48 l S`);
   page.commands.push(`BT /F1 7 Tf ${rgb(MUTED)} rg 1 0 0 1 48 34 Tm (School teaching assessment only; not an official ICBC score.) Tj ET`);

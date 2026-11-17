@@ -43,6 +43,9 @@ interface BookingView {
   packagePriceCad: number;
   packageWindowStart: string;
   isAdditionalPackage: boolean;
+  readOnly: boolean;
+  reportAccessExpiresAt: string | null;
+  hasAccessibleReports?: boolean;
   addOnOptions?: Lesson[];
   report?: {
     assessmentDate: string;
@@ -404,7 +407,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
   const closed = sessions.every((session) => ["cancelled", "completed", "no_show"].includes(session.status) || isExpired(session)) ||
     (sessions.length === 1 && booking.status === "cancelled");
   const selectedSession = sessions.find((session) => session.id === activeSessionId) ?? booking;
-  const selectedSessionOpen = !["cancelled", "completed", "no_show"].includes(selectedSession.status) && !isExpired(selectedSession);
+  const selectedSessionOpen = !selectedSession.readOnly && !["cancelled", "completed", "no_show"].includes(selectedSession.status) && !isExpired(selectedSession);
   const rescheduleLimitReached = selectedSession.studentRescheduleCount >= MAX_STUDENT_RESCHEDULES_PER_SESSION;
   const withinCancellationWindow = now !== null && Date.parse(selectedSession.startsAt) > now && isInsideSelfServiceWindow(selectedSession.startsAt, now);
   const addOnOptions = booking.addOnOptions ?? [];
@@ -462,14 +465,16 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
 
       {mode === "view" && creditPanel}
 
-      {mode === "view" && sessions.some((session) => session.report) && (
+      {mode === "view" && (booking.hasAccessibleReports || sessions.some((session) => session.report)) && (
         <a
           href="/api/bookings/manage/report"
+          download
           className="mt-5 inline-flex rounded-full border border-line px-4 py-2.5 text-sm font-bold text-ink transition-colors hover:bg-mist"
         >
-          Download lesson report PDF
+          Download overall lesson report PDF
         </a>
       )}
+      {mode === "view" && booking.readOnly && <p role="status" className="mt-4 rounded-xl border border-[#eadcb1] bg-[#fff9e9] px-4 py-3 text-[12px] leading-relaxed text-[#735c1e]">This course is complete and read-only. Lesson reports remain available{booking.reportAccessExpiresAt ? ` until ${new Date(booking.reportAccessExpiresAt).toLocaleDateString("en-CA")}` : ""}. To continue training, make a new booking.</p>}
 
       {mode === "view" && sessions.length > 1 && (
         <section className="mt-5 rounded-[16px] border border-line p-4">
@@ -491,6 +496,7 @@ export function BookingManage({ paymentReturn, packagePurchaseAdded = false, ini
                   {session.report && <StudentLessonReport report={session.report} />}
                 </div>
                 {session.status === "confirmed" || session.status === "rescheduled" ? (
+                  session.readOnly ? <span className="text-[11px] font-semibold text-soft">Course complete · read-only</span> :
                   <button
                     type="button"
                     onClick={() => {
