@@ -30,13 +30,15 @@ export async function GET(
     const student = linkedStudent ? await profileById(linkedStudent.id) : null;
     if (!student) return NextResponse.json({ error: "Student profile not found." }, { status: 404, headers: privateHeaders });
     const assessments = await assessmentsForStudent(student.id);
-    const pdf = createFullStudentRecordPdf(student, new Date(), bookings, assessments);
+    const generatedAt = new Date();
+    const pdf = createFullStudentRecordPdf(student, generatedAt, bookings, assessments);
     const reference = bookings[0].reference.replace(/[^A-Za-z0-9-]/g, "");
+    const fileTimestamp = generatedAt.toISOString().replace(/[:.]/g, "-");
     return new Response(Buffer.from(pdf), {
       headers: {
         ...privateHeaders,
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="student-record-${reference}.pdf"`,
+        "Content-Disposition": `attachment; filename="lesson-progress-report-${reference}-${fileTimestamp}.pdf"`,
       },
     });
   } catch (error) {
