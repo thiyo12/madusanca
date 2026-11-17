@@ -56,24 +56,30 @@ export async function saveTutorLessonReportAction(formData: FormData): Promise<v
     if (values.length === 0) return null;
     return Math.max(1, Math.min(5, Math.round(values.reduce((sum, value) => sum + value, 0) / values.length / 2)));
   };
-  await saveBookingAssessment(student.id, d.bookingId, admin.userId, {
-    assessment_date: d.reportDate,
-    vehicle_control: legacyScore(["vehicle_control"]),
-    observation: legacyScore(["observation"]),
-    intersections: legacyScore(["intersection"]),
-    lane_changes: legacyScore(["multi_lane_driving"]),
-    speed_space: legacyScore(["speed"]),
-    parking: legacyScore(["parking"]),
-    hazard_awareness: legacyScore(["traffic_rules", "other", "appropriate_pedal"]),
-    rubric_scores: rubricScores,
-    section_comments: sectionComments,
-    notes: d.notes,
-    road_test_date: d.roadTestDate,
-    road_test_location: d.location,
-    road_test_outcome: d.outcome,
-  });
+  try {
+    await saveBookingAssessment(student.id, d.bookingId, admin.userId, {
+      assessment_date: d.reportDate,
+      vehicle_control: legacyScore(["vehicle_control"]),
+      observation: legacyScore(["observation"]),
+      intersections: legacyScore(["intersection"]),
+      lane_changes: legacyScore(["multi_lane_driving"]),
+      speed_space: legacyScore(["speed"]),
+      parking: legacyScore(["parking"]),
+      hazard_awareness: legacyScore(["traffic_rules", "other", "appropriate_pedal"]),
+      rubric_scores: rubricScores,
+      section_comments: sectionComments,
+      notes: d.notes,
+      road_test_date: d.roadTestDate,
+      road_test_location: d.location,
+      road_test_outcome: d.outcome,
+    });
+  } catch (error) {
+    logSafeError("[admin/calendar] lesson report save failed", error);
+    redirect(reportReturn(d.day, d.bookingId, "save"));
+  }
   revalidatePath(`/admin/calendar`);
   revalidatePath(`/admin/students/${d.bookingId}`);
+  redirect(`/admin/calendar?view=${returnView}&date=${encodeURIComponent(d.day)}&booking=${encodeURIComponent(d.bookingId)}&saved=report`);
 }
 
 export async function searchStudentByLicenseAction(formData: FormData): Promise<void> {

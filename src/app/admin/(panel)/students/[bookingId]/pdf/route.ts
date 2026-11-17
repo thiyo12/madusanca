@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { getStudentBookingsByAnchor } from "@/lib/admin/student-record";
 import { logSafeError } from "@/lib/server/safe-log";
-import { assessmentsForStudent, courseCompletionsForStudent, profileById, studentForBooking } from "@/lib/admin/student-profiles";
+import { assessmentsForStudent, profileById, studentForBooking } from "@/lib/admin/student-profiles";
 import { createFullStudentRecordPdf } from "@/lib/admin/student-assessment-pdf";
 
 export const dynamic = "force-dynamic";
@@ -29,11 +29,8 @@ export async function GET(
     const linkedStudent = await studentForBooking(anchor.id);
     const student = linkedStudent ? await profileById(linkedStudent.id) : null;
     if (!student) return NextResponse.json({ error: "Student profile not found." }, { status: 404, headers: privateHeaders });
-    const [assessments, completions] = await Promise.all([
-      assessmentsForStudent(student.id),
-      courseCompletionsForStudent(student.id),
-    ]);
-    const pdf = createFullStudentRecordPdf(student, new Date(), bookings, assessments, completions);
+    const assessments = await assessmentsForStudent(student.id);
+    const pdf = createFullStudentRecordPdf(student, new Date(), bookings, assessments);
     const reference = bookings[0].reference.replace(/[^A-Za-z0-9-]/g, "");
     return new Response(Buffer.from(pdf), {
       headers: {

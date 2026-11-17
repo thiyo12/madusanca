@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import type { BookingRecord } from "@/lib/booking/types";
-import type { StudentAssessment, StudentCourseCompletion, StudentProfile } from "@/lib/admin/student-profiles";
+import type { StudentAssessment, StudentProfile } from "@/lib/admin/student-profiles";
 import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
 
 const W = 612;
@@ -13,7 +13,14 @@ const MUTED = [0.37, 0.41, 0.44] as const;
 const GREEN = [0.31, 0.47, 0.20] as const;
 
 function safe(value: string): string {
-  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, "?");
+  const normalized = value
+    .replaceAll("\u00a0", " ")
+    .replaceAll("·", " | ")
+    .replace(/[–—−]/g, "-")
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replaceAll("…", "...");
+  return normalized.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, " ");
 }
 function esc(value: string): string { return safe(value).replace(/[\\()]/g, "\\$&"); }
 function rgb(values: readonly number[]): string { return values.map((value) => value.toFixed(3)).join(" "); }
@@ -103,88 +110,63 @@ export function createStudentAssessmentPdf(
   return assemble(pages);
 }
 
-interface DocumentLine { text: string; bold?: boolean; indent?: number }
+interface DocumentLine {
+  text: string;
+  kind?: "section" | "subheading" | "body" | "score" | "muted";
+  indent?: number;
+}
 
-/** Full private admin export: student profile, bookings, every lesson report, and overall ratings. */
+/** Professional student assessment report: profile, overall results, and complete saved lesson reports. */
 export function createFullStudentRecordPdf(
   profile: StudentProfile,
   generatedAt: Date,
   bookings: BookingRecord[],
   assessments: StudentAssessment[],
-  completions: StudentCourseCompletion[] = [],
 ): Uint8Array {
   const reportByBooking = latestReportsByBooking(assessments);
-  const completedReports = bookings
-    .filter((booking) => booking.status === "completed")
-    .map((booking) => reportByBooking.get(booking.id))
-    .filter((report): report is StudentAssessment => Boolean(report));
-  const allCompletedScores = completedReports.flatMap((report) =>
-    Object.values(report.rubric_scores ?? {}).filter((score): score is number => typeof score === "number"),
-  );
-  const overall = allCompletedScores.length
-    ? (allCompletedScores.reduce((sum, score) => sum + score, 0) / allCompletedScores.length).toFixed(1)
-    : "Not available yet";
+  const reports = bookings
+    .map((booking) => ({ booking, report: reportByBooking.get(booking.id) }))
+    .filter((item): item is { booking: BookingRecord; report: StudentAssessment } => Boolean(item.report));
+  const markedScores = reports
+    .flatMap(({ report }) => Object.values(report.rubric_scores ?? {}))
+    .filter((score): score is number => typeof score === "number");
+  const overall = markedScores.length
+    ? (markedScores.reduce((sum, score) => sum + score, 0) / markedScores.length).toFixed(1)
+    : "Not rated yet";
   const lines: DocumentLine[] = [
-    { text: "STUDENT DETAILS", bold: true },
-    { text: `Full legal name: ${profile.full_name}` },
-    { text: `First name: ${profile.first_name || "Not recorded"} · Last name: ${profile.last_name || "Not recorded"}` },
-    { text: `Email: ${profile.email} · Phone: ${profile.phone || "Not recorded"}` },
-    { text: `Date of birth: ${profile.date_of_birth || "Not recorded"} · Gender: ${profile.gender?.replaceAll("_", " ") || "Not recorded"}` },
-    { text: `Driver licence: ${profile.license_number || "Not recorded"} · Class: ${profile.license_class || "Not recorded"}` },
+    { text: "STUDENT INFORMATION", kind: "section" },
+    { text: profile.full_name, kind: "subheading" },
+    { text: `Email: ${profile.email}  |  Phone: ${profile.phone || "Not recorded"}` },
+    { text: `Date of birth: ${profile.date_of_birth || "Not recorded"}  |  Gender: ${profile.gender?.replaceAll("_", " ") || "Not recorded"}` },
+    { text: `Driver licence: ${profile.license_number || "Not recorded"}  |  Class: ${profile.license_class || "Not recorded"}` },
     { text: `Address: ${[profile.street, profile.city, profile.province, profile.postal_code].filter(Boolean).join(", ") || "Not recorded"}` },
-    { text: "OVERALL PROGRESS", bold: true },
-    { text: `Overall rating: ${overall}/10 · Based on ${completedReports.length} completed lesson report${completedReports.length === 1 ? "" : "s"}.` },
-    { text: "Category averages (completed lessons only):" },
+    { text: "OVERALL ASSESSMENT", kind: "section" },
+    { text: `Overall skill rating: ${overall}${markedScores.length ? "/10" : ""}`, kind: "subheading" },
+    { text: `Based on ${reports.length} saved lesson report${reports.length === 1 ? "" : "s"} and ${markedScores.length} marked skill${markedScores.length === 1 ? "" : "s"}.`, kind: "muted" },
+    { text: "Category averages", kind: "subheading" },
   ];
   for (const section of TUTOR_REPORT_RUBRIC) {
-    const scores = completedReports.flatMap((report) =>
+    const scores = reports.flatMap(({ report }) =>
       section.items.map((item) => report.rubric_scores?.[item.key]).filter((score): score is number => typeof score === "number"),
     );
-    const average = scores.length ? (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1) : "—";
-    lines.push({ text: `${section.title}: ${average}/10`, indent: 10 });
+    if (scores.length) {
+      const average = (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1);
+      lines.push({ text: `${section.title}: ${average}/10`, kind: "score", indent: 10 });
+    }
   }
-  if (!completedReports.length) {
-    lines.push({ text: "No completed lesson reports with saved skill ratings yet.", indent: 10 });
+  if (!markedScores.length) {
+    lines.push({ text: "No skill ratings have been saved yet.", kind: "muted" });
   }
 
-  const courseGroups = new Map<string, BookingRecord[]>();
-  for (const booking of bookings) {
-    const key = booking.packageId ?? booking.id;
-    courseGroups.set(key, [...(courseGroups.get(key) ?? []), booking]);
+  lines.push({ text: "LESSON-BY-LESSON REPORTS", kind: "section" });
+  for (const { booking, report } of reports) {
+    lines.push({ text: booking.lessonName, kind: "subheading" });
+    lines.push({ text: `Class ${booking.sessionIndex ?? 1}  |  Lesson: ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`, kind: "muted" });
+    appendReportLines(lines, report);
   }
-  if (courseGroups.size) lines.push({ text: "COURSE COMPLETION", bold: true });
-  for (const [key, sessions] of courseGroups) {
-    const completion = completions.find((item) => item.course_key === key);
-    const completedCount = completion?.completed_lessons ?? sessions.filter((item) => item.status === "completed").length;
-    const expectedCount = completion?.expected_lessons ?? Math.max(...sessions.map((item) => item.sessionCount ?? sessions.length));
-    lines.push({
-      text: `${sessions[0]?.lessonName ?? "Driving course"}: ${completedCount} of ${expectedCount} lessons completed${completion ? ` · ${completion.ended_early ? "ended early" : "course complete"} · closed ${completion.finished_at}` : " · in progress"}`,
-      indent: 10,
-    });
-  }
-  lines.push({ text: "BOOKING HISTORY", bold: true });
-  for (const booking of [...bookings].sort((a, b) => a.startsAt.localeCompare(b.startsAt))) {
-    lines.push({ text: `${booking.reference} · ${booking.lessonName} · Class ${booking.sessionIndex ?? 1} of ${booking.sessionCount ?? 1}`, bold: true });
-    lines.push({ text: `${formatSlotDay(booking.startsAt)} ${formatSlotTime(booking.startsAt)}–${formatSlotTime(booking.endsAt)} Pacific · ${booking.durationMin} minutes · ${booking.status.replaceAll("_", " ")}`, indent: 10 });
-    lines.push({ text: `Payment: ${booking.paymentStatus ?? "due"} · $${booking.packagePriceCad ?? booking.priceCad} CAD${booking.stripeSubtotalCad != null ? ` · subtotal $${booking.stripeSubtotalCad} · tax $${booking.stripeTaxCad ?? 0} · total $${booking.stripeTotalCad ?? booking.priceCad} ${booking.stripeCurrency ?? "CAD"}` : ""}`, indent: 10 });
-    if (booking.chequeStatus && booking.chequeStatus !== "none") {
-      lines.push({ text: `Cheque: ${booking.chequeStatus}${booking.chequeReference ? ` · ${booking.chequeReference}` : ""}${booking.chequeReceivedAt ? ` · received ${booking.chequeReceivedAt}` : ""}`, indent: 10 });
-    }
-    if (booking.stripePaymentIntentId) lines.push({ text: `Payment reference: ${booking.stripePaymentIntentId}`, indent: 10 });
-    if (booking.stripeInvoiceId) lines.push({ text: `Invoice reference: ${booking.stripeInvoiceId}`, indent: 10 });
-    if (booking.cancellationReason) lines.push({ text: `Cancellation reason: ${booking.cancellationReason}`, indent: 10 });
-    if (booking.notes.trim()) lines.push({ text: `Booking notes: ${booking.notes.trim()}`, indent: 10 });
-    const report = reportByBooking.get(booking.id);
-    if (report) {
-      lines.push({ text: `LESSON REPORT · Assessed ${report.assessment_date}`, bold: true, indent: 10 });
-      appendReportLines(lines, report, 20);
-    } else if (booking.status === "completed") {
-      lines.push({ text: "No lesson report saved.", indent: 10 });
-    }
-  }
-  if (!bookings.length) lines.push({ text: "No bookings on record." });
-  lines.push({ text: "School teaching assessment only; not an official ICBC form or score." });
-  return renderDocumentPdf("FULL STUDENT RECORD", profile.full_name, generatedAt, lines);
+  if (!reports.length) lines.push({ text: "No lesson reports have been saved yet.", kind: "muted" });
+  lines.push({ text: "This is a school progress assessment. Ratings are instructional feedback and are not an official road-test score.", kind: "muted" });
+  return renderDocumentPdf("LESSON PROGRESS REPORT", profile.full_name, generatedAt, lines);
 }
 
 /** Standalone, printable PDF for one saved lesson report. */
@@ -197,15 +179,16 @@ export function createTutorLessonReportPdf(
   const scores = Object.values(report.rubric_scores ?? {}).filter((score): score is number => typeof score === "number");
   const average = scores.length ? (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1) : "Not rated";
   const lines: DocumentLine[] = [
-    { text: "STUDENT", bold: true },
-    { text: `${profile.full_name} · ${profile.email} · ${profile.phone || "No phone recorded"}` },
-    { text: "LESSON", bold: true },
-    { text: `${booking.reference} · ${booking.lessonName} · Class ${booking.sessionIndex ?? 1} of ${booking.sessionCount ?? 1}` },
-    { text: `${formatSlotDay(booking.startsAt)} ${formatSlotTime(booking.startsAt)} Pacific · ${booking.durationMin} minutes · ${booking.status.replaceAll("_", " ")}` },
-    { text: `Report date: ${report.assessment_date} · Overall lesson rating: ${average}/10` },
+    { text: "STUDENT", kind: "section" },
+    { text: profile.full_name, kind: "subheading" },
+    { text: `${profile.email}  |  ${profile.phone || "No phone recorded"}` },
+    { text: "LESSON ASSESSMENT", kind: "section" },
+    { text: booking.lessonName, kind: "subheading" },
+    { text: `Class ${booking.sessionIndex ?? 1}  |  Lesson: ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`, kind: "muted" },
+    { text: `Overall lesson rating: ${average}${scores.length ? "/10" : ""}`, kind: "subheading" },
   ];
-  appendReportLines(lines, report, 0);
-  lines.push({ text: "School teaching assessment only; not an official ICBC form or score." });
+  appendReportLines(lines, report);
+  lines.push({ text: "This is a school progress assessment. Ratings are instructional feedback and are not an official road-test score.", kind: "muted" });
   return renderDocumentPdf("LESSON REPORT", profile.full_name, generatedAt, lines);
 }
 
@@ -220,16 +203,21 @@ function latestReportsByBooking(assessments: StudentAssessment[]): Map<string, S
   return reports;
 }
 
-function appendReportLines(lines: DocumentLine[], report: StudentAssessment, indent: number): void {
+function appendReportLines(lines: DocumentLine[], report: StudentAssessment): void {
   const hasDetailedRatings = Object.values(report.rubric_scores ?? {}).some((score) => typeof score === "number");
+  let foundDetail = false;
   for (const section of TUTOR_REPORT_RUBRIC) {
-    lines.push({ text: section.title, bold: true, indent });
-    for (const item of section.items) {
-      const score = report.rubric_scores?.[item.key];
-      lines.push({ text: `${item.label}: ${typeof score === "number" ? `${score}/10` : "Not marked"} — ${item.description}`, indent: indent + 10 });
-    }
+    const markedItems = section.items.filter((item) => typeof report.rubric_scores?.[item.key] === "number");
     const comment = report.section_comments?.[section.key]?.trim();
-    if (comment) lines.push({ text: `Instructor comment: ${comment}`, indent: indent + 10 });
+    if (markedItems.length || comment) {
+      lines.push({ text: section.title, kind: "subheading" });
+      foundDetail = true;
+    }
+    for (const item of markedItems) {
+      const score = report.rubric_scores?.[item.key];
+      lines.push({ text: `${item.label}: ${score}/10  |  ${item.description}`, kind: "score", indent: 10 });
+    }
+    if (comment) lines.push({ text: `Instructor comment: ${comment}`, kind: "body", indent: 10 });
   }
   if (!hasDetailedRatings) {
     const legacy = [
@@ -239,33 +227,45 @@ function appendReportLines(lines: DocumentLine[], report: StudentAssessment, ind
       ["Hazard awareness", report.hazard_awareness],
     ].filter((item): item is [string, number] => typeof item[1] === "number");
     if (legacy.length) {
-      lines.push({ text: "Previously recorded category ratings · 1–5", bold: true, indent });
-      for (const [label, score] of legacy) lines.push({ text: `${label}: ${score}/5`, indent: indent + 10 });
+      lines.push({ text: "Previously recorded category ratings (1–5)", kind: "subheading" });
+      for (const [label, score] of legacy) lines.push({ text: `${label}: ${score}/5`, kind: "score", indent: 10 });
+      foundDetail = true;
     }
   }
+  if (!foundDetail) lines.push({ text: "No skill ratings or section comments were recorded for this lesson.", kind: "muted" });
   if (report.road_test_date || report.road_test_location || report.road_test_outcome) {
-    lines.push({ text: `Road test: ${report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}${report.road_test_date ? ` · ${report.road_test_date}` : ""}${report.road_test_location ? ` · ${report.road_test_location}` : ""}`, indent });
+    lines.push({ text: "ROAD TEST", kind: "subheading" });
+    lines.push({ text: `${report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}${report.road_test_date ? `  |  ${report.road_test_date}` : ""}${report.road_test_location ? `  |  ${report.road_test_location}` : ""}`, kind: "body" });
   }
-  if (report.notes.trim()) lines.push({ text: `Additional tutor notes: ${report.notes.trim()}`, indent });
+  if (report.notes.trim()) {
+    lines.push({ text: "INSTRUCTOR NOTES", kind: "subheading" });
+    lines.push({ text: report.notes.trim(), kind: "body" });
+  }
 }
 
 function renderDocumentPdf(title: string, studentName: string, generatedAt: Date, lines: DocumentLine[]): Uint8Array {
   const pages: Canvas[] = [{ commands: [] }];
-  let y = 666;
+  let y = 645;
   for (const line of lines) {
-    const fontSize = line.bold ? 9 : 7.5;
-    const wrapped = wrap(line.text, line.bold ? 88 : 104);
+    const kind = line.kind ?? "body";
+    const fontSize = kind === "section" ? 11 : kind === "subheading" ? 9 : kind === "muted" ? 7.5 : 8.5;
+    const lineGap = kind === "section" ? 18 : kind === "subheading" ? 14 : 11;
+    const wrapped = wrap(line.text, kind === "section" ? 86 : 98);
     for (const text of wrapped) {
-      if (y < 68) {
+      if (y < 78) {
         pages.push({ commands: [] });
-        y = 666;
+        y = 645;
       }
-      pages.at(-1)!.commands.push(
-        `BT /${line.bold ? "F2" : "F1"} ${fontSize} Tf ${rgb(line.bold ? INK : MUTED)} rg 1 0 0 1 ${48 + (line.indent ?? 0)} ${y.toFixed(2)} Tm (${esc(text)}) Tj ET`,
-      );
-      y -= line.bold ? 13 : 10;
+      const page = pages.at(-1)!;
+      if (kind === "section") {
+        page.commands.push(`q 0.96 0.95 0.91 rg 48 ${(y - 4).toFixed(2)} 516 18 re f Q`);
+        page.commands.push(`q ${rgb(GOLD)} RG 2 w 48 ${(y - 4).toFixed(2)} m 48 ${(y + 14).toFixed(2)} l S Q`);
+      }
+      const color = kind === "section" ? INK : kind === "subheading" ? GREEN : MUTED;
+      page.commands.push(`BT /${kind === "body" || kind === "muted" ? "F1" : "F2"} ${fontSize} Tf ${rgb(color)} rg 1 0 0 1 ${58 + (line.indent ?? 0)} ${y.toFixed(2)} Tm (${esc(text)}) Tj ET`);
+      y -= lineGap;
     }
-    if (line.bold) y -= 3;
+    if (kind === "section") y -= 4;
   }
   pages.forEach((page, index) => drawHeader(page, title, studentName, generatedAt, index + 1, pages.length));
   return assemble(pages);
@@ -273,9 +273,9 @@ function renderDocumentPdf(title: string, studentName: string, generatedAt: Date
 
 function drawHeader(page: Canvas, title: string, studentName: string, date: Date, number: number, total: number): void {
   page.commands.push(`${rgb(INK)} rg 0 700 ${W} 92 re f`);
-  page.commands.push(`q 58 0 0 38 47 724 cm /Logo Do Q`);
-  page.commands.push(`BT /F2 8 Tf 0.74 0.91 0.42 rg 1 0 0 1 116 760 Tm (WISDOM DRIVING ACADEMY) Tj ET`);
-  page.commands.push(`BT /F2 17 Tf 1 1 1 rg 1 0 0 1 116 738 Tm (${esc(title)}) Tj ET`);
+  page.commands.push(`q 76 0 0 49 40 721 cm /Logo Do Q`);
+  page.commands.push(`BT /F2 8 Tf 0.74 0.91 0.42 rg 1 0 0 1 130 760 Tm (WISDOM DRIVING ACADEMY) Tj ET`);
+  page.commands.push(`BT /F2 17 Tf 1 1 1 rg 1 0 0 1 130 738 Tm (${esc(title)}) Tj ET`);
   page.commands.push(`BT /F1 8 Tf 0.88 0.90 0.91 rg 1 0 0 1 48 680 Tm (Student: ${esc(studentName)}  |  Report date: ${date.toISOString().slice(0, 10)}) Tj ET`);
   page.commands.push(`${rgb(GOLD)} rg 0 696 ${W} 4 re f`);
   page.commands.push(`${rgb(MUTED)} RG 0.6 w 48 48 m 564 48 l S`);
