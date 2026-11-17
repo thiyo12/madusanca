@@ -25,6 +25,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     nodeEnv: process.env.NODE_ENV,
     secretKey: process.env.STRIPE_SECRET_KEY,
     livePaymentsEnabled: process.env.STRIPE_LIVE_PAYMENTS_ENABLED,
+    testPaymentsEnabled: process.env.STRIPE_TEST_PAYMENTS_ENABLED,
+    deploymentEnvironment: process.env.WDA_APP_ENV,
+    siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
   })) {
     return NextResponse.json({ ok: false, error: "Online payments are not enabled for this Stripe configuration." }, { status: 503 });

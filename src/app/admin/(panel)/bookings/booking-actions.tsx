@@ -99,8 +99,14 @@ export function BookingActions({ bookingId, status, startsAt, durationMin, nowMs
       )}
       {status !== "no_show" && <form
         action={async () => {
+          const reason = window.prompt("Why is this lesson being cancelled? This note is saved for administrators.");
+          if (reason === null) return;
+          if (reason.trim().length < 3 || reason.trim().length > 500) {
+            setError("Enter a cancellation reason between 3 and 500 characters.");
+            return;
+          }
           if (!confirm("Cancel this booking? The student will be emailed.")) return;
-          await setBookingStatusAction(bookingId, "cancelled");
+          await setBookingStatusAction(bookingId, "cancelled", reason);
         }}
       >
         <button

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { getStore } from "@/lib/booking/store";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
-import { updateBookingChequeAction, updatePackageChequeAction } from "../bookings/actions";
+import { updateBookingChequeAction, updatePackageChequeAction, refundPackagePurchaseAction } from "../bookings/actions";
+import { RecordRefundButton } from "./record-refund-button";
 import { listPaidCheckoutSessions, paymentReportRange } from "@/lib/stripe/payment-report";
 import { stripeMode } from "@/lib/stripe/server";
 import { logSafeError } from "@/lib/server/safe-log";
@@ -98,7 +99,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
           <li><strong className="text-ink">Card payment:</strong> Stripe records it automatically. You do not need to press a payment button.</li>
           <li><strong className="text-ink">Cash payment:</strong> use the action on the specific lesson only after receiving its payment. Other lessons in the package stay due.</li>
           <li><strong className="text-ink">Cheque:</strong> choose its status and press <strong className="text-ink">Save cheque</strong> to keep a record. This tracks the cheque; it does not mark the booking paid.</li>
-          <li><strong className="text-ink">Refund:</strong> issue refunds in Stripe. This page is for viewing records and does not process refunds.</li>
+          <li><strong className="text-ink">Refund:</strong> issue the refund manually in Stripe first, then use the refund action here to record it. Package refunds remove only unused lessons.</li>
         </ul>
       </section>
       {actionError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{actionError}</p>}
@@ -292,6 +293,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                     <td className="px-4 py-3.5">
                       <div className="flex min-w-[150px] flex-col items-end gap-2">
                         {booking.paymentStatus === "due" && <RecordCashButton bookingId={booking.id} />}
+                        {booking.paymentStatus === "paid" && <RecordRefundButton bookingId={booking.id} />}
                         <details className="text-left">
                           <summary className="cursor-pointer text-[10px] font-bold text-soft hover:text-ink">Cheque tracking</summary>
                           <form action={updateBookingChequeAction} className="mt-1.5 grid gap-1.5">
@@ -317,7 +319,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 id="package-purchases-title" className="font-display text-xl font-extrabold text-ink">Package purchases &amp; credit balances</h2>
-            <p className="mt-1 text-[12.5px] text-soft">See each package a student bought and how many lesson credits remain. Open Ledger to see when credits were added or used. This section is for checking records, not changing credits or issuing refunds.</p>
+        <p className="mt-1 text-[12.5px] text-soft">See each package a student bought and how many lesson credits remain. Open Ledger to see when credits were added or used. Refunds must first be issued manually in Stripe; recording a package refund removes its unused lessons.</p>
           </div>
           <p className="text-[12px] font-bold text-soft">Showing up to 200 recent purchases</p>
         </div>
@@ -361,6 +363,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                       </td>
                       <td className="px-4 py-3.5">
                         <PackagePaymentChip status={purchase.paymentStatus} />
+                        {purchase.refundReason && <p className="mt-1 max-w-40 text-[10px] leading-relaxed text-soft">Refund note: {purchase.refundReason}</p>}
                         <p className="mt-1 text-[10px] font-semibold text-soft">Cheque: {purchase.chequeStatus ?? "none"}{purchase.chequeReference ? ` · ${purchase.chequeReference}` : ""}</p>
                         <form action={updatePackageChequeAction} className="mt-2 grid gap-1.5">
                           <input type="hidden" name="purchaseId" value={purchase.id} />
@@ -370,6 +373,12 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                           <input name="reference" defaultValue={purchase.chequeReference ?? ""} maxLength={80} aria-label={`Cheque reference for package ${purchase.reference}`} placeholder="Cheque ref (optional)" className="h-8 w-32 rounded border border-line px-2 text-[10px]" />
                           <button type="submit" className="h-7 rounded bg-mist px-2 text-[10px] font-bold text-ink hover:bg-line">Save cheque</button>
                         </form>
+                        {purchase.paymentStatus === "paid" && <form action={refundPackagePurchaseAction} className="mt-2 grid gap-1.5">
+                          <input type="hidden" name="purchaseId" value={purchase.id} />
+                          <input name="reason" required minLength={3} maxLength={500} aria-label={`Refund reason for package ${purchase.reference}`} placeholder="Refund reason" className="h-8 w-36 rounded border border-line px-2 text-[10px]" />
+                          <button type="submit" className="h-7 rounded border border-[#eadcb1] bg-[#fff9e9] px-2 text-[10px] font-bold text-[#735c1e]">Record Stripe refund</button>
+                          <p className="max-w-36 text-[9px] leading-relaxed text-soft">Manually refund in Stripe first. Unused lessons will be removed.</p>
+                        </form>}
                         {purchase.stripePaymentIntentId && <p className="mt-1 max-w-[150px] truncate text-[10px] text-soft" title={purchase.stripePaymentIntentId}>PI {purchase.stripePaymentIntentId}</p>}
                       </td>
                       <td className="px-4 py-3.5 text-right">

@@ -9,6 +9,7 @@ import {
 } from "@/lib/stripe/fulfill";
 import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
+import { stripeEventModeMatchesKey } from "@/lib/stripe/payment-validation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,6 +32,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (error) {
     logSafeError("[stripe/webhook] signature verification failed", error);
     return NextResponse.json({ error: "Invalid Stripe webhook signature." }, { status: 400 });
+  }
+  if (!stripeEventModeMatchesKey(event.livemode, process.env.STRIPE_SECRET_KEY)) {
+    console.error("[stripe/webhook] event mode does not match configured Stripe key mode");
+    return NextResponse.json({ error: "Stripe event mode is not accepted." }, { status: 400 });
   }
 
   const paidEvent =

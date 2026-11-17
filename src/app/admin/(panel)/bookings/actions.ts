@@ -20,7 +20,7 @@ import { isoDateTimeSchema } from "@/lib/validation/booking";
 
 const idSchema = z.string().min(1).max(64);
 const statusSchema = z.enum(["confirmed", "completed", "cancelled", "no_show"]);
-const paymentStatusSchema = z.literal("paid");
+const paymentStatusSchema = z.enum(["paid", "refunded"]);
 const chequeStatusSchema = z.enum(["none", "received", "cleared", "returned"]);
 
 function revalidateAdmin(): void {
@@ -41,11 +41,14 @@ function failAt(path: "/admin/bookings" | "/admin/payments", message: string): n
 export async function setBookingStatusAction(
   bookingId: string,
   status: z.infer<typeof statusSchema>,
+  cancellationReason?: string,
 ): Promise<void> {
   await requireAdmin(status === "completed" ? "/admin/calendar" : "/admin/bookings");
   if (!idSchema.safeParse(bookingId).success || !statusSchema.safeParse(status).success) {
     fail("Invalid request.");
   }
+  const reason = z.string().trim().min(3).max(500).safeParse(cancellationReason ?? "");
+  if (status === "cancelled" && !reason.success) fail("Add a cancellation reason (3–500 characters).");
 
   const store = getStore();
   const booking = await store.getBookingById(bookingId);
@@ -62,16 +65,13 @@ export async function setBookingStatusAction(
     const sameEmailBookings = await store.listBookings({ search: booking.email });
     const packageId = booking.packageId ?? booking.id;
     const packageSessions = sameEmailBookings.filter((item) => (item.packageId ?? item.id) === packageId);
-    if (status === "cancelled" && packageSessions.some((item) => item.paymentStatus === "paid")) {
-      fail("This package has been paid. Reconcile cancellation or refund in Stripe before changing it.");
-    }
     const checkoutOwner = packageSessions.find((item) => item.stripeCheckoutSessionId) ?? booking;
     const upgradeOwner = packageSessions.find((item) => item.stripeUpgradeCheckoutSessionId);
     if (packageSessions.some((item) => item.paymentStatus === "due")) await expireOpenCheckout(checkoutOwner);
     if (upgradeOwner) await expireOpenUpgradeCheckout(upgradeOwner);
   }
 
-  const result = await store.updateBookingStatus(bookingId, status);
+  const result = await store.updateBookingStatus(bookingId, status, status === "cancelled" ? reason.data : undefined);
   if (!result.ok) {
     const message = result.error === "report_required"
       ? "Save the tutor lesson report in Calendar before completing this lesson."
@@ -133,7 +133,14 @@ export async function setBookingPaymentAction(
   const booking = await store.getBookingById(bookingId);
   if (!booking) return paymentFail("Booking not found.");
 
-  if (booking.paymentStatus !== "due") paymentFail("Only bookings with payment due can be marked paid by cash.");
+  if (paymentStatus === "paid" && booking.paymentStatus !== "due") paymentFail("Only bookings with payment due can be marked paid by cash.");
+  if (paymentStatus === "refunded" && booking.paymentStatus !== "paid") paymentFail("Only a paid booking can be marked refunded.");
+  if (paymentStatus === "refunded") {
+    const result = await store.updatePaymentStatus(bookingId, "refunded");
+    if (!result.ok) paymentFail("Could not mark this booking refunded.");
+    revalidateAdmin();
+    return;
+  }
   if (booking.status === "cancelled" || booking.status === "completed") paymentFail("This lesson is closed and cannot be marked paid here.");
 
   if (booking.stripePaymentIntentId) {
@@ -236,6 +243,25 @@ export async function updatePackageChequeAction(formData: FormData): Promise<voi
   const result = await store.updatePackagePurchaseCheque(purchase.id, parsed.data.status, parsed.data.reference);
   if (!result.ok) redirect("/admin/payments?error=Could+not+update+package+cheque+tracking.");
   revalidatePath("/admin/payments");
+}
+
+export async function refundPackagePurchaseAction(formData: FormData): Promise<void> {
+  await requireAdmin("/admin/payments");
+  const parsed = z.object({
+    purchaseId: z.uuid(),
+    reason: z.string().trim().min(3).max(500),
+  }).safeParse({
+    purchaseId: formData.get("purchaseId"),
+    reason: formData.get("reason"),
+  });
+  if (!parsed.success) redirect("/admin/payments?error=Enter+a+valid+package+refund+reason.");
+  const purchase = await getStore().getPackagePurchaseById(parsed.data.purchaseId);
+  if (!purchase) redirect("/admin/payments?error=Package+purchase+not+found.");
+  if (purchase.paymentStatus !== "paid") redirect("/admin/payments?error=Only+a+paid+package+can+be+marked+refunded.");
+  const result = await getStore().markPackagePurchaseRefunded(purchase.id, parsed.data.reason);
+  if (!result.ok) redirect("/admin/payments?error=Could+not+record+package+refund.");
+  revalidatePath("/admin/payments");
+  revalidateAdmin();
 }
 
 async function expireOpenCheckout(booking: BookingRecord, returnTo: "/admin/bookings" | "/admin/payments" = "/admin/bookings"): Promise<void> {

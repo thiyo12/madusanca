@@ -46,6 +46,7 @@ export interface BookingRecord {
   email: string;
   phone: string;
   notes: string;
+  cancellationReason?: string;
   status: BookingStatus;
   paymentStatus?: PaymentStatus;
   chequeStatus?: ChequeStatus;
@@ -98,6 +99,7 @@ export interface PackagePurchaseRecord {
   amountCad: number;
   currency: "cad";
   paymentStatus: PackagePurchasePaymentStatus;
+  refundReason?: string;
   chequeStatus?: ChequeStatus;
   chequeReference?: string;
   chequeReceivedAt?: string;
@@ -361,7 +363,7 @@ export interface BookingStore {
   /** Admin: single booking by id. */
   getBookingById(id: string): Promise<BookingRecord | null>;
   /** Admin: status transition (confirm/complete/no_show/cancel). No schedule impact. */
-  updateBookingStatus(id: string, status: BookingStatus): Promise<StoreResult<BookingRecord>>;
+  updateBookingStatus(id: string, status: BookingStatus, cancellationReason?: string): Promise<StoreResult<BookingRecord>>;
   /** Admin: set payment status (paid/refunded/waived/due). */
   updatePaymentStatus(
     id: string,
@@ -369,6 +371,7 @@ export interface BookingStore {
   ): Promise<StoreResult<BookingRecord>>;
   updateBookingCheque(id: string, status: ChequeStatus, reference?: string): Promise<StoreResult<BookingRecord>>;
   updatePackagePurchaseCheque(id: string, status: ChequeStatus, reference?: string): Promise<StoreResult<PackagePurchaseRecord>>;
+  markPackagePurchaseRefunded(id: string, reason: string): Promise<StoreResult<PackagePurchaseRecord>>;
   /** Admin: move a booking to a new time with atomic conflict check. */
   adminRescheduleBooking(
     id: string,
@@ -376,7 +379,7 @@ export interface BookingStore {
     endsAt: string,
   ): Promise<StoreResult<AdminRescheduleResult>>;
   /** Admin: cancel without needing the student token. */
-  adminCancelBooking(id: string): Promise<StoreResult<BookingRecord>>;
+  adminCancelBooking(id: string, reason: string): Promise<StoreResult<BookingRecord>>;
   /** Admin: replace the weekly availability rules wholesale. */
   setRules(rules: AvailabilityRule[]): Promise<AvailabilityRule[]>;
   addBlackout(date: string, reason?: string): Promise<BlackoutDate[]>;

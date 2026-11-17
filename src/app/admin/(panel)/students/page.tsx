@@ -41,7 +41,7 @@ export default async function AdminStudentsPage({ searchParams }: { searchParams
         Students
       </h1>
       <p className="mt-2 max-w-2xl text-sm leading-relaxed text-soft">
-        Student profiles stay separate unless an administrator explicitly links bookings. {filteredStudents.length} of {students.length} {students.length === 1 ? "student" : "students"} shown.
+        Repeat bookings link to an existing student only when email and full name match one profile. Email alone never merges students. {filteredStudents.length} of {students.length} {students.length === 1 ? "student" : "students"} shown.
       </p>
 
       <div className="mt-5 grid gap-3 rounded-[16px] border border-line bg-white p-4 md:grid-cols-[minmax(0,1fr)_auto]">

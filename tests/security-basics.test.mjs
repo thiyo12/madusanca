@@ -12,6 +12,7 @@ import {
   matchesPackagePurchasePayment,
   isStripePaymentsEnabled,
   isTestModeStripeSecretKey,
+  stripeEventModeMatchesKey,
 } from "../src/lib/stripe/payment-validation.ts";
 import { logSafeError } from "../src/lib/server/safe-log.ts";
 import {
@@ -595,7 +596,7 @@ test("production payment gate accepts test keys and rejects live or malformed ke
   assert.equal(isTestModeStripeSecretKey("sk_test_bad-value"), false);
 });
 
-test("live Checkout is fail-closed unless explicitly enabled with live credentials and a webhook secret", () => {
+test("production live Checkout requires live credentials and explicit opt-in", () => {
   const liveConfig = {
     nodeEnv: "production",
     secretKey: "sk_live_1234567890",
@@ -605,11 +606,39 @@ test("live Checkout is fail-closed unless explicitly enabled with live credentia
   assert.equal(isStripePaymentsEnabled(liveConfig), true);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, livePaymentsEnabled: "false" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, livePaymentsEnabled: undefined }), false);
-  assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_test_1234567890" }), true);
+  assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_test_1234567890" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, secretKey: "sk_live_bad-value" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, webhookSecret: undefined }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, webhookSecret: "whsec_" }), false);
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, nodeEnv: "development" }), false);
+});
+
+test("production test Checkout is restricted to explicitly marked, isolated HTTPS staging", () => {
+  const stagingConfig = {
+    nodeEnv: "production",
+    secretKey: "sk_test_1234567890",
+    livePaymentsEnabled: "false",
+    testPaymentsEnabled: "true",
+    deploymentEnvironment: "staging",
+    siteUrl: "https://wda-staging.example.net",
+    webhookSecret: "whsec_1234567890",
+  };
+  assert.equal(isStripePaymentsEnabled(stagingConfig), true);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, deploymentEnvironment: "production" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, testPaymentsEnabled: "false" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "https://wisdomdrivingacademy.com" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "https://staging.wisdomdrivingacademy.com" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "http://wda-staging.example.net" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, webhookSecret: undefined }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, secretKey: "sk_live_1234567890" }), false);
+});
+
+test("Stripe event livemode must match the configured API key mode", () => {
+  assert.equal(stripeEventModeMatchesKey(true, "sk_live_1234567890"), true);
+  assert.equal(stripeEventModeMatchesKey(false, "sk_live_1234567890"), false);
+  assert.equal(stripeEventModeMatchesKey(false, "sk_test_1234567890"), true);
+  assert.equal(stripeEventModeMatchesKey(true, "sk_test_1234567890"), false);
+  assert.equal(stripeEventModeMatchesKey(false, undefined), false);
 });
 
 test("paid initial Checkout must match the stored booking, session, CAD price, and total", () => {
@@ -735,7 +764,7 @@ test("booking holds are consistently twenty minutes across API, UI and database"
   assert.doesNotMatch(fileStore, /createdAt\) \+ 10 \* 60/);
 });
 
-test("admin student records require explicit booking links and protect licence search", () => {
+test("student records keep profiles distinct by package and protect licence search", () => {
   const migration = readFileSync(new URL("../supabase/migrations/0041_secure_student_profiles_and_progress.sql", import.meta.url), "utf8");
   const search = readFileSync(new URL("../src/app/admin/(panel)/calendar/actions.ts", import.meta.url), "utf8");
   const csv = readFileSync(new URL("../src/app/admin/(panel)/students/[bookingId]/csv/route.ts", import.meta.url), "utf8");
@@ -751,6 +780,19 @@ test("admin student records require explicit booking links and protect licence s
   assert.match(csv, /Cache-Control.*private, no-store/);
   assert.match(migration, /student_profile_audit/);
   assert.match(migration, /student_assessments/);
+});
+
+test("returning bookings and authenticated add-ons reuse one student profile safely", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0063_link_returning_student_bookings.sql", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../src/app/admin/(panel)/students/page.tsx", import.meta.url), "utf8");
+  assert.match(migration, /coalesce\(existing\.package_id, existing\.id\) = coalesce\(new\.package_id, new\.id\)/);
+  assert.match(migration, /lower\(btrim\(s\.email\)\) = lower\(btrim\(new\.email\)\)/);
+  assert.match(migration, /regexp_replace\(btrim\(s\.full_name\)/);
+  assert.match(migration, /if v_match_count <> 1 then/);
+  assert.match(migration, /pg_advisory_xact_lock\(hashtextextended/);
+  assert.match(migration, /Added from My Booking /);
+  assert.match(migration, /join public\.student_profile_bookings l on l\.booking_id = source\.id/);
+  assert.match(page, /Email alone never merges students/);
 });
 
 test("overall student report unlocks only after every booked lesson is complete or cancelled", () => {
@@ -993,6 +1035,29 @@ test("migration 0060 reconciles either historical 0058 entry and restores both d
   assert.match(reconcile, /create or replace function public\.consume_booking_otp_send_quota/);
   assert.match(reconcile, /create or replace function public\.admin_save_booking_assessment/);
   assert.match(reconcile, /jsonb_object_length\(p_rubric_scores\) < 1/);
+});
+
+test("migration 0061 removes the implicit administrator role default", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/0061_remove_admin_profile_default.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /alter column role drop default/i);
+  assert.doesNotMatch(migration, /set default\s+['"]admin/i);
+});
+
+test("migration 0062 records admin cancellation reasons and refunds only unused package credits", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/0062_admin_refunds_and_cancellation_reasons.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(migration, /add column if not exists cancellation_reason text/i);
+  assert.match(migration, /length\(v_reason\) < 3 or length\(v_reason\) > 500/i);
+  assert.match(migration, /sum\(quantity_delta\)/i);
+  assert.match(migration, /quantity_delta, source_key, note/i);
+  assert.match(migration, /-v_balance/i);
+  assert.match(migration, /payment_status = 'refunded', refund_reason = v_reason/i);
+  assert.match(migration, /revoke all on function public\.admin_mark_package_purchase_refunded\(uuid, text\) from public, anon, authenticated/i);
 });
 
 test("passwordless admin bypass is limited to loopback hosts in development", () => {

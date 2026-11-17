@@ -63,6 +63,7 @@ interface BookingRow {
   email: string;
   phone: string;
   notes: string;
+  cancellation_reason?: string | null;
   status: BookingStatus;
   payment_status?: BookingRecord["paymentStatus"];
   cheque_status?: ChequeStatus;
@@ -112,6 +113,7 @@ export function toRecord(row: BookingRow): BookingRecord {
     email: row.email,
     phone: row.phone,
     notes: row.notes,
+    cancellationReason: row.cancellation_reason ?? undefined,
     status: row.status,
     paymentStatus: row.payment_status ?? "due",
     chequeStatus: row.cheque_status ?? "none",
@@ -162,6 +164,7 @@ interface PackagePurchaseRow {
   amount_cad: number;
   currency: "cad";
   payment_status: PackagePurchaseRecord["paymentStatus"];
+  refund_reason?: string | null;
   cheque_status?: ChequeStatus;
   cheque_reference?: string | null;
   cheque_received_at?: string | null;
@@ -195,6 +198,7 @@ function toPackagePurchase(row: PackagePurchaseRow, creditsAvailable = 0): Packa
     amountCad: Number(row.amount_cad),
     currency: "cad",
     paymentStatus: row.payment_status,
+    refundReason: row.refund_reason ?? undefined,
     chequeStatus: row.cheque_status ?? "none",
     chequeReference: row.cheque_reference ?? undefined,
     chequeReceivedAt: row.cheque_received_at ?? undefined,
@@ -516,7 +520,7 @@ export const supabaseStore: BookingStore = {
     return data ? toRecord(data) : null;
   },
 
-  async updateBookingStatus(id: string, status: BookingStatus): Promise<StoreResult<BookingRecord>> {
+  async updateBookingStatus(id: string, status: BookingStatus, cancellationReason?: string): Promise<StoreResult<BookingRecord>> {
     if (status === "completed") {
       const { data, error } = await adminClient().rpc("complete_booking_session", { p_booking_id: id });
       if (error) throw new Error(`Failed to complete booking session: ${error.message}`);
@@ -526,7 +530,7 @@ export const supabaseStore: BookingStore = {
       return { ok: true, value: toRecord(envelope.record) };
     }
     if (status === "cancelled") {
-      const { data, error } = await adminClient().rpc("admin_cancel_booking_package", { p_booking_id: id });
+      const { data, error } = await adminClient().rpc("admin_cancel_booking_package", { p_booking_id: id, p_reason: cancellationReason ?? "" });
       if (error) throw new Error(`Failed to cancel booking package: ${error.message}`);
       const envelope = data as RpcEnvelope<BookingRow>;
       if (!envelope.ok || !envelope.record) return { ok: false, error: "not_found" };
@@ -616,6 +620,20 @@ export const supabaseStore: BookingStore = {
     return { ok: true, value: toPackagePurchase(data as PackagePurchaseRow, (events ?? []).reduce((sum, event) => sum + event.quantity_delta, 0)) };
   },
 
+  async markPackagePurchaseRefunded(id: string, reason: string): Promise<StoreResult<PackagePurchaseRecord>> {
+    const { data, error } = await adminClient().rpc("admin_mark_package_purchase_refunded", {
+      p_purchase_id: id,
+      p_reason: reason,
+    });
+    if (error) throw new Error(`Failed to mark package purchase refunded: ${error.message}`);
+    if (!data) return { ok: false, error: "not_found" };
+    const { data: purchase, error: loadError } = await adminClient().from("package_purchases").select("*").eq("id", id).single();
+    if (loadError || !purchase) throw new Error(`Failed to reload refunded package: ${loadError?.message ?? "not found"}`);
+    const { data: events, error: eventsError } = await adminClient().from("package_credit_events").select("quantity_delta").eq("purchase_id", id);
+    if (eventsError) throw new Error(`Failed to load package credit balance: ${eventsError.message}`);
+    return { ok: true, value: toPackagePurchase(purchase as PackagePurchaseRow, (events ?? []).reduce((sum, event) => sum + event.quantity_delta, 0)) };
+  },
+
   async adminRescheduleBooking(
     id: string,
     startsAt: string,
@@ -637,8 +655,8 @@ export const supabaseStore: BookingStore = {
     return { ok: true, value: { booking: toRecord(envelope.record), newToken: token } };
   },
 
-  async adminCancelBooking(id: string): Promise<StoreResult<BookingRecord>> {
-    const { data, error } = await adminClient().rpc("admin_cancel_booking_package", { p_booking_id: id });
+  async adminCancelBooking(id: string, reason: string): Promise<StoreResult<BookingRecord>> {
+    const { data, error } = await adminClient().rpc("admin_cancel_booking_package", { p_booking_id: id, p_reason: reason });
     if (error) throw new Error(`Failed to cancel booking package: ${error.message}`);
     const envelope = data as RpcEnvelope<BookingRow>;
     if (!envelope.ok) return { ok: false, error: mapError(envelope.error) };

@@ -8,6 +8,7 @@ import { sendBookingPaymentReceivedEmail, sendPackagePurchasePaidEmail } from "@
 import {
   matchesInitialBookingPayment,
   matchesUpgradeBookingPayment,
+  stripeEventModeMatchesKey,
 } from "@/lib/stripe/payment-validation";
 
 /** Persist verified paid-session data; webhook event IDs make retries idempotent. */
@@ -17,6 +18,9 @@ export async function recordPaidCheckoutSession(
 ): Promise<void> {
   const bookingId = session.metadata?.booking_id;
   if (!bookingId || session.payment_status !== "paid") return;
+  if (!stripeEventModeMatchesKey(session.livemode, process.env.STRIPE_SECRET_KEY)) {
+    throw new Error("Stripe Checkout session mode does not match the configured payment mode.");
+  }
 
   // Trust the stored booking/session relationship, not webhook-supplied metadata
   // alone. Stripe Tax is additive, so compare the pre-tax subtotal to our price.
@@ -97,6 +101,9 @@ export async function recordPaidCheckoutSession(
 export async function recordPaidUpgradeCheckoutSession(session: Stripe.Checkout.Session, eventId: string): Promise<void> {
   const metadata = session.metadata;
   if (session.payment_status !== "paid" || metadata?.checkout_kind !== "package_upgrade") return;
+  if (!stripeEventModeMatchesKey(session.livemode, process.env.STRIPE_SECRET_KEY)) {
+    throw new Error("Stripe Checkout session mode does not match the configured payment mode.");
+  }
   const bookingId = metadata.booking_id;
   const targetLessonId = metadata.target_lesson_id;
   const targetLessonName = metadata.target_lesson_name;
@@ -134,6 +141,9 @@ export async function recordPaidPackagePurchaseCheckoutSession(
   const purchaseId = session.metadata?.purchase_id;
   const bundle = session.metadata?.checkout_kind === "package_purchase_bundle";
   if (session.payment_status !== "paid" || (!bundle && session.metadata?.checkout_kind !== "package_purchase") || !purchaseId) return;
+  if (!stripeEventModeMatchesKey(session.livemode, process.env.STRIPE_SECRET_KEY)) {
+    throw new Error("Stripe Checkout session mode does not match the configured payment mode.");
+  }
   const store = getStore();
   const purchases = bundle
     ? await store.getPackagePurchasesByCheckoutSession(session.id)
