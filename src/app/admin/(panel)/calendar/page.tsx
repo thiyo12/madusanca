@@ -89,6 +89,7 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
   const selectedBookingId = typeof params.booking === "string" ? params.booking : "";
   const licenseSearchState = typeof params.licenseSearch === "string" ? params.licenseSearch : "";
   const pageError = typeof params.error === "string" ? params.error : "";
+  const reportSaved = params.saved === "report";
   const validStatuses: BookingStatus[] = ["pending_payment", "confirmed", "rescheduled", "completed", "cancelled", "no_show"];
   const status = validStatuses.includes(statusParam as BookingStatus)
     ? (statusParam as BookingStatus)
@@ -240,7 +241,9 @@ export default async function AdminCalendarPage({ searchParams }: CalendarPagePr
         </div>
       </div>
 
-      {pageError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{pageError === "report" ? "Give at least one skill a score from 1–10, then save the report." : pageError === "student" ? "This student record needs to be linked before a report can be saved." : pageError}</p>}
+      {pageError && pageError !== "save" && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{pageError === "report" ? "Give at least one skill a score from 1–10, then save the report." : pageError === "student" ? "This student record needs to be linked before a report can be saved." : pageError}</p>}
+      {pageError === "save" && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">The report could not be saved. Your existing saved report was not replaced; please try again.</p>}
+      {reportSaved && <p role="status" className="mt-3 rounded-lg border border-[#d3e4c5] bg-[#f5faef] px-4 py-3 text-sm font-semibold text-[#385a22]">Lesson report saved. The latest marks are now shown below.</p>}
 
       <form action={searchStudentByLicenseAction} className="mt-4 flex flex-wrap items-end gap-2.5 rounded-[12px] border border-line bg-white p-3">
         <input type="hidden" name="view" value={view} />
