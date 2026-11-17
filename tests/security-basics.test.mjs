@@ -985,6 +985,7 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.equal([...studentPage.matchAll(/Download full report PDF/g)].length, 1);
   assert.match(studentPage, /Download this lesson report PDF/);
   assert.match(pdf, /createFullStudentRecordPdf/);
+  assert.match(pdf, /lesson-progress-report-\$\{reference\}-\$\{fileTimestamp\}\.pdf/);
   assert.match(pdfBuilder, /createFullStudentRecordPdf/);
   assert.match(pdfBuilder, /createTutorLessonReportPdf/);
   assert.match(pdfBuilder, /Overall skill rating:/);
