@@ -838,6 +838,7 @@ test("overall student report unlocks only after every booked lesson is complete 
 test("payment actions return failures to Payments and keep cheque changes functional", () => {
   const actions = readFileSync(new URL("../src/app/admin/(panel)/bookings/actions.ts", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/app/admin/(panel)/payments/page.tsx", import.meta.url), "utf8");
+  const paymentStatusFilter = readFileSync(new URL("../src/app/admin/(panel)/payments/payment-status-filter.tsx", import.meta.url), "utf8");
   assert.match(actions, /paymentFail = \(message: string\): never => redirect\(`\$\{safeReturnTo\}\?error=/);
   assert.match(actions, /expireOpenCheckout\(checkoutOwner, safeReturnTo\)/);
   assert.match(actions, /parsed\.data\.status === "received" \|\| parsed\.data\.status === "cleared"/);
@@ -845,6 +846,8 @@ test("payment actions return failures to Payments and keep cheque changes functi
   assert.match(page, /RecordCashButton bookingId=\{booking\.id\}/);
   assert.match(page, /Cheque tracking/);
   assert.match(page, /params\.error/);
+  assert.match(paymentStatusFilter, /onChange=\{\(event\) => event\.currentTarget\.form\?\.requestSubmit\(\)\}/);
+  assert.match(paymentStatusFilter, /name="payment"/);
 });
 
 test("date and timestamp schemas reject impossible or non-ISO values", () => {

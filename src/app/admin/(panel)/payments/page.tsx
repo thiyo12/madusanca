@@ -8,6 +8,7 @@ import { listPaidCheckoutSessions, paymentReportRange } from "@/lib/stripe/payme
 import { stripeMode } from "@/lib/stripe/server";
 import { logSafeError } from "@/lib/server/safe-log";
 import { RecordCashButton } from "./record-cash-button";
+import { PaymentStatusFilter } from "./payment-status-filter";
 
 export const metadata: Metadata = {
   title: "Payments — Wisdom Driving Academy Admin",
@@ -194,17 +195,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
         </label>
         <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
           Payment status
-          <select
-            name="payment"
-            defaultValue={paymentStatus ?? ""}
-            className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink outline-none focus:border-gold focus:ring-[3px] focus:ring-gold/25"
-          >
-            {PAYMENT_STATUSES.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <PaymentStatusFilter defaultValue={paymentStatus ?? ""} />
         </label>
         <button
           type="submit"
