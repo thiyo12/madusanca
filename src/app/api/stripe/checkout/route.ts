@@ -12,6 +12,7 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { isStripePaymentsEnabled } from "@/lib/stripe/payment-validation";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
+import { courseAccessForBooking } from "@/lib/admin/student-course-access";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 2_048;
@@ -76,6 +77,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     let found = await store.getBookingByToken(tokenHash);
     if (!found) {
       return NextResponse.json({ ok: false, error: "This booking link is invalid or has expired." }, { status: 404 });
+    }
+    if ((await courseAccessForBooking(found.booking)).isReadOnly) {
+      return NextResponse.json({ ok: false, error: "This course is complete. Start a new booking to continue training." }, { status: 409 });
     }
     if (found.booking.status === "cancelled" || found.booking.status === "completed") {
       return NextResponse.json({ ok: false, error: "This booking cannot be paid online." }, { status: 409 });

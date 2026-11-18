@@ -20,6 +20,7 @@ export interface FoundBooking {
   paymentStatus: "due" | "paid" | "refunded" | "waived";
   studentRescheduleCount: number;
   canOpen: boolean;
+  readOnly: boolean;
 }
 
 export interface FoundPurchase {
@@ -397,7 +398,7 @@ export function BookingFind({
               const isUpcoming = now !== null && !isPast;
               const isActive = booking.status === "confirmed" || booking.status === "rescheduled" || booking.status === "pending_payment";
               const withinCutoff = now !== null && isInsideSelfServiceWindow(booking.startsAt, now);
-              const rescheduleAvailable = booking.canOpen && isActive && !isPast && !withinCutoff && booking.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION;
+              const rescheduleAvailable = booking.canOpen && !booking.readOnly && isActive && !isPast && !withinCutoff && booking.studentRescheduleCount < MAX_STUDENT_RESCHEDULES_PER_SESSION;
               const rescheduleLabel = isPast
                 ? "Expired"
                 : !isActive
@@ -435,7 +436,7 @@ export function BookingFind({
                   </p>
                 </div>
                 <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-                  {isActive && !isPast && (
+                  {isActive && !isPast && !booking.readOnly && (
                     <button
                       type="button"
                       onClick={() => openBooking(booking.reference, "reschedule", booking.id)}
@@ -445,7 +446,12 @@ export function BookingFind({
                       {pending && rescheduleAvailable ? "Opening…" : rescheduleLabel}
                     </button>
                   )}
-                  {booking.canOpen && booking.paymentStatus === "due" && isUpcoming && (
+                  {booking.canOpen && booking.readOnly && (
+                    <button type="button" onClick={() => openBooking(booking.reference, "details", booking.id)} disabled={pending} className="inline-flex min-h-10 items-center justify-center rounded-full border border-line bg-white px-4 text-[12px] font-extrabold text-ink transition-colors hover:border-[#83b657] disabled:opacity-60">
+                      View lesson reports
+                    </button>
+                  )}
+                  {booking.canOpen && !booking.readOnly && booking.paymentStatus === "due" && isUpcoming && (
                     <button
                       type="button"
                       onClick={() => openBooking(booking.reference, "payment", booking.id)}
@@ -466,7 +472,7 @@ export function BookingFind({
           )}
           {(() => {
             const addOnSource = bookings.find((booking) =>
-              booking.canOpen && booking.paymentStatus === "paid" &&
+              booking.canOpen && !booking.readOnly && booking.paymentStatus === "paid" &&
               (booking.status === "confirmed" || booking.status === "rescheduled") &&
               now !== null && Date.parse(booking.startsAt) > now,
             );

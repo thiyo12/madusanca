@@ -13,6 +13,7 @@ import { logSafeError } from "@/lib/server/safe-log";
 import { packagePurchaseSchema } from "@/lib/validation/booking";
 import { occupiedDurationMin, validateSlot } from "@/lib/booking/slots";
 import { addMonthsToKey, dayKeyOf, formatSlotFull } from "@/lib/booking/format";
+import { courseAccessForBooking } from "@/lib/admin/student-course-access";
 
 export const dynamic = "force-dynamic";
 const ADDON_CHECKOUT_LEAD_TIME_MIN = 135;
@@ -66,10 +67,24 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!activePaidBooking || (!found && !purchaseContext)) {
       return NextResponse.json({ ok: false, error: "You can add packages from My Booking when you have an active paid lesson." }, { status: 409 });
     }
-    const anchorBooking = found?.booking ?? purchaseSessions.find((session) =>
+    const initialAnchorBooking = found?.booking ?? purchaseSessions.find((session) =>
       ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid",
     );
-    if (!anchorBooking) return NextResponse.json({ ok: false, error: "You can add packages from My Booking when you have an active paid lesson." }, { status: 409 });
+    if (!initialAnchorBooking) return NextResponse.json({ ok: false, error: "You can add packages from My Booking when you have an active paid lesson." }, { status: 409 });
+    const sourceBookings = await store.findBookingsByEmail(initialAnchorBooking.email);
+    let anchorBooking = initialAnchorBooking;
+    const visitedSources = new Set<string>();
+    while (anchorBooking.notes.startsWith("Added from My Booking ") && !visitedSources.has(anchorBooking.id)) {
+      visitedSources.add(anchorBooking.id);
+      const sourceReference = anchorBooking.notes.slice("Added from My Booking ".length).trim();
+      const parent = sourceBookings.find((item) => item.reference === sourceReference);
+      if (!parent || parent.id === anchorBooking.id) break;
+      anchorBooking = parent;
+    }
+    const courseAccess = await courseAccessForBooking(anchorBooking);
+    if (courseAccess.isReadOnly) {
+      return NextResponse.json({ ok: false, error: "This course is complete. Start a new booking to continue training." }, { status: 409 });
+    }
 
     const lessons = await store.getLessons();
     const scheduleItems = [] as Array<{ lesson: (typeof lessons)[number]; quantity: number; startsAt: string[] }>;

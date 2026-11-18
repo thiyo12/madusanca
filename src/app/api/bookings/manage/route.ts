@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/booking/store";
-import { assessmentForBooking } from "@/lib/admin/student-profiles";
+import { assessmentForBooking, assessmentsForStudent, bookingsForStudent, courseCompletionsForStudent, studentForBooking } from "@/lib/admin/student-profiles";
 import { validateSlot } from "@/lib/booking/slots";
 import { generateToken, hashToken, tokenExpiry } from "@/lib/booking/tokens";
 import { manageSchema } from "@/lib/validation/booking";
@@ -18,6 +18,8 @@ import { getManageToken, MANAGE_COOKIE_NAME, manageCookieOptions } from "@/lib/b
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
 import { dayKeyOf } from "@/lib/booking/format";
 import { isInsideSelfServiceWindow } from "@/lib/booking/manage-policy";
+import { COURSE_REPORT_RETENTION_DAYS, courseAccessForBooking } from "@/lib/admin/student-course-access";
+import { courseKeyForBooking } from "@/lib/admin/course-groups";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 8_192;
@@ -39,7 +41,11 @@ function errorResponse(error: string, message: string): NextResponse {
   );
 }
 
-function safeView(booking: BookingRecord): {
+function safeView(
+  booking: BookingRecord,
+  readOnly = false,
+  reportAccessExpiresAt: string | null = null,
+): {
   id: string;
   reference: string;
   lessonId: string;
@@ -59,6 +65,8 @@ function safeView(booking: BookingRecord): {
   packagePriceCad: number;
   packageWindowStart: string;
   isAdditionalPackage: boolean;
+  readOnly: boolean;
+  reportAccessExpiresAt: string | null;
 } {
   return {
     id: booking.id,
@@ -80,13 +88,15 @@ function safeView(booking: BookingRecord): {
     packagePriceCad: booking.packagePriceCad ?? booking.priceCad,
     packageWindowStart: booking.packageWindowStart ?? dayKeyOf(booking.startsAt),
     isAdditionalPackage: booking.notes.startsWith(ADDON_SOURCE_PREFIX),
+    readOnly,
+    reportAccessExpiresAt,
   };
 }
 
-async function safeStudentView(booking: BookingRecord) {
+async function safeStudentView(booking: BookingRecord, access: { isReadOnly: boolean; reportAccessExpiresAt: string | null } = { isReadOnly: false, reportAccessExpiresAt: null }) {
   const report = await assessmentForBooking(booking.id);
   return {
-    ...safeView(booking),
+    ...safeView(booking, access.isReadOnly, access.reportAccessExpiresAt),
     ...(report ? {
       report: {
         assessmentDate: report.assessment_date,
@@ -96,6 +106,31 @@ async function safeStudentView(booking: BookingRecord) {
       },
     } : {}),
   };
+}
+
+async function hasAccessibleReports(booking: BookingRecord): Promise<boolean> {
+  const profile = await studentForBooking(booking.id);
+  if (!profile) return Boolean(await assessmentForBooking(booking.id));
+  const [bookings, reports, completions] = await Promise.all([
+    bookingsForStudent(profile.id),
+    assessmentsForStudent(profile.id),
+    courseCompletionsForStudent(profile.id),
+  ]);
+  const selectedCourseKey = courseKeyForBooking(booking, bookings);
+  const accessibleBookingIds = new Set(bookings.flatMap((item) => {
+    const courseKey = courseKeyForBooking(item, bookings);
+    const completion = completions.find((entry) => entry.course_key === courseKey);
+    const reportWindowOpen = completion
+      ? Date.now() < Date.parse(completion.finished_at) + COURSE_REPORT_RETENTION_DAYS * 24 * 60 * 60_000
+      : courseKey === selectedCourseKey || bookings.some((session) =>
+        courseKeyForBooking(session, bookings) === courseKey &&
+        ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid",
+      );
+    return reportWindowOpen
+      ? [item.id]
+      : [];
+  }));
+  return reports.some((report) => report.booking_id && accessibleBookingIds.has(report.booking_id));
 }
 
 function safePurchaseView(purchase: PackagePurchaseRecord) {
@@ -255,19 +290,24 @@ export async function POST(request: Request): Promise<NextResponse> {
           const purchaseBookings = await getStore().findBookingsByPurchaseId(purchase.id);
           const seedBooking = purchaseBookings.find((session) => (session.sessionIndex ?? 1) === 1) ?? purchaseBookings[0] ?? null;
           const context = await loadManageContext(getStore(), seedBooking, purchase);
+          const access = context.booking ? await courseAccessForBooking(context.booking) : null;
+          if (access?.completion && !access.canViewReports) {
+            return errorResponse("expired", "Report access for this completed course has ended. Contact the school if you need help.");
+          }
           const activePaidSessions = context.sessions.filter((session) =>
             ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" && Date.parse(session.startsAt) > Date.now(),
           );
-          const addOnOptions = activePaidSessions.length > 0
+          const addOnOptions = activePaidSessions.length > 0 && !access?.isReadOnly
             ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package")
               .map(({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }) => ({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }))
             : [];
           const activeBookingRecord = context.booking ?? activePaidSessions[0] ?? seedBooking;
+          const hasReports = activeBookingRecord ? await hasAccessibleReports(activeBookingRecord) : false;
           return NextResponse.json({
             ok: true,
             ...(context.purchase ? { purchase: safePurchaseView(context.purchase) } : {}),
-            ...(activeBookingRecord ? { booking: { ...safeView(activeBookingRecord), addOnOptions } } : {}),
-            sessions: await Promise.all(context.sessions.map(safeStudentView)),
+            ...(activeBookingRecord ? { booking: { ...safeView(activeBookingRecord, access?.isReadOnly, access?.reportAccessExpiresAt), addOnOptions, hasAccessibleReports: hasReports } } : {}),
+            sessions: await Promise.all(context.sessions.map((session) => safeStudentView(session, access ?? undefined))),
           });
         }
         return errorResponse("not_found", "This booking link is invalid or has expired.");
@@ -275,18 +315,24 @@ export async function POST(request: Request): Promise<NextResponse> {
       const purchaseId = found.booking.purchaseId ?? found.sessions.find((session) => session.purchaseId)?.purchaseId;
       const linkedPurchase = purchaseId ? await getStore().getPackagePurchaseById(purchaseId) : null;
       const context = await loadManageContext(getStore(), found.booking, linkedPurchase);
+      const access = await courseAccessForBooking(context.booking ?? found.booking);
+      if (access.completion && !access.canViewReports) {
+        return errorResponse("expired", "Report access for this completed course has ended. Contact the school if you need help.");
+      }
       const activePaidSessions = context.sessions.filter((session) => ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid" && Date.parse(session.startsAt) > Date.now());
       // Add-ons reserve their own future lesson times, so do not hide the
       // option just because an existing lesson is inside the 48-hour cutoff.
-      const canAddPackage = activePaidSessions.length > 0;
+      const canAddPackage = activePaidSessions.length > 0 && !access.isReadOnly;
       const packages = canAddPackage ? (await getStore().getLessons()).filter((lesson) => lesson.category === "package") : [];
+      const hasReports = await hasAccessibleReports(context.booking ?? found.booking);
       return NextResponse.json({
         ok: true,
         booking: {
-          ...safeView(context.booking ?? found.booking),
+          ...safeView(context.booking ?? found.booking, access.isReadOnly, access.reportAccessExpiresAt),
           addOnOptions: canAddPackage ? packages.map(({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category }) => ({ id, name, priceCad, durationMin, sessionCount, description, features, icon, popular, category })) : [],
+          hasAccessibleReports: hasReports,
         },
-        sessions: await Promise.all(context.sessions.map(safeStudentView)),
+        sessions: await Promise.all(context.sessions.map((session) => safeStudentView(session, access))),
         ...(context.purchase ? { purchase: safePurchaseView(context.purchase) } : {}),
       });
     }
@@ -303,18 +349,25 @@ export async function POST(request: Request): Promise<NextResponse> {
       ]);
       return NextResponse.json({
         ok: true,
-        bookings: bookings.map((booking) => ({
-          id: booking.id,
-          studentName: booking.studentName,
-          reference: booking.reference,
-          lessonName: booking.lessonName,
-          durationMin: booking.durationMin,
-          priceCad: booking.priceCad,
-          startsAt: booking.startsAt,
-          status: booking.status,
-          paymentStatus: booking.paymentStatus ?? "due",
-          studentRescheduleCount: booking.studentRescheduleCount ?? 0,
-          canOpen: ["pending_payment", "confirmed", "rescheduled"].includes(booking.status),
+        bookings: await Promise.all(bookings.map(async (booking) => {
+          const access = await courseAccessForBooking(booking);
+          return {
+            id: booking.id,
+            studentName: booking.studentName,
+            reference: booking.reference,
+            lessonName: booking.lessonName,
+            durationMin: booking.durationMin,
+            priceCad: booking.priceCad,
+            startsAt: booking.startsAt,
+            status: booking.status,
+            paymentStatus: booking.paymentStatus ?? "due",
+            studentRescheduleCount: booking.studentRescheduleCount ?? 0,
+            canOpen: access.canViewReports && (
+              ["pending_payment", "confirmed", "rescheduled"].includes(booking.status) ||
+              booking.status === "completed"
+            ),
+            readOnly: access.isReadOnly,
+          };
         })),
         purchases: purchases.map((item) => ({
           studentName: item.studentName,
@@ -350,6 +403,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       return errorResponse("not_found", "This booking link is invalid or has expired.");
     }
     const context = await loadManageContext(store, seedBooking, tokenPurchase);
+    const access = await courseAccessForBooking(context.booking ?? seedBooking);
+    if (access.isReadOnly) {
+      return errorResponse("not_modifiable", "This course is complete and read-only. Start a new booking to continue training.");
+    }
     const targetBooking = context.sessions.find((session) => session.id === sessionId);
     if (!targetBooking) return errorResponse("not_found", "That lesson is not part of this My Booking group.");
     const targetGroupId = packageGroupId(targetBooking);
@@ -467,7 +524,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const response = NextResponse.json({
       ok: true,
       booking: safeView(updatedContext.booking ?? result.value),
-      sessions: updatedContext.sessions.map(safeView),
+      sessions: updatedContext.sessions.map((session) => safeView(session)),
       ...(updatedContext.purchase ? { purchase: safePurchaseView(updatedContext.purchase) } : {}),
       emailSent,
     });

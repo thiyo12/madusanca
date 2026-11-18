@@ -15,6 +15,7 @@ import {
   stripeEventModeMatchesKey,
 } from "../src/lib/stripe/payment-validation.ts";
 import { logSafeError } from "../src/lib/server/safe-log.ts";
+import { bookingsByCourse, courseKeyForBooking } from "../src/lib/admin/course-groups.ts";
 import {
   availabilityQuerySchema,
   createBookingSchema,
@@ -107,7 +108,7 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
 
 test("expired lessons do not offer online payment", () => {
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
-  assert.match(bookingFind, /booking\.canOpen && booking\.paymentStatus === "due" && isUpcoming/);
+  assert.match(bookingFind, /booking\.canOpen && !booking\.readOnly && booking\.paymentStatus === "due" && isUpcoming/);
 });
 
 test("the 48-hour reschedule cutoff applies independently to each package session", () => {
@@ -807,6 +808,23 @@ test("returning bookings and authenticated add-ons reuse one student profile saf
   assert.match(page, /Email alone never merges students/);
 });
 
+test("one initial lesson plus eight My Booking add-ons form one course; a later booking remains separate", () => {
+  const original = { id: "lesson-1", reference: "WDA-ROOT", packageId: "course-old", notes: "" };
+  const addOns = Array.from({ length: 8 }, (_, index) => ({
+    id: `addon-${index + 1}`,
+    reference: `WDA-ADDON-${index + 1}`,
+    packageId: `addon-package-${index + 1}`,
+    notes: "Added from My Booking WDA-ROOT",
+  }));
+  const rebooking = { id: "new-lesson", reference: "WDA-NEW", packageId: "course-new", notes: "" };
+  const bookings = [original, ...addOns, rebooking];
+  const courses = bookingsByCourse(bookings);
+  assert.equal(courses.size, 2);
+  assert.equal(courses.get("course-old")?.length, 9);
+  assert.equal(courses.get("course-new")?.length, 1);
+  assert.equal(courseKeyForBooking(addOns[0], bookings), "course-old");
+});
+
 test("overall student report unlocks only after every booked lesson is complete or cancelled", () => {
   const lesson = (status) => ({ status });
   assert.equal(studentSessionsComplete([]), false);
@@ -937,8 +955,9 @@ test("tutor reports gate lesson completion and course closure preserves unused s
   assert.match(migration, /'report_required'/);
   assert.match(migration, /v_completed<v_expected/);
   assert.match(migration, /ended_early/);
-  assert.match(students, /completedCount} of \{expectedCount} lessons completed/);
-  assert.match(students, /course\.averages/);
+  assert.match(students, /Finish course/);
+  assert.match(students, /Completed lessons/);
+  assert.doesNotMatch(students, /Course progress &amp; final report/);
   assert.match(bookings, /Open in Calendar/);
   assert.doesNotMatch(bookings, /BookingActions/);
   assert.doesNotMatch(students, /BookingActions/);
@@ -981,15 +1000,17 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.match(calendarPage, /nextLessonAt/);
   assert.match(calendar, /Next lesson:/);
   assert.doesNotMatch(calendar, /Student details<\/Link>/);
-  assert.match(studentPage, /Download full report PDF/);
-  assert.equal([...studentPage.matchAll(/Download full report PDF/g)].length, 1);
+  assert.match(studentPage, /Download overall student report PDF/);
+  assert.equal([...studentPage.matchAll(/Download overall student report PDF/g)].length, 1);
+  assert.doesNotMatch(studentPage, /Course progress &amp; final report/);
   assert.match(studentPage, /Download this lesson report PDF/);
   assert.match(pdf, /createFullStudentRecordPdf/);
   assert.match(pdf, /lesson-progress-report-\$\{reference\}-\$\{fileTimestamp\}\.pdf/);
   assert.match(pdfBuilder, /createFullStudentRecordPdf/);
   assert.match(pdfBuilder, /createTutorLessonReportPdf/);
   assert.match(pdfBuilder, /Overall skill rating:/);
-  assert.match(pdfBuilder, /LESSON-BY-LESSON REPORTS/);
+  assert.match(pdfBuilder, /COURSE-BY-COURSE LESSON REPORTS/);
+  assert.match(pdfBuilder, /not an official Canadian or ICBC standard/);
   assert.match(pdfBuilder, /replaceAll\("·", " \| "\)/);
   const fullReportBuilder = pdfBuilder.slice(pdfBuilder.indexOf("export function createFullStudentRecordPdf"), pdfBuilder.indexOf("export function createTutorLessonReportPdf"));
   assert.doesNotMatch(fullReportBuilder, /BOOKING HISTORY|COURSE COMPLETION|Payment reference|Invoice reference|Booking notes|Stripe subtotal/i);
@@ -1002,6 +1023,27 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.match(reportPdf, /bookings\.find\(\(item\) => item\.id === reportBookingId\)/);
   assert.match(reportPdf, /createTutorLessonReportPdf/);
   assert.match(csv, /Skill ratings|rubricHeaders/);
+});
+
+test("course add-ons stay together, rebookings stay separate, and completed courses are report-only for 45 days", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0065_course_report_access_and_addon_groups.sql", import.meta.url), "utf8");
+  const grouping = readFileSync(new URL("../src/lib/admin/course-groups.ts", import.meta.url), "utf8");
+  const access = readFileSync(new URL("../src/lib/admin/student-course-access.ts", import.meta.url), "utf8");
+  const manage = readFileSync(new URL("../src/app/api/bookings/manage/route.ts", import.meta.url), "utf8");
+  const addOn = readFileSync(new URL("../src/app/api/stripe/package-purchase/route.ts", import.meta.url), "utf8");
+  const checkout = readFileSync(new URL("../src/app/api/stripe/checkout/route.ts", import.meta.url), "utf8");
+  const managePage = readFileSync(new URL("../src/components/booking/booking-manage.tsx", import.meta.url), "utf8");
+  assert.match(migration, /interval '45 days'/);
+  assert.match(migration, /expires_at=v_finished_at \+ interval '45 days'/);
+  assert.doesNotMatch(migration, /delete from public\.booking_tokens/);
+  assert.match(migration, /b\.notes=v_addon_prefix \|\| v_course_reference/);
+  assert.match(grouping, /Added from My Booking/);
+  assert.match(access, /COURSE_REPORT_RETENTION_DAYS = 45/);
+  assert.match(manage, /if \(access\.isReadOnly\)/);
+  assert.match(addOn, /if \(courseAccess\.isReadOnly\)/);
+  assert.match(checkout, /courseAccessForBooking\(found\.booking\)\)\.isReadOnly/);
+  assert.match(managePage, /Course complete · read-only/);
+  assert.match(managePage, /reportAccessExpiresAt/);
 });
 
 test("tutor report migration removes the unsupported JSONB object-length call", () => {
@@ -1040,7 +1082,8 @@ test("verified My Booking can download a private lesson report PDF with describe
   assert.match(route, /getBookingByToken\(tokenHash\)/);
   assert.match(route, /createStudentAssessmentPdf/);
   assert.match(route, /Cache-Control": "private, no-store/);
-  assert.match(component, /Download lesson report PDF/);
+  assert.match(component, /Download overall lesson report PDF/);
+  assert.match(component, /href="\/api\/bookings\/manage\/report"\s+download/);
   assert.match(rubric, /description:/);
   assert.match(pdf, /item\.description/);
 });
@@ -1051,7 +1094,7 @@ test("student lesson reports are returned only from the verified My Booking flow
   assert.match(route, /const token = await getManageToken\(\)/);
   assert.match(route, /assessmentForBooking\(booking\.id\)/);
   assert.match(route, /assessmentDate: report\.assessment_date/);
-  assert.match(route, /sessions: await Promise\.all\(context\.sessions\.map\(safeStudentView\)\)/);
+  assert.match(route, /context\.sessions\.map\(\(session\) => safeStudentView\(session, access\)\)/);
   assert.match(portal, /Lesson report · \{report\.assessmentDate\}/);
   assert.match(portal, /TUTOR_REPORT_RUBRIC/);
   assert.doesNotMatch(portal, /href=["']\/admin\//);

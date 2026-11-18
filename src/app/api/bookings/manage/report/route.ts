@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { assessmentForBooking } from "@/lib/admin/student-profiles";
+import { assessmentsForStudent, assessmentForBooking, bookingsForStudent, studentForBooking, type StudentAssessment } from "@/lib/admin/student-profiles";
 import { createStudentAssessmentPdf } from "@/lib/admin/student-assessment-pdf";
 import { getManageToken } from "@/lib/booking/manage-cookie";
 import { getStore } from "@/lib/booking/store";
 import { hashToken } from "@/lib/booking/tokens";
+import { bookingsByCourse, courseKeyForBooking } from "@/lib/admin/course-groups";
+import { courseAccessForBooking } from "@/lib/admin/student-course-access";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,20 +28,48 @@ export async function GET(): Promise<Response> {
       studentName = purchase.studentName;
     }
 
-    if (!bookings.length || !studentName) {
+    const seedBooking = bookings[0];
+    if (!seedBooking || !studentName) {
       return NextResponse.json({ error: "No lesson reports are available for this booking." }, { status: 404 });
     }
-    const reports = (await Promise.all(bookings.map((booking) => assessmentForBooking(booking.id))))
-      .filter((report): report is NonNullable<typeof report> => Boolean(report));
+    const selectedCourseAccess = await courseAccessForBooking(seedBooking);
+    if (!selectedCourseAccess.canViewReports) {
+      return NextResponse.json({ error: "Report access for this completed course has ended." }, { status: 410 });
+    }
+    const profile = await studentForBooking(seedBooking.id);
+    let reports: StudentAssessment[];
+    if (profile) {
+      const [profileBookings, profileReports] = await Promise.all([
+        bookingsForStudent(profile.id),
+        assessmentsForStudent(profile.id),
+      ]);
+      const selectedCourseKey = courseKeyForBooking(seedBooking, profileBookings);
+      const groups = bookingsByCourse(profileBookings);
+      const visibleGroups = await Promise.all([...groups].map(async ([key, sessions]) => {
+        if (key === selectedCourseKey) return sessions;
+        const courseAccess = await courseAccessForBooking(sessions[0]!);
+        if (courseAccess.completion) return courseAccess.canViewReports ? sessions : [];
+        return sessions.some((session) =>
+          ["confirmed", "rescheduled"].includes(session.status) && session.paymentStatus === "paid",
+        ) ? sessions : [];
+      }));
+      bookings = visibleGroups.flat();
+      const allowedIds = new Set(bookings.map((booking) => booking.id));
+      reports = profileReports.filter((report) => report.booking_id && allowedIds.has(report.booking_id));
+    } else {
+      reports = (await Promise.all(bookings.map((booking) => assessmentForBooking(booking.id))))
+        .filter((report): report is StudentAssessment => Boolean(report));
+    }
     if (!reports.length) {
       return NextResponse.json({ error: "No saved lesson reports are available yet." }, { status: 404 });
     }
 
-    const pdf = createStudentAssessmentPdf(studentName, new Date(), bookings, reports);
+    const generatedAt = new Date();
+    const pdf = createStudentAssessmentPdf(studentName, generatedAt, bookings, reports);
     return new Response(pdf as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": 'attachment; filename="lesson-assessment.pdf"',
+        "Content-Disposition": `attachment; filename="wda-overall-lesson-report-${generatedAt.toISOString().replace(/[:.]/g, "-")}.pdf"`,
         "Cache-Control": "private, no-store, max-age=0",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
