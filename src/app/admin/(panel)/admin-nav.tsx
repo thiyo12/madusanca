@@ -13,6 +13,7 @@ export interface AdminNavProps {
 const NAV_ITEMS = [
   { href: "/admin", label: "Dashboard" },
   { href: "/admin/bookings", label: "Bookings" },
+  { href: "/admin/inbox", label: "Inbox" },
   { href: "/admin/payments", label: "Payments" },
   { href: "/admin/calendar", label: "Calendar" },
   { href: "/admin/students", label: "Students" },

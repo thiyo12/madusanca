@@ -38,8 +38,9 @@ const sections: { heading: string; body: React.ReactNode }[] = [
           </li>
           <li>
             <strong>Contact messages:</strong> anything you send through our
-            contact form, including your name, email, and optionally your phone
-            number.
+            contact form, including your name, email, phone number, subject,
+            and message. We keep these submissions in our private admin inbox
+            so our staff can follow up with you by phone.
           </li>
           <li>
             <strong>Technical data:</strong> basic server logs (IP address,
