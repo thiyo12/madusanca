@@ -191,6 +191,49 @@ export async function setBookingPaymentAction(
   revalidateAdmin();
 }
 
+/**
+ * Record a payment received outside Stripe when online payment is unavailable.
+ * This intentionally does not query Stripe; the admin must confirm receipt.
+ */
+export async function markBookingPaidManuallyAction(bookingId: string): Promise<void> {
+  await requireAdmin("/admin/payments");
+  if (!idSchema.safeParse(bookingId).success) redirect("/admin/payments?error=Invalid+booking.");
+
+  const store = getStore();
+  const booking = await store.getBookingById(bookingId);
+  if (!booking) redirect("/admin/payments?error=Booking+not+found.");
+  if (booking.paymentStatus !== "due") {
+    redirect("/admin/payments?error=Only+bookings+with+payment+due+can+be+marked+paid.");
+  }
+  if (booking.status === "cancelled" || booking.status === "completed") {
+    redirect("/admin/payments?error=This+lesson+is+closed+and+cannot+be+marked+paid.");
+  }
+  if (booking.stripeCheckoutExpiresAt && Date.parse(booking.stripeCheckoutExpiresAt) > Date.now()) {
+    redirect("/admin/payments?error=An+online+Stripe+Checkout+is+still+open.+Wait+for+it+to+expire+before+recording+an+offline+payment.");
+  }
+
+  const result = await store.updatePaymentStatus(bookingId, "paid");
+  if (!result.ok) {
+    redirect("/admin/payments?error=This+lesson+could+not+be+marked+paid.+Check+its+schedule+and+try+again.");
+  }
+  try {
+    await sendBookingPaymentReceivedEmail({
+      reference: result.value.reference,
+      lessonName: result.value.lessonName,
+      durationMin: result.value.durationMin,
+      startsAt: result.value.startsAt,
+      studentName: result.value.studentName,
+      studentEmail: result.value.email,
+      manageUrl: manageUrl(),
+      invoiceUrl: result.value.stripeInvoiceUrl,
+    });
+  } catch (error) {
+    logSafeError("[admin] manual payment confirmation email failed", error);
+  }
+
+  revalidateAdmin();
+}
+
 export async function updateBookingChequeAction(formData: FormData): Promise<void> {
   await requireAdmin("/admin/payments");
   const parsed = z.object({ bookingId: idSchema, status: chequeStatusSchema, reference: z.string().trim().max(80) }).safeParse({ bookingId: formData.get("bookingId"), status: formData.get("status"), reference: formData.get("reference") });
