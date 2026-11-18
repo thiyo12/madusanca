@@ -1013,6 +1013,12 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.match(pdfBuilder, /kind: "spacer", gap: 20/);
   assert.match(pdfBuilder, /table: "scores", cells: \["Skill", "Rating", "Assessment focus"\]/);
   assert.match(pdfBuilder, /function drawTableLine/);
+  assert.match(pdfBuilder, /kind: "pageBreak"/);
+  assert.match(pdfBuilder, /kind: "finalScore"/);
+  assert.match(pdfBuilder, /Assessment not yet recorded/);
+  assert.match(pdfBuilder, /y - 38 < 78/);
+  assert.match(pdfBuilder, /Booking status/);
+  assert.match(pdfBuilder, /booked lesson\$\{courseBookings\.length === 1 \? "" : "s"\}/);
   assert.match(pdfBuilder, /not an official Canadian or ICBC standard/);
   assert.match(pdfBuilder, /replaceAll\("·", " \| "\)/);
   const fullReportBuilder = pdfBuilder.slice(pdfBuilder.indexOf("export function createFullStudentRecordPdf"), pdfBuilder.indexOf("export function createTutorLessonReportPdf"));

@@ -59,7 +59,7 @@ export function createStudentAssessmentPdf(
   const lines: DocumentLine[] = [
     { text: "OVERALL PERFORMANCE", kind: "section" },
     { text: `Overall WDA skill rating: ${average}${scores.length ? "/10" : ""}`, kind: "subheading" },
-    { text: `Based on ${savedReports.length} saved lesson report${savedReports.length === 1 ? "" : "s"} and ${scores.length} marked skill${scores.length === 1 ? "" : "s"}.`, kind: "muted" },
+    { text: `Across ${bookings.length} booked lesson${bookings.length === 1 ? "" : "s"}: ${savedReports.length} saved report${savedReports.length === 1 ? "" : "s"} and ${scores.length} marked skill${scores.length === 1 ? "" : "s"}.`, kind: "muted" },
     { text: "Category averages", kind: "subheading" },
   ];
   for (const section of TUTOR_REPORT_RUBRIC) {
@@ -80,34 +80,51 @@ export function createStudentAssessmentPdf(
   const reportLookup = new Map(savedReports.map(({ booking, report }) => [booking.id, report]));
   let courseNumber = 0;
   for (const courseBookings of bookingsByCourse(bookings).values()) {
-    const courseReports = courseBookings.flatMap((booking) => {
-      const report = reportLookup.get(booking.id);
-      return report ? [{ booking, report }] : [];
-    });
-    if (!courseReports.length) continue;
+    if (!courseBookings.length) continue;
     courseNumber += 1;
-    const dates = courseReports.map(({ booking }) => formatSlotDay(booking.startsAt));
-    lines.push({ text: `COURSE ${courseNumber}  |  ${courseReports[0]!.booking.lessonName}`, kind: "subheading" });
-    lines.push({ text: `${courseReports.length} saved lesson report${courseReports.length === 1 ? "" : "s"}  |  ${dates[0]}${dates.at(-1) !== dates[0] ? ` to ${dates.at(-1)}` : ""}`, kind: "muted" });
-    for (const { booking, report } of courseReports) {
+    const savedCourseReports = courseBookings.filter((booking) => reportLookup.has(booking.id));
+    const dates = courseBookings.map((booking) => formatSlotDay(booking.startsAt));
+    lines.push({ text: `COURSE ${courseNumber}  |  ${courseBookings[0]!.lessonName}`, kind: "subheading" });
+    lines.push({
+      text: `${courseBookings.length} booked lesson${courseBookings.length === 1 ? "" : "s"} · ${savedCourseReports.length} report${savedCourseReports.length === 1 ? "" : "s"} saved · ${dates[0]}${dates.at(-1) !== dates[0] ? ` to ${dates.at(-1)}` : ""}`,
+      kind: "muted",
+    });
+    for (const booking of courseBookings) {
+      const report = reportLookup.get(booking.id);
       lines.push({
-        text: `Class ${booking.sessionIndex ?? 1}  |  ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`,
+        text: `Class ${booking.sessionIndex ?? 1}  |  ${booking.lessonName}  |  ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  ${bookingStatusLabel(booking.status)}`,
         kind: "muted",
       });
-      appendReportLines(lines, report);
+      if (report) {
+        lines.push({ text: `Assessed: ${report.assessment_date}`, kind: "muted", indent: 10 });
+        appendReportLines(lines, report);
+      } else {
+        lines.push({ text: "Assessment not yet recorded.", kind: "muted", indent: 10 });
+      }
     }
   }
   lines.push({ text: "Ratings use WDA's instructional assessment scale (1–10). This is not an official Canadian or ICBC standard or road-test score.", kind: "muted" });
+  lines.push({ kind: "pageBreak" });
+  lines.push({ text: "FINAL OVERALL SCORE", kind: "section" });
+  lines.push({ text: `${average}${scores.length ? "/10" : ""}`, kind: "finalScore" });
+  lines.push({
+    text: `Calculated from ${scores.length} saved skill rating${scores.length === 1 ? "" : "s"} across ${savedReports.length} lesson report${savedReports.length === 1 ? "" : "s"}.`,
+    kind: "muted",
+  });
   return renderDocumentPdf("OVERALL STUDENT REPORT", studentName, generatedAt, lines);
 }
 
 interface DocumentLine {
   text?: string;
-  kind?: "section" | "subheading" | "body" | "score" | "muted" | "tableHeader" | "tableRow" | "spacer";
+  kind?: "section" | "subheading" | "body" | "score" | "muted" | "tableHeader" | "tableRow" | "spacer" | "pageBreak" | "finalScore";
   indent?: number;
   cells?: string[];
   table?: "details" | "scores";
   gap?: number;
+}
+
+function bookingStatusLabel(status: string): string {
+  return status.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 
 /** Professional student assessment report: profile, overall results, and complete saved lesson reports. */
@@ -140,7 +157,7 @@ export function createFullStudentRecordPdf(
     { kind: "spacer", gap: 20 },
     { text: "OVERALL ASSESSMENT", kind: "section" },
     { text: `Overall skill rating: ${overall}${markedScores.length ? "/10" : ""}`, kind: "subheading" },
-    { text: `Based on ${reports.length} saved lesson report${reports.length === 1 ? "" : "s"} and ${markedScores.length} marked skill${markedScores.length === 1 ? "" : "s"}.`, kind: "muted" },
+    { text: `Across ${bookings.length} booked lesson${bookings.length === 1 ? "" : "s"}: ${reports.length} saved report${reports.length === 1 ? "" : "s"} and ${markedScores.length} marked skill${markedScores.length === 1 ? "" : "s"}.`, kind: "muted" },
     { text: "Category averages", kind: "subheading" },
   ];
   if (markedScores.length) {
@@ -163,25 +180,38 @@ export function createFullStudentRecordPdf(
   const reportLookup = new Map(reports.map(({ booking, report }) => [booking.id, report]));
   let courseNumber = 0;
   for (const courseBookings of bookingsByCourse(bookings).values()) {
-    const courseReports = courseBookings.flatMap((booking) => {
-      const report = reportLookup.get(booking.id);
-      return report ? [{ booking, report }] : [];
-    });
-    if (!courseReports.length) continue;
+    if (!courseBookings.length) continue;
     courseNumber += 1;
-    const dates = courseReports.map(({ booking }) => formatSlotDay(booking.startsAt));
-    lines.push({ text: `COURSE ${courseNumber}  |  ${courseReports[0]!.booking.lessonName}`, kind: "subheading" });
-    lines.push({ text: `${courseReports.length} saved lesson report${courseReports.length === 1 ? "" : "s"}  |  ${dates[0]}${dates.at(-1) !== dates[0] ? ` to ${dates.at(-1)}` : ""}`, kind: "muted" });
-    for (const { booking, report } of courseReports) {
+    const savedCourseReports = courseBookings.filter((booking) => reportLookup.has(booking.id));
+    const dates = courseBookings.map((booking) => formatSlotDay(booking.startsAt));
+    lines.push({ text: `COURSE ${courseNumber}  |  ${courseBookings[0]!.lessonName}`, kind: "subheading" });
+    lines.push({
+      text: `${courseBookings.length} booked lesson${courseBookings.length === 1 ? "" : "s"} · ${savedCourseReports.length} report${savedCourseReports.length === 1 ? "" : "s"} saved · ${dates[0]}${dates.at(-1) !== dates[0] ? ` to ${dates.at(-1)}` : ""}`,
+      kind: "muted",
+    });
+    for (const booking of courseBookings) {
+      const report = reportLookup.get(booking.id);
       lines.push({ kind: "tableRow", table: "details", cells: ["Lesson", booking.lessonName] });
       lines.push({ kind: "tableRow", table: "details", cells: ["Class", String(booking.sessionIndex ?? 1)] });
       lines.push({ kind: "tableRow", table: "details", cells: ["Lesson date and time", `${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific`] });
-      lines.push({ kind: "tableRow", table: "details", cells: ["Assessed", report.assessment_date] });
-      appendReportLines(lines, report);
+      lines.push({ kind: "tableRow", table: "details", cells: ["Booking status", bookingStatusLabel(booking.status)] });
+      if (report) {
+        lines.push({ kind: "tableRow", table: "details", cells: ["Assessed", report.assessment_date] });
+        appendReportLines(lines, report);
+      } else {
+        lines.push({ text: "Assessment not yet recorded.", kind: "muted" });
+      }
     }
   }
   if (!reports.length) lines.push({ text: "No lesson reports have been saved yet.", kind: "muted" });
   lines.push({ text: "Ratings use WDA's instructional assessment scale (1–10). This is not an official Canadian or ICBC standard or road-test score.", kind: "muted" });
+  lines.push({ kind: "pageBreak" });
+  lines.push({ text: "FINAL OVERALL SCORE", kind: "section" });
+  lines.push({ text: `${overall}${markedScores.length ? "/10" : ""}`, kind: "finalScore" });
+  lines.push({
+    text: `Calculated from ${markedScores.length} saved skill rating${markedScores.length === 1 ? "" : "s"} across ${reports.length} lesson report${reports.length === 1 ? "" : "s"}.`,
+    kind: "muted",
+  });
   return renderDocumentPdf("LESSON PROGRESS REPORT", profile.full_name, generatedAt, lines);
 }
 
@@ -275,15 +305,51 @@ function renderDocumentPdf(title: string, studentName: string, generatedAt: Date
   const pages: Canvas[] = [{ commands: [] }];
   let y = 645;
   let tableRowNumber = 0;
-  for (const line of lines) {
+  let afterTable = false;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex]!;
     const kind = line.kind ?? "body";
     if (kind === "spacer") {
+      if (afterTable) y -= 10;
+      afterTable = false;
       y -= line.gap ?? 14;
+      continue;
+    }
+    if (kind === "pageBreak") {
+      if (pages.at(-1)!.commands.length) pages.push({ commands: [] });
+      y = 645;
+      afterTable = false;
       continue;
     }
     if (kind === "tableHeader" || kind === "tableRow") {
       y = drawTableLine(pages, y, line, kind === "tableHeader", tableRowNumber);
       if (kind === "tableRow") tableRowNumber += 1;
+      afterTable = true;
+      continue;
+    }
+    if (afterTable) y -= 10;
+    afterTable = false;
+    const nextLine = lines[lineIndex + 1];
+    if (
+      (kind === "section" || kind === "subheading")
+      && (nextLine?.kind === "tableHeader" || nextLine?.kind === "tableRow")
+      && y - 38 < 78
+    ) {
+      pages.push({ commands: [] });
+      y = 645;
+    }
+    if (kind === "finalScore") {
+      if (y - 52 < 78) {
+        pages.push({ commands: [] });
+        y = 645;
+      }
+      const page = pages.at(-1)!;
+      const bottom = y - 48;
+      page.commands.push(`q 0.94 0.97 0.91 rg 48 ${bottom.toFixed(2)} 516 48 re f Q`);
+      page.commands.push(`q ${rgb(GREEN)} RG 1 w 48 ${bottom.toFixed(2)} 516 48 re S Q`);
+      page.commands.push(`BT /F2 8 Tf ${rgb(INK)} rg 1 0 0 1 62 ${(y - 16).toFixed(2)} Tm (Overall WDA skill rating) Tj ET`);
+      page.commands.push(`BT /F2 21 Tf ${rgb(GREEN)} rg 1 0 0 1 62 ${(y - 39).toFixed(2)} Tm (${esc(line.text ?? "")}) Tj ET`);
+      y = bottom - 10;
       continue;
     }
     const fontSize = kind === "section" ? 11 : kind === "subheading" ? 9 : kind === "muted" ? 7.5 : 8.5;
@@ -341,7 +407,10 @@ function drawTableLine(pages: Canvas[], startY: number, line: DocumentLine, head
         page.commands.push(`q 0.82 0.85 0.86 RG 0.45 w ${x.toFixed(2)} ${bottom.toFixed(2)} m ${x.toFixed(2)} ${y.toFixed(2)} l S Q`);
       }
       const cellLines = wrapped[column] ?? [""];
-      const visibleLines = cellLines.slice(offset, offset + chunkLines);
+      const continuedLabel = offset > 0 && column === 0 && line.table === "details" && cellLines.length <= offset
+        ? [`${cells[0] ?? ""} (continued)`]
+        : null;
+      const visibleLines = continuedLabel ?? cellLines.slice(offset, offset + chunkLines);
       const color = header ? "1 1 1" : rgb(column === 0 ? INK : MUTED);
       const font = header || column === 0 ? "F2" : "F1";
       for (let index = 0; index < visibleLines.length; index += 1) {
