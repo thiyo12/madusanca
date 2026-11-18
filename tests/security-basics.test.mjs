@@ -835,16 +835,28 @@ test("overall student report unlocks only after every booked lesson is complete 
   assert.equal(studentSessionsComplete([lesson("cancelled")]), false);
 });
 
-test("payment actions return failures to Payments and keep cheque changes functional", () => {
+test("payments page stays booking-focused and supports guarded offline payment recording", () => {
   const actions = readFileSync(new URL("../src/app/admin/(panel)/bookings/actions.ts", import.meta.url), "utf8");
   const page = readFileSync(new URL("../src/app/admin/(panel)/payments/page.tsx", import.meta.url), "utf8");
+  const paymentStatusFilter = readFileSync(new URL("../src/app/admin/(panel)/payments/payment-status-filter.tsx", import.meta.url), "utf8");
+  const paymentActions = readFileSync(new URL("../src/app/admin/(panel)/payments/booking-payment-actions.tsx", import.meta.url), "utf8");
   assert.match(actions, /paymentFail = \(message: string\): never => redirect\(`\$\{safeReturnTo\}\?error=/);
   assert.match(actions, /expireOpenCheckout\(checkoutOwner, safeReturnTo\)/);
   assert.match(actions, /parsed\.data\.status === "received" \|\| parsed\.data\.status === "cleared"/);
   assert.doesNotMatch(actions, /if \(\(status === "received" \|\| status === "cleared"\)/);
-  assert.match(page, /RecordCashButton bookingId=\{booking\.id\}/);
+  const manualPaymentAction = actions.slice(actions.indexOf("export async function markBookingPaidManuallyAction"), actions.indexOf("export async function updateBookingChequeAction"));
+  assert.match(page, /<BookingPaymentActions bookingId=\{booking\.id\} paymentStatus=\{booking\.paymentStatus\} \/>/);
+  assert.doesNotMatch(page, /Package purchases|listPackagePurchases|listPackageCreditEvents/);
   assert.match(page, /Cheque tracking/);
   assert.match(page, /params\.error/);
+  assert.match(manualPaymentAction, /booking\.paymentStatus !== "due"/);
+  assert.match(manualPaymentAction, /booking\.status === "cancelled" \|\| booking\.status === "completed"/);
+  assert.match(manualPaymentAction, /stripeCheckoutExpiresAt/);
+  assert.match(manualPaymentAction, /store\.updatePaymentStatus\(bookingId, "paid"\)/);
+  assert.match(paymentActions, /Mark paid — offline payment received/);
+  assert.match(paymentActions, /window\.confirm/);
+  assert.match(paymentStatusFilter, /onChange=\{\(event\) => event\.currentTarget\.form\?\.requestSubmit\(\)\}/);
+  assert.match(paymentStatusFilter, /name="payment"/);
 });
 
 test("date and timestamp schemas reject impossible or non-ISO values", () => {

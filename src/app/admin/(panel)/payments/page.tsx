@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import { getStore } from "@/lib/booking/store";
 import { formatSlotDay, formatSlotTime } from "@/lib/booking/format";
 import { StatusChip } from "@/components/admin/status-chip";
-import { updateBookingChequeAction, updatePackageChequeAction, refundPackagePurchaseAction } from "../bookings/actions";
-import { RecordRefundButton } from "./record-refund-button";
+import { updateBookingChequeAction } from "../bookings/actions";
+import { BookingPaymentActions } from "./booking-payment-actions";
 import { listPaidCheckoutSessions, paymentReportRange } from "@/lib/stripe/payment-report";
 import { stripeMode } from "@/lib/stripe/server";
 import { logSafeError } from "@/lib/server/safe-log";
-import { RecordCashButton } from "./record-cash-button";
+import { PaymentStatusFilter } from "./payment-status-filter";
 
 export const metadata: Metadata = {
   title: "Payments — Wisdom Driving Academy Admin",
@@ -38,20 +38,6 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
   const bookings = await store.listBookings({
     search: q || undefined,
   });
-  const packagePurchases = await store.listPackagePurchases(200);
-  const filteredPurchases = q
-    ? packagePurchases.filter((purchase) =>
-        `${purchase.reference} ${purchase.studentName} ${purchase.email} ${purchase.lessonName}`
-          .toLowerCase().includes(q.toLowerCase()),
-      )
-    : packagePurchases;
-  const creditEvents = await store.listPackageCreditEvents(filteredPurchases.map((purchase) => purchase.id));
-  const eventsByPurchase = new Map<string, typeof creditEvents>();
-  for (const event of creditEvents) {
-    const events = eventsByPurchase.get(event.purchaseId) ?? [];
-    events.push(event);
-    eventsByPurchase.set(event.purchaseId, events);
-  }
   const mode = stripeMode();
   let reportSessions: Awaited<ReturnType<typeof listPaidCheckoutSessions>> | null = null;
   if (mode !== "unconfigured") {
@@ -88,7 +74,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
             Payments
           </h1>
           <p className="mt-1 text-[12.5px] text-soft">
-            Check what has been paid, what is still due, and how many lesson credits each student has left.
+            Review booking payments, find amounts due, and record verified offline payments.
           </p>
         </div>
       </div>
@@ -97,9 +83,10 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
         <h2 id="payments-howto" className="text-[13px] font-extrabold text-ink">How to use this page</h2>
         <ul className="mt-2 grid gap-2 text-[12px] leading-relaxed text-soft sm:grid-cols-2">
           <li><strong className="text-ink">Card payment:</strong> Stripe records it automatically. You do not need to press a payment button.</li>
-          <li><strong className="text-ink">Cash payment:</strong> use the action on the specific lesson only after receiving its payment. Other lessons in the package stay due.</li>
-          <li><strong className="text-ink">Cheque:</strong> choose its status and press <strong className="text-ink">Save cheque</strong> to keep a record. This tracks the cheque; it does not mark the booking paid.</li>
-          <li><strong className="text-ink">Refund:</strong> issue the refund manually in Stripe first, then use the refund action here to record it. Package refunds remove only unused lessons.</li>
+          <li><strong className="text-ink">Offline payment:</strong> use Actions only after receiving cash, cheque, or another offline payment. Other lessons in the package stay due.</li>
+          <li><strong className="text-ink">Stripe unavailable:</strong> the offline action is available for due lessons after any active Checkout window expires. Do not use it if a card payment may still complete.</li>
+          <li><strong className="text-ink">Cheque:</strong> choose its status and press <strong className="text-ink">Save cheque details</strong> to keep a record. This tracks the cheque; it does not mark the booking paid.</li>
+          <li><strong className="text-ink">Refund:</strong> issue the refund manually in Stripe first, then use the refund action here to record it.</li>
         </ul>
       </section>
       {actionError && <p role="alert" className="mt-3 rounded-lg border border-[#f3d1c9] bg-[#fff5f2] px-4 py-3 text-sm font-semibold text-[#bc4633]">{actionError}</p>}
@@ -194,17 +181,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
         </label>
         <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
           Payment status
-          <select
-            name="payment"
-            defaultValue={paymentStatus ?? ""}
-            className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink outline-none focus:border-gold focus:ring-[3px] focus:ring-gold/25"
-          >
-            {PAYMENT_STATUSES.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <PaymentStatusFilter defaultValue={paymentStatus ?? ""} />
         </label>
         <button
           type="submit"
@@ -292,8 +269,7 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex min-w-[150px] flex-col items-end gap-2">
-                        {booking.paymentStatus === "due" && <RecordCashButton bookingId={booking.id} />}
-                        {booking.paymentStatus === "paid" && <RecordRefundButton bookingId={booking.id} />}
+                        <BookingPaymentActions bookingId={booking.id} paymentStatus={booking.paymentStatus} />
                         <details className="text-left">
                           <summary className="cursor-pointer text-[10px] font-bold text-soft hover:text-ink">Cheque tracking</summary>
                           <form action={updateBookingChequeAction} className="mt-1.5 grid gap-1.5">
@@ -315,115 +291,6 @@ export default async function AdminPaymentsPage({ searchParams }: PaymentsPagePr
         )}
       </div>
 
-      <section className="mt-8" aria-labelledby="package-purchases-title">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 id="package-purchases-title" className="font-display text-xl font-extrabold text-ink">Package purchases &amp; credit balances</h2>
-        <p className="mt-1 text-[12.5px] text-soft">See each package a student bought and how many lesson credits remain. Open Ledger to see when credits were added or used. Refunds must first be issued manually in Stripe; recording a package refund removes its unused lessons.</p>
-          </div>
-          <p className="text-[12px] font-bold text-soft">Showing up to 200 recent purchases</p>
-        </div>
-        <div className="mt-4 overflow-hidden rounded-[18px] border border-line bg-white">
-          {filteredPurchases.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-soft">No package purchases match this view.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[850px] border-collapse text-left">
-                <thead>
-                  <tr className="border-b border-line bg-mist text-[11px] font-extrabold uppercase tracking-wide text-soft">
-                    <th scope="col" className="px-4 py-3">Purchased</th>
-                    <th scope="col" className="px-4 py-3">Customer</th>
-                    <th scope="col" className="px-4 py-3">Package</th>
-                    <th scope="col" className="px-4 py-3">Reference / source</th>
-                    <th scope="col" className="px-4 py-3">Payment</th>
-                    <th scope="col" className="px-4 py-3 text-right">Credits</th>
-                    <th scope="col" className="px-4 py-3 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {filteredPurchases.map((purchase) => (
-                    <tr key={purchase.id} className="align-top hover:bg-[#fcfcfd]">
-                      <td className="px-4 py-3.5 text-[12.5px] text-ink">
-                        {purchase.purchasedAt ? formatSlotDay(purchase.purchasedAt) : "Legacy date unavailable"}
-                        {purchase.validUntil && <p className="mt-1 text-[11px] text-soft">Valid until {formatSlotDay(purchase.validUntil)}</p>}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <p className="text-[13px] font-bold text-ink">{purchase.studentName}</p>
-                        <p className="text-[12px] text-soft">{purchase.email}</p>
-                        {purchase.phone && <p className="text-[12px] text-soft">{purchase.phone}</p>}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <p className="text-[13px] font-semibold text-ink">{purchase.lessonName}</p>
-                        <p className="text-[12px] text-soft">{purchase.durationMin} min/session · {purchase.creditsPurchased} purchased</p>
-                      </td>
-                      <td className="px-4 py-3.5 text-[12px]">
-                        <p className="font-bold text-ink">{purchase.reference}</p>
-                        <p className="mt-1 text-soft">{purchase.source === "legacy_backfill" ? "Legacy package" : "Independent purchase"}</p>
-                        {purchase.stripeInvoiceUrl && <a href={purchase.stripeInvoiceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block font-bold text-[#426a2c] underline">Stripe invoice</a>}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <PackagePaymentChip status={purchase.paymentStatus} />
-                        {purchase.refundReason && <p className="mt-1 max-w-40 text-[10px] leading-relaxed text-soft">Refund note: {purchase.refundReason}</p>}
-                        <p className="mt-1 text-[10px] font-semibold text-soft">Cheque: {purchase.chequeStatus ?? "none"}{purchase.chequeReference ? ` · ${purchase.chequeReference}` : ""}</p>
-                        <form action={updatePackageChequeAction} className="mt-2 grid gap-1.5">
-                          <input type="hidden" name="purchaseId" value={purchase.id} />
-                          <select name="status" defaultValue={purchase.chequeStatus ?? "none"} aria-label={`Cheque status for package ${purchase.reference}`} className="h-8 rounded border border-line bg-white px-2 text-[11px]">
-                            <option value="none">No cheque</option><option value="received">Received</option><option value="cleared">Cleared</option><option value="returned">Returned</option>
-                          </select>
-                          <input name="reference" defaultValue={purchase.chequeReference ?? ""} maxLength={80} aria-label={`Cheque reference for package ${purchase.reference}`} placeholder="Cheque ref (optional)" className="h-8 w-32 rounded border border-line px-2 text-[10px]" />
-                          <button type="submit" className="h-7 rounded bg-mist px-2 text-[10px] font-bold text-ink hover:bg-line">Save cheque</button>
-                        </form>
-                        {purchase.paymentStatus === "paid" && <form action={refundPackagePurchaseAction} className="mt-2 grid gap-1.5">
-                          <input type="hidden" name="purchaseId" value={purchase.id} />
-                          <input name="reason" required minLength={3} maxLength={500} aria-label={`Refund reason for package ${purchase.reference}`} placeholder="Refund reason" className="h-8 w-36 rounded border border-line px-2 text-[10px]" />
-                          <button type="submit" className="h-7 rounded border border-[#eadcb1] bg-[#fff9e9] px-2 text-[10px] font-bold text-[#735c1e]">Record Stripe refund</button>
-                          <p className="max-w-36 text-[9px] leading-relaxed text-soft">Manually refund in Stripe first. Unused lessons will be removed.</p>
-                        </form>}
-                        {purchase.stripePaymentIntentId && <p className="mt-1 max-w-[150px] truncate text-[10px] text-soft" title={purchase.stripePaymentIntentId}>PI {purchase.stripePaymentIntentId}</p>}
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <p className="text-[13px] font-extrabold text-ink">{purchase.creditsAvailable} available</p>
-                        <p className="text-[11px] text-soft">of {purchase.creditsPurchased}</p>
-                        <details className="mt-2 text-left">
-                          <summary className="cursor-pointer text-[10.5px] font-bold text-[#426a2c] underline underline-offset-2">
-                            Ledger ({eventsByPurchase.get(purchase.id)?.length ?? 0})
-                          </summary>
-                          <ol className="mt-2 grid min-w-[230px] gap-2">
-                            {(eventsByPurchase.get(purchase.id) ?? []).map((event) => (
-                              <li key={event.id} className="rounded-[9px] bg-mist p-2 text-[10.5px] leading-relaxed">
-                                <p className="font-extrabold text-ink">{event.eventType.replaceAll("_", " ")} · {event.quantityDelta > 0 ? "+" : ""}{event.quantityDelta}</p>
-                                <p className="text-soft">{new Date(event.createdAt).toLocaleString("en-CA", { timeZone: "America/Vancouver" })}</p>
-                                {event.bookingId && <p className="break-all text-soft">Booking {event.bookingId}</p>}
-                                {event.note && <p className="text-soft">{event.note}</p>}
-                                <p className="break-all text-[9px] text-soft">{event.sourceKey}</p>
-                              </li>
-                            ))}
-                          </ol>
-                        </details>
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <p className="text-[13px] font-extrabold text-ink">{purchase.amountCad.toLocaleString("en-CA", { style: "currency", currency: "CAD" })}</p>
-                        {purchase.stripeTotalCad !== undefined && <p className="text-[11px] text-soft">{purchase.stripeTotalCad.toLocaleString("en-CA", { style: "currency", currency: "CAD" })} incl. tax</p>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </section>
     </div>
   );
-}
-
-function PackagePaymentChip({ status }: { status: string }) {
-  const tone = status === "paid"
-    ? "bg-[#e6f6ec] text-[#1f7a45]"
-    : status === "refunded" || status === "failed"
-      ? "bg-[#fdecea] text-[#bc4633]"
-      : status === "waived"
-        ? "bg-[#fff9e9] text-[#735c1e]"
-        : "bg-mist text-soft";
-  return <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[10.5px] font-extrabold uppercase tracking-wide ${tone}`}>{status.replaceAll("_", " ")}</span>;
 }
