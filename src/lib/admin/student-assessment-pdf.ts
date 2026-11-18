@@ -102,9 +102,12 @@ export function createStudentAssessmentPdf(
 }
 
 interface DocumentLine {
-  text: string;
-  kind?: "section" | "subheading" | "body" | "score" | "muted";
+  text?: string;
+  kind?: "section" | "subheading" | "body" | "score" | "muted" | "tableHeader" | "tableRow" | "spacer";
   indent?: number;
+  cells?: string[];
+  table?: "details" | "scores";
+  gap?: number;
 }
 
 /** Professional student assessment report: profile, overall results, and complete saved lesson reports. */
@@ -127,22 +130,29 @@ export function createFullStudentRecordPdf(
   const lines: DocumentLine[] = [
     { text: "STUDENT INFORMATION", kind: "section" },
     { text: profile.full_name, kind: "subheading" },
-    { text: `Email: ${profile.email}  |  Phone: ${profile.phone || "Not recorded"}` },
-    { text: `Date of birth: ${profile.date_of_birth || "Not recorded"}  |  Gender: ${profile.gender?.replaceAll("_", " ") || "Not recorded"}` },
-    { text: `Driver licence: ${profile.license_number || "Not recorded"}  |  Class: ${profile.license_class || "Not recorded"}` },
-    { text: `Address: ${[profile.street, profile.city, profile.province, profile.postal_code].filter(Boolean).join(", ") || "Not recorded"}` },
+    { kind: "tableRow", table: "details", cells: ["Email", profile.email] },
+    { kind: "tableRow", table: "details", cells: ["Phone", profile.phone || "Not recorded"] },
+    { kind: "tableRow", table: "details", cells: ["Date of birth", profile.date_of_birth || "Not recorded"] },
+    { kind: "tableRow", table: "details", cells: ["Gender", profile.gender?.replaceAll("_", " ") || "Not recorded"] },
+    { kind: "tableRow", table: "details", cells: ["Driver licence", profile.license_number || "Not recorded"] },
+    { kind: "tableRow", table: "details", cells: ["Licence class", profile.license_class || "Not recorded"] },
+    { kind: "tableRow", table: "details", cells: ["Address", [profile.street, profile.city, profile.province, profile.postal_code].filter(Boolean).join(", ") || "Not recorded"] },
+    { kind: "spacer", gap: 20 },
     { text: "OVERALL ASSESSMENT", kind: "section" },
     { text: `Overall skill rating: ${overall}${markedScores.length ? "/10" : ""}`, kind: "subheading" },
     { text: `Based on ${reports.length} saved lesson report${reports.length === 1 ? "" : "s"} and ${markedScores.length} marked skill${markedScores.length === 1 ? "" : "s"}.`, kind: "muted" },
     { text: "Category averages", kind: "subheading" },
   ];
+  if (markedScores.length) {
+    lines.push({ kind: "tableHeader", table: "details", cells: ["Category", "Average rating"] });
+  }
   for (const section of TUTOR_REPORT_RUBRIC) {
     const scores = reports.flatMap(({ report }) =>
       section.items.map((item) => report.rubric_scores?.[item.key]).filter((score): score is number => typeof score === "number"),
     );
     if (scores.length) {
       const average = (scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1);
-      lines.push({ text: `${section.title}: ${average}/10`, kind: "score", indent: 10 });
+      lines.push({ kind: "tableRow", table: "details", cells: [section.title, `${average}/10`] });
     }
   }
   if (!markedScores.length) {
@@ -163,7 +173,10 @@ export function createFullStudentRecordPdf(
     lines.push({ text: `COURSE ${courseNumber}  |  ${courseReports[0]!.booking.lessonName}`, kind: "subheading" });
     lines.push({ text: `${courseReports.length} saved lesson report${courseReports.length === 1 ? "" : "s"}  |  ${dates[0]}${dates.at(-1) !== dates[0] ? ` to ${dates.at(-1)}` : ""}`, kind: "muted" });
     for (const { booking, report } of courseReports) {
-      lines.push({ text: `Class ${booking.sessionIndex ?? 1}  |  ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`, kind: "muted" });
+      lines.push({ kind: "tableRow", table: "details", cells: ["Lesson", booking.lessonName] });
+      lines.push({ kind: "tableRow", table: "details", cells: ["Class", String(booking.sessionIndex ?? 1)] });
+      lines.push({ kind: "tableRow", table: "details", cells: ["Lesson date and time", `${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific`] });
+      lines.push({ kind: "tableRow", table: "details", cells: ["Assessed", report.assessment_date] });
       appendReportLines(lines, report);
     }
   }
@@ -184,10 +197,16 @@ export function createTutorLessonReportPdf(
   const lines: DocumentLine[] = [
     { text: "STUDENT", kind: "section" },
     { text: profile.full_name, kind: "subheading" },
-    { text: `${profile.email}  |  ${profile.phone || "No phone recorded"}` },
+    { kind: "tableRow", table: "details", cells: ["Email", profile.email] },
+    { kind: "tableRow", table: "details", cells: ["Phone", profile.phone || "No phone recorded"] },
+    { kind: "spacer", gap: 20 },
+    { text: "LESSON INFORMATION", kind: "section" },
+    { kind: "tableRow", table: "details", cells: ["Lesson", booking.lessonName] },
+    { kind: "tableRow", table: "details", cells: ["Class", String(booking.sessionIndex ?? 1)] },
+    { kind: "tableRow", table: "details", cells: ["Lesson date and time", `${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific`] },
+    { kind: "tableRow", table: "details", cells: ["Assessment date", report.assessment_date] },
+    { kind: "spacer", gap: 20 },
     { text: "LESSON ASSESSMENT", kind: "section" },
-    { text: booking.lessonName, kind: "subheading" },
-    { text: `Class ${booking.sessionIndex ?? 1}  |  Lesson: ${formatSlotDay(booking.startsAt)} at ${formatSlotTime(booking.startsAt)} Pacific  |  Assessed: ${report.assessment_date}`, kind: "muted" },
     { text: `Overall lesson rating: ${average}${scores.length ? "/10" : ""}`, kind: "subheading" },
   ];
   appendReportLines(lines, report);
@@ -214,13 +233,16 @@ function appendReportLines(lines: DocumentLine[], report: StudentAssessment): vo
     const comment = report.section_comments?.[section.key]?.trim();
     if (markedItems.length || comment) {
       lines.push({ text: section.title, kind: "subheading" });
+      if (markedItems.length) {
+        lines.push({ kind: "tableHeader", table: "scores", cells: ["Skill", "Rating", "Assessment focus"] });
+      }
       foundDetail = true;
     }
     for (const item of markedItems) {
       const score = report.rubric_scores?.[item.key];
-      lines.push({ text: `${item.label}: ${score}/10  |  ${item.description}`, kind: "score", indent: 10 });
+      lines.push({ kind: "tableRow", table: "scores", cells: [item.label, `${score}/10`, item.description] });
     }
-    if (comment) lines.push({ text: `Instructor comment: ${comment}`, kind: "body", indent: 10 });
+    if (comment) lines.push({ kind: "tableRow", table: "details", cells: ["Instructor comment", comment] });
   }
   if (!hasDetailedRatings) {
     const legacy = [
@@ -231,29 +253,42 @@ function appendReportLines(lines: DocumentLine[], report: StudentAssessment): vo
     ].filter((item): item is [string, number] => typeof item[1] === "number");
     if (legacy.length) {
       lines.push({ text: "Previously recorded category ratings (1–5)", kind: "subheading" });
-      for (const [label, score] of legacy) lines.push({ text: `${label}: ${score}/5`, kind: "score", indent: 10 });
+      lines.push({ kind: "tableHeader", table: "details", cells: ["Category", "Rating"] });
+      for (const [label, score] of legacy) lines.push({ kind: "tableRow", table: "details", cells: [label, `${score}/5`] });
       foundDetail = true;
     }
   }
   if (!foundDetail) lines.push({ text: "No skill ratings or section comments were recorded for this lesson.", kind: "muted" });
   if (report.road_test_date || report.road_test_location || report.road_test_outcome) {
     lines.push({ text: "ROAD TEST", kind: "subheading" });
-    lines.push({ text: `${report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}${report.road_test_date ? `  |  ${report.road_test_date}` : ""}${report.road_test_location ? `  |  ${report.road_test_location}` : ""}`, kind: "body" });
+    lines.push({ kind: "tableRow", table: "details", cells: ["Outcome", report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"] });
+    if (report.road_test_date) lines.push({ kind: "tableRow", table: "details", cells: ["Test date", report.road_test_date] });
+    if (report.road_test_location) lines.push({ kind: "tableRow", table: "details", cells: ["Location", report.road_test_location] });
   }
   if (report.notes.trim()) {
     lines.push({ text: "INSTRUCTOR NOTES", kind: "subheading" });
-    lines.push({ text: report.notes.trim(), kind: "body" });
+    lines.push({ kind: "tableRow", table: "details", cells: ["Notes", report.notes.trim()] });
   }
 }
 
 function renderDocumentPdf(title: string, studentName: string, generatedAt: Date, lines: DocumentLine[]): Uint8Array {
   const pages: Canvas[] = [{ commands: [] }];
   let y = 645;
+  let tableRowNumber = 0;
   for (const line of lines) {
     const kind = line.kind ?? "body";
+    if (kind === "spacer") {
+      y -= line.gap ?? 14;
+      continue;
+    }
+    if (kind === "tableHeader" || kind === "tableRow") {
+      y = drawTableLine(pages, y, line, kind === "tableHeader", tableRowNumber);
+      if (kind === "tableRow") tableRowNumber += 1;
+      continue;
+    }
     const fontSize = kind === "section" ? 11 : kind === "subheading" ? 9 : kind === "muted" ? 7.5 : 8.5;
-    const lineGap = kind === "section" ? 18 : kind === "subheading" ? 14 : 11;
-    const wrapped = wrap(line.text, kind === "section" ? 86 : 98);
+    const lineGap = kind === "section" ? 20 : kind === "subheading" ? 16 : kind === "muted" ? 13 : 14;
+    const wrapped = wrap(line.text ?? "", kind === "section" ? 86 : 98);
     for (const text of wrapped) {
       if (y < 78) {
         pages.push({ commands: [] });
@@ -272,6 +307,61 @@ function renderDocumentPdf(title: string, studentName: string, generatedAt: Date
   }
   pages.forEach((page, index) => drawHeader(page, title, studentName, generatedAt, index + 1, pages.length));
   return assemble(pages);
+}
+
+function drawTableLine(pages: Canvas[], startY: number, line: DocumentLine, header: boolean, rowNumber: number): number {
+  const cells = line.cells ?? [];
+  const widths = line.table === "scores" ? [154, 64, 298] : [124, 392];
+  const fontSize = header ? 7.5 : 8;
+  const lineHeight = 10.5;
+  const padding = 6;
+  const wrapped = cells.map((cell, index) =>
+    wrap(cell, Math.max(10, Math.floor((widths[index]! - padding * 2) / (fontSize * 0.52)))),
+  );
+  const maxLines = Math.max(1, ...wrapped.map((cellLines) => cellLines.length));
+  let offset = 0;
+  let y = startY;
+  while (offset < maxLines) {
+    if (y - lineHeight - padding * 2 < 78) {
+      pages.push({ commands: [] });
+      y = 645;
+    }
+    const pageLineCapacity = Math.max(1, Math.floor((y - 78 - padding * 2) / lineHeight));
+    const chunkLines = Math.min(maxLines - offset, pageLineCapacity);
+    const height = chunkLines * lineHeight + padding * 2;
+    const page = pages.at(-1)!;
+    const bottom = y - height;
+    const fill = header ? INK : rowNumber % 2 === 0 ? [0.95, 0.96, 0.97] as const : [1, 1, 1] as const;
+    page.commands.push(`q ${rgb(fill)} rg 48 ${bottom.toFixed(2)} 516 ${height.toFixed(2)} re f Q`);
+    page.commands.push(`q 0.82 0.85 0.86 RG 0.45 w 48 ${bottom.toFixed(2)} 516 ${height.toFixed(2)} re S Q`);
+    let x = 48;
+    for (let column = 0; column < widths.length; column += 1) {
+      const columnWidth = widths[column]!;
+      if (column > 0) {
+        page.commands.push(`q 0.82 0.85 0.86 RG 0.45 w ${x.toFixed(2)} ${bottom.toFixed(2)} m ${x.toFixed(2)} ${y.toFixed(2)} l S Q`);
+      }
+      const cellLines = wrapped[column] ?? [""];
+      const visibleLines = cellLines.slice(offset, offset + chunkLines);
+      const color = header ? "1 1 1" : rgb(column === 0 ? INK : MUTED);
+      const font = header || column === 0 ? "F2" : "F1";
+      for (let index = 0; index < visibleLines.length; index += 1) {
+        const value = visibleLines[index]!;
+        const textX = line.table === "scores" && column === 1
+          ? x + Math.max(padding, (columnWidth - value.length * fontSize * 0.5) / 2)
+          : x + padding;
+        const baseline = y - padding - fontSize - index * lineHeight;
+        page.commands.push(`BT /${font} ${fontSize} Tf ${color} rg 1 0 0 1 ${textX.toFixed(2)} ${baseline.toFixed(2)} Tm (${esc(value)}) Tj ET`);
+      }
+      x += columnWidth;
+    }
+    y = bottom - 1;
+    offset += chunkLines;
+    if (offset < maxLines) {
+      pages.push({ commands: [] });
+      y = 645;
+    }
+  }
+  return y - 3;
 }
 
 function drawHeader(page: Canvas, title: string, studentName: string, date: Date, number: number, total: number): void {
