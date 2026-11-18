@@ -1242,6 +1242,16 @@ test("admin calendar supports custom conflict-checked times and confirms moves b
   assert.match(migration, /set_config\('app\.admin_calendar_override', 'on', true\)/);
 });
 
+test("admin calendar can move a paid Stripe booking without weakening cancellation reconciliation", () => {
+  const bookingAction = readFileSync(new URL("../src/app/admin/(panel)/bookings/actions.ts", import.meta.url), "utf8");
+  const rescheduleAction = bookingAction.slice(bookingAction.indexOf("export async function rescheduleBookingAction"));
+  const statusAction = bookingAction.slice(bookingAction.indexOf("export async function setBookingStatusAction"), bookingAction.indexOf("export async function setBookingPaymentAction"));
+  assert.match(bookingAction, /allowPaidCompletedForReschedule && session\.payment_status === "paid" && booking\.paymentStatus === "paid"/);
+  assert.match(rescheduleAction, /expireOpenCheckout\(booking, "\/admin\/bookings", true\)/);
+  assert.match(statusAction, /await expireOpenCheckout\(checkoutOwner\)/);
+  assert.doesNotMatch(statusAction, /expireOpenCheckout\(checkoutOwner,\s*"\/admin\/bookings",\s*true\)/);
+});
+
 test("calendar drag target aligns the booking top edge to the chosen Pacific start time", () => {
   assert.equal(calendarDropStartMin(10 * 60, 60), 9 * 60);
   assert.equal(zonedToUtc(2026, 12, 10, calendarDropStartMin(10 * 60, 60)).toISOString(), "2026-12-10T16:00:00.000Z");
