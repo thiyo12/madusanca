@@ -66,8 +66,7 @@ export function ContactForm() {
           ✓ Message sent
         </h3>
         <p className="mt-2 text-sm leading-relaxed text-[#4b525e]">
-          Thanks for reaching out — we&rsquo;ll get back to you within one to
-          two business days.
+          Thanks for reaching out. We&rsquo;ve received your message and will call you using the phone number you provided.
         </p>
         <button
           type="button"
@@ -107,11 +106,12 @@ export function ContactForm() {
           />
         </label>
         <label className={labelClasses}>
-          Phone number (optional)
+          Phone number *
           <input
             type="tel"
             name="phone"
             autoComplete="tel"
+            required
             maxLength={25}
             placeholder="(604) 555-0199"
             className={inputClasses}

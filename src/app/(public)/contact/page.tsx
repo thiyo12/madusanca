@@ -41,7 +41,7 @@ export default function ContactPage() {
         eyebrow="Wisdom Driving Academy"
         title="Let’s talk about"
         accent="your next lesson."
-        lead="Questions about lessons, availability or which package fits? Send us a message and we’ll reply within one to two business days."
+        lead="Questions about lessons, availability or which package fits? Send us a message and we’ll call you back."
       />
 
       <section className="bg-white py-16 sm:py-20">

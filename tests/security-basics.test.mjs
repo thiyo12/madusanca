@@ -878,6 +878,34 @@ test("public booking and contact schemas reject unexpected input fields", () => 
   assert.doesNotMatch(detailsStep, /non_binary|another_identity|Non-binary|Another gender identity/);
 });
 
+test("contact messages are stored in a private admin inbox without email notifications", () => {
+  const contactRoute = readFileSync(new URL("../src/app/api/contact/route.ts", import.meta.url), "utf8");
+  const inboxStore = readFileSync(new URL("../src/lib/admin/contact-inbox.ts", import.meta.url), "utf8");
+  const inboxPage = readFileSync(new URL("../src/app/admin/(panel)/inbox/page.tsx", import.meta.url), "utf8");
+  const inboxAction = readFileSync(new URL("../src/app/admin/(panel)/inbox/actions.ts", import.meta.url), "utf8");
+  const nav = readFileSync(new URL("../src/app/admin/(panel)/admin-nav.tsx", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations/0066_admin_contact_inbox.sql", import.meta.url), "utf8");
+  const validMessage = {
+    name: "Student Name", email: "student@example.com", phone: "604-555-0111",
+    message: "Please call me about lesson availability.", consent: true,
+  };
+  assert.equal(contactSchema.safeParse(validMessage).success, true);
+  assert.equal(contactSchema.safeParse({ ...validMessage, phone: "" }).success, false);
+  assert.equal(contactSchema.safeParse({ ...validMessage, phone: "-------" }).success, false);
+  assert.match(contactRoute, /saveContactMessage\(parsed\.data\)/);
+  assert.doesNotMatch(contactRoute, /sendViaResend|api\.resend\.com/);
+  assert.match(inboxStore, /from\("contact_messages"\)\.insert/);
+  assert.match(inboxStore, /range\(/);
+  assert.match(inboxPage, /requireAdmin\("\/admin\/inbox"\)/);
+  assert.match(inboxPage, /href=\{`tel:/);
+  assert.match(inboxPage, /setContactMessageReadAction/);
+  assert.match(inboxAction, /requireAdmin\("\/admin\/inbox"\)/);
+  assert.match(nav, /href: "\/admin\/inbox", label: "Inbox"/);
+  assert.match(migration, /enable row level security/);
+  assert.match(migration, /revoke all on public\.contact_messages from public, anon, authenticated/);
+  assert.match(migration, /to service_role/);
+});
+
 test("admin student PDF contains session details and safely escapes PDF text", () => {
   const pdf = createStudentBookingPdf([{
     id: "e3b2a1f0-1234-4234-9234-123456789abc",

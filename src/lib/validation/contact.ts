@@ -6,9 +6,10 @@ export const contactSchema = z.object({
   phone: z
     .string()
     .trim()
+    .min(7, "Please enter a phone number so we can call you.")
     .max(25, "Phone number is too long.")
-    .optional()
-    .or(z.literal("")),
+    .regex(/^[+()\d\s.-]+$/, "Please enter a valid phone number.")
+    .refine((value) => value.replace(/\D/g, "").length >= 7, "Please enter a valid phone number."),
   subject: z.string().trim().max(120).optional().or(z.literal("")),
   message: z
     .string()
