@@ -264,12 +264,17 @@ export async function refundPackagePurchaseAction(formData: FormData): Promise<v
   revalidateAdmin();
 }
 
-async function expireOpenCheckout(booking: BookingRecord, returnTo: "/admin/bookings" | "/admin/payments" = "/admin/bookings"): Promise<void> {
+async function expireOpenCheckout(
+  booking: BookingRecord,
+  returnTo: "/admin/bookings" | "/admin/payments" = "/admin/bookings",
+  allowPaidCompletedForReschedule = false,
+): Promise<void> {
   if (!booking.stripeCheckoutSessionId) return;
   try {
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.retrieve(booking.stripeCheckoutSessionId);
     if (session.status === "complete") {
+      if (allowPaidCompletedForReschedule && session.payment_status === "paid" && booking.paymentStatus === "paid") return;
       failAt(returnTo, session.payment_status === "paid"
         ? "This booking has a completed Stripe payment. Reconcile the payment before cancelling."
         : "Stripe shows this Checkout is complete and payment may be processing. Verify it before changing the booking.");
@@ -348,7 +353,9 @@ export async function rescheduleBookingAction(
   const booking = await store.getBookingById(parsed.data.bookingId);
   if (!booking) return { error: "Booking not found." };
   try {
-    await expireOpenCheckout(booking);
+    // Moving a fully paid lesson changes only its appointment time; it does
+    // not cancel or alter the payment. Keep the stricter check for cancellation.
+    await expireOpenCheckout(booking, "/admin/bookings", true);
     await expireOpenUpgradeCheckout(booking);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
