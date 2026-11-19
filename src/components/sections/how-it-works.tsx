@@ -1,8 +1,3 @@
-"use client";
-
-import { motion } from "framer-motion";
-import { staggerContainer, fadeUp, revealOnScroll } from "@/lib/motion";
-
 const steps = [
   {
     num: "01",
@@ -30,11 +25,7 @@ export function HowItWorks() {
   return (
     <section id="how" className="scroll-mt-10 bg-[#0b1b29] py-20 text-white sm:py-24 lg:py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 26 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={revealOnScroll}
-          transition={{ duration: 0.55 }}
+        <div
           className="mb-11 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"
         >
           <div>
@@ -50,19 +41,14 @@ export function HowItWorks() {
             A clear booking journey with real available times, a confirmation
             email and a private way to manage your lesson.
           </p>
-        </motion.div>
+        </div>
 
-        <motion.div
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="show"
-          viewport={revealOnScroll}
+        <div
           className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         >
           {steps.map((step) => (
-            <motion.article
+            <article
               key={step.num}
-              variants={fadeUp}
               className="flex min-h-[220px] flex-col rounded-[23px] border border-white/10 bg-[#18303d] p-7 text-white transition-colors duration-300 hover:bg-[#1d3947]"
             >
               <span className="mb-9 text-[12px] font-extrabold tracking-[0.12em] text-[#c2ee84]">
@@ -72,9 +58,9 @@ export function HowItWorks() {
               <p className="mt-3 text-[13px] leading-[1.7] text-[#bdccce]">
                 {step.text}
               </p>
-            </motion.article>
+            </article>
           ))}
-        </motion.div>
+        </div>
       </div>
     </section>
   );

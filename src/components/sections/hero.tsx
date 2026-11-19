@@ -16,7 +16,9 @@ export function Hero() {
           src="/hero-landscape.webp"
           alt=""
           fill
-          preload
+          quality={60}
+          loading="eager"
+          fetchPriority="high"
           sizes="100vw"
           className="object-cover object-[62%_center] lg:object-center"
         />

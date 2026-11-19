@@ -34,6 +34,7 @@ const nextConfig: NextConfig = {
   },
   images: {
     domains: [],
+    qualities: [60, 75],
   },
 };
 

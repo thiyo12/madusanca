@@ -1,9 +1,3 @@
-"use client";
-
-import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { revealOnScroll } from "@/lib/motion";
-
 const faqs = [
   {
     question: "How many driving lessons does a new (novice) driver need?",
@@ -43,18 +37,11 @@ const faqs = [
 ] as const;
 
 export function Faq() {
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
-
   return (
     <section id="faq" className="scroll-mt-12 bg-[#f7f7f3] py-20 sm:py-24 lg:py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-6">
         <div className="grid gap-9 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
-          <motion.div
-            initial={{ opacity: 0, y: 26 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={revealOnScroll}
-            transition={{ duration: 0.55 }}
-          >
+          <div>
             <p className="flex items-center gap-2.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#426a2c]">
               <span aria-hidden="true" className="h-0.5 w-5 bg-[#8ac155]" />
               Helpful answers
@@ -68,60 +55,30 @@ export function Faq() {
               Clear answers for starting lessons, getting ready for an ICBC
               road test, and managing your booking yourself.
             </p>
-          </motion.div>
+          </div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 26 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={revealOnScroll}
-            transition={{ duration: 0.55, delay: 0.1 }}
-            className="border-t border-[#dce3df]"
-          >
-            {faqs.map((faq, index) => {
-              const isOpen = openIndex === index;
-              return (
-                <div key={faq.question} className="border-b border-[#dce3df]">
-                  <h3>
-                    <button
-                      type="button"
-                      aria-expanded={isOpen}
-                      aria-controls={`faq-panel-${index}`}
-                      onClick={() => setOpenIndex(isOpen ? null : index)}
-                      className="flex w-full items-center justify-between gap-4 py-5 text-left text-[15px] font-extrabold text-ink transition-colors hover:text-[#426a2c] sm:text-[16px]"
-                    >
-                      {faq.question}
-                      <span
-                        aria-hidden="true"
-                        className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-lg transition-all duration-300 ${
-                          isOpen
-                            ? "rotate-45 bg-[#e5f6d6] text-[#426a2c]"
-                            : "text-[#6b8b52]"
-                        }`}
-                      >
-                        +
-                      </span>
-                    </button>
-                  </h3>
-                  <AnimatePresence initial={false}>
-                    {isOpen && (
-                      <motion.div
-                        id={`faq-panel-${index}`}
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.3, ease: "easeInOut" }}
-                        className="overflow-hidden"
-                      >
-                        <p className="pb-5 pr-9 text-[13.5px] leading-[1.8] text-[#66747c] sm:text-[14px]">
-                          {faq.answer}
-                        </p>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </motion.div>
+          <div className="border-t border-[#dce3df]">
+            {faqs.map((faq, index) => (
+              <details
+                key={faq.question}
+                open={index === 0}
+                className="group border-b border-[#dce3df]"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-left text-[15px] font-extrabold text-ink transition-colors hover:text-[#426a2c] sm:text-[16px] marker:hidden [&::-webkit-details-marker]:hidden">
+                  {faq.question}
+                  <span
+                    aria-hidden="true"
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-lg text-[#6b8b52] transition-transform duration-300 group-open:rotate-45 group-open:bg-[#e5f6d6] group-open:text-[#426a2c]"
+                  >
+                    +
+                  </span>
+                </summary>
+                <p className="pb-5 pr-9 text-[13.5px] leading-[1.8] text-[#66747c] sm:text-[14px]">
+                  {faq.answer}
+                </p>
+              </details>
+            ))}
+          </div>
         </div>
       </div>
     </section>

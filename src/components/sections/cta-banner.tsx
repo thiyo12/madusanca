@@ -1,18 +1,10 @@
-"use client";
-
-import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { revealOnScroll } from "@/lib/motion";
 
 export function CtaBanner() {
   return (
     <section className="bg-white py-20 sm:py-24 lg:py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={revealOnScroll}
-          transition={{ duration: 0.6 }}
+        <div
           className="flex flex-col items-start justify-between gap-8 rounded-[28px] bg-[#c7f08d] px-7 py-12 text-ink sm:px-11 sm:py-14 lg:flex-row lg:items-center lg:px-16 lg:py-16"
         >
           <div>
@@ -32,7 +24,7 @@ export function CtaBanner() {
           >
             Book a lesson <span aria-hidden="true">↗</span>
           </Button>
-        </motion.div>
+        </div>
       </div>
     </section>
   );

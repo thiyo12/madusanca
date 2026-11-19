@@ -1,8 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { motion } from "framer-motion";
-import { fadeUp } from "@/lib/motion";
 import { formatLessonPrice } from "@/lib/data/lessons";
 import type { Lesson } from "@/lib/data/lessons";
 
@@ -31,8 +27,7 @@ export function LessonCard({
   className = "",
 }: LessonCardProps) {
   return (
-    <motion.article
-      variants={fadeUp}
+    <article
       className={`group flex h-full flex-col rounded-[25px] border p-6 transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1.5 hover:shadow-[0_28px_65px_rgba(12,42,48,0.13)] sm:p-7 ${
         popular
           ? "border-[#102a28] bg-[#102a28] text-white shadow-[0_22px_55px_rgba(8,40,36,0.22)]"
@@ -81,6 +76,6 @@ export function LessonCard({
       >
         Select &amp; book <span aria-hidden="true">↗</span>
       </Link>
-    </motion.article>
+    </article>
   );
 }
