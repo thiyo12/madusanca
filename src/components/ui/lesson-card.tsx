@@ -72,6 +72,7 @@ export function LessonCard({
       </ul>
       <Link
         href={`/booking?lesson=${encodeURIComponent(id)}`}
+        aria-label={`Select and book ${name}`}
         className={`mt-auto inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-4 text-[13px] font-extrabold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
           popular
             ? "bg-[#c2ee84] text-[#102a28] hover:bg-[#d7f5ad]"
