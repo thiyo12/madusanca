@@ -1,8 +1,4 @@
-"use client";
-
-import { motion } from "framer-motion";
 import { LessonCard } from "@/components/ui/lesson-card";
-import { staggerContainer, revealOnScroll } from "@/lib/motion";
 import type { Lesson } from "@/lib/data/lessons";
 
 export interface LessonGridProps {
@@ -17,13 +13,9 @@ export interface LessonGridProps {
  */
 export function LessonGrid({ lessons, ariaLabel = "Lesson options" }: LessonGridProps) {
   return (
-    <motion.div
+    <div
       role="region"
       aria-label={ariaLabel}
-      variants={staggerContainer}
-      initial="hidden"
-      whileInView="show"
-      viewport={revealOnScroll}
       className="no-scrollbar -mx-5 flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto px-5 pb-1 md:mx-0 md:grid md:grid-cols-2 md:gap-5 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-4"
     >
       {lessons.map((lesson, index) => (
@@ -34,6 +26,6 @@ export function LessonGrid({ lessons, ariaLabel = "Lesson options" }: LessonGrid
           className="w-[85%] shrink-0 snap-start sm:w-[62%] md:w-auto"
         />
       ))}
-    </motion.div>
+    </div>
   );
 }

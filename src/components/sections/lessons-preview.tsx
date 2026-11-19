@@ -1,10 +1,6 @@
-"use client";
-
-import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { LessonGrid } from "@/components/ui/lesson-grid";
 import type { Lesson } from "@/lib/data/lessons";
-import { revealOnScroll } from "@/lib/motion";
 
 interface LessonsPreviewProps {
   lessons: Lesson[];
@@ -14,11 +10,7 @@ export function LessonsPreview({ lessons }: LessonsPreviewProps) {
   return (
     <section id="lessons" className="scroll-mt-10 bg-[#f7f7f3] py-20 sm:py-24 lg:py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 26 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={revealOnScroll}
-          transition={{ duration: 0.55 }}
+        <div
           className="mb-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"
         >
           <div>
@@ -34,7 +26,7 @@ export function LessonsPreview({ lessons }: LessonsPreviewProps) {
             One-on-one instruction, pickup and drop-off, and clear CAD prices
             plus GST. Choose the package that fits your goals.
           </p>
-        </motion.div>
+        </div>
 
         <LessonGrid lessons={lessons} ariaLabel="Lesson packages" />
         <div className="mt-7 flex flex-wrap items-center justify-between gap-3">

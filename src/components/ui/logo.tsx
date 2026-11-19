@@ -19,6 +19,7 @@ export function Logo({ href = "/", compact = false, className = "" }: LogoProps)
         alt="Wisdom Driving Academy"
         width={938}
         height={608}
+        quality={60}
         sizes="(max-width: 640px) 112px, 150px"
         className={compact ? "h-auto w-[66px]" : "h-auto w-[112px] sm:w-[140px] xl:w-[150px]"}
       />
