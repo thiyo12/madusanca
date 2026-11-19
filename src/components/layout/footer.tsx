@@ -12,7 +12,11 @@ const quickLinks = [
   { href: "/contact", label: "Contact" },
 ] as const;
 
-const serviceAreas = ["Burnaby", "Vancouver", "Richmond"] as const;
+const serviceAreas = [
+  { name: "Burnaby", href: "/areas/burnaby" },
+  { name: "Vancouver", href: "/areas/vancouver" },
+  { name: "Richmond", href: "/areas/richmond" },
+] as const;
 
 const socialLinks = [
   { label: "Google", href: process.env.NEXT_PUBLIC_SOCIAL_GOOGLE_URL },
@@ -66,9 +70,9 @@ export function Footer() {
             <h2 className="font-display text-[14px] font-extrabold text-white">Service Areas</h2>
             <ul className="mt-5 grid gap-3 text-[13px]">
               {serviceAreas.map((area) => (
-                <li key={area} className="flex items-center gap-2.5">
+                <li key={area.href} className="flex items-center gap-2.5">
                   <span aria-hidden="true" className="text-[#c2ee84]">⌖</span>
-                  {area}
+                  <Link href={area.href} className="transition-colors hover:text-[#c2ee84]">{area.name}</Link>
                 </li>
               ))}
             </ul>
