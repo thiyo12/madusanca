@@ -2,6 +2,7 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { BookingRecord } from "@/lib/booking/types";
 import type { TutorRubricScores, TutorSectionComments } from "@/lib/admin/tutor-report-rubric";
+import type { SignatureStrokes } from "@/lib/admin/report-signature";
 
 export interface StudentProfile {
   id: string; full_name: string; email: string; phone: string;
@@ -13,8 +14,10 @@ export interface StudentAssessment {
   vehicle_control: number | null; observation: number | null; intersections: number | null;
   lane_changes: number | null; speed_space: number | null; parking: number | null;
   hazard_awareness: number | null; road_test_date: string | null; road_test_location: string | null;
-  road_test_outcome: "passed" | "not_passed" | "not_taken" | null; notes: string; updated_at?: string;
-  rubric_scores?: TutorRubricScores | null; section_comments?: TutorSectionComments | null;
+   road_test_outcome: "passed" | "not_passed" | "not_taken" | null; notes: string; updated_at?: string;
+   rubric_scores?: TutorRubricScores | null; section_comments?: TutorSectionComments | null;
+   start_odometer_km?: number | null; end_odometer_km?: number | null;
+   student_signature?: SignatureStrokes | null; instructor_signature?: SignatureStrokes | null;
 }
 export interface StudentCourseCompletion { course_key: string; ended_early: boolean; expected_lessons: number; completed_lessons: number; finished_at: string }
 let cached: SupabaseClient | null = null;
@@ -64,12 +67,12 @@ export async function profileById(studentId: string): Promise<StudentProfile | n
   return data ? withEmptyBookingDetails(data) : null;
 }
 export async function assessmentsForStudent(studentId: string): Promise<StudentAssessment[]> {
-  const { data, error } = await db().from("student_assessments").select("id,booking_id,assessment_date,vehicle_control,observation,intersections,lane_changes,speed_space,parking,hazard_awareness,road_test_date,road_test_location,road_test_outcome,notes,updated_at,rubric_scores,section_comments").eq("student_id", studentId).order("assessment_date", { ascending: false });
+  const { data, error } = await db().from("student_assessments").select("id,booking_id,assessment_date,vehicle_control,observation,intersections,lane_changes,speed_space,parking,hazard_awareness,road_test_date,road_test_location,road_test_outcome,notes,updated_at,rubric_scores,section_comments,start_odometer_km,end_odometer_km,student_signature,instructor_signature").eq("student_id", studentId).order("assessment_date", { ascending: false });
   if (error) throw error;
   return (data ?? []) as StudentAssessment[];
 }
 export async function assessmentForBooking(bookingId: string): Promise<StudentAssessment | null> {
-  const { data, error } = await db().from("student_assessments").select("id,booking_id,assessment_date,vehicle_control,observation,intersections,lane_changes,speed_space,parking,hazard_awareness,road_test_date,road_test_location,road_test_outcome,notes,updated_at,rubric_scores,section_comments").eq("booking_id", bookingId).order("updated_at", { ascending: false }).limit(1).maybeSingle();
+  const { data, error } = await db().from("student_assessments").select("id,booking_id,assessment_date,vehicle_control,observation,intersections,lane_changes,speed_space,parking,hazard_awareness,road_test_date,road_test_location,road_test_outcome,notes,updated_at,rubric_scores,section_comments,start_odometer_km,end_odometer_km,student_signature,instructor_signature").eq("booking_id", bookingId).order("updated_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   return data as StudentAssessment | null;
 }
@@ -79,7 +82,7 @@ export async function courseCompletionsForStudent(studentId: string): Promise<St
   return (data ?? []) as StudentCourseCompletion[];
 }
 export async function saveBookingAssessment(studentId: string, bookingId: string, adminId: string, values: Record<string, unknown>): Promise<void> {
-  const { error } = await db().rpc("admin_save_booking_assessment", {
+  const { error } = await db().rpc("admin_save_booking_assessment_with_vehicle", {
     p_student_id: studentId, p_booking_id: bookingId, p_admin_id: adminId,
     p_assessment_date: values.assessment_date, p_vehicle_control: values.vehicle_control,
     p_observation: values.observation, p_intersections: values.intersections,
@@ -88,6 +91,8 @@ export async function saveBookingAssessment(studentId: string, bookingId: string
     p_road_test_date: values.road_test_date, p_road_test_location: values.road_test_location,
     p_road_test_outcome: values.road_test_outcome, p_notes: values.notes,
     p_rubric_scores: values.rubric_scores, p_section_comments: values.section_comments,
+    p_start_odometer_km: values.start_odometer_km, p_end_odometer_km: values.end_odometer_km,
+    p_student_signature: values.student_signature, p_instructor_signature: values.instructor_signature,
   });
   if (error) throw error;
 }

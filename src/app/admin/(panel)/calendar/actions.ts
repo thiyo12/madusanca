@@ -14,6 +14,7 @@ import { searchBookingsByLicense } from "@/lib/admin/student-profiles";
 import { redirect } from "next/navigation";
 import { saveBookingAssessment, studentForBooking } from "@/lib/admin/student-profiles";
 import { TUTOR_REPORT_ITEMS, TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
+import type { SignatureStrokes } from "@/lib/admin/report-signature";
 
 export interface QuickBookingState {
   ok: boolean;
@@ -26,6 +27,44 @@ export async function saveTutorLessonReportAction(formData: FormData): Promise<v
   const returnView = formData.get("view") === "month" ? "month" : "week";
   const reportReturn = (day: string, bookingId: string, error: string) => `/admin/calendar?view=${returnView}&date=${encodeURIComponent(day)}&booking=${encodeURIComponent(bookingId)}&error=${error}`;
   const bookingId = String(formData.get("bookingId") ?? "");
+  const mileageSchema = z.preprocess(
+    (value) => value === "" || value === null ? Number.NaN : value,
+    z.coerce.number().int().min(0).max(2_000_000),
+  );
+  const signatures = (name: string): SignatureStrokes | null => {
+    const raw = formData.get(name);
+    if (typeof raw !== "string" || raw.length > 50_000) {
+      redirect(reportReturn(String(formData.get("day") ?? ""), bookingId, "report"));
+    }
+    try {
+      const parsedSignature = z.array(
+        z.array(z.array(z.number().min(0).max(1)).length(2)).max(2000),
+      ).max(100)
+        .superRefine((strokes, context) => {
+          let points = 0;
+          strokes.forEach((stroke, index) => {
+            points += stroke.length;
+            if (!stroke.every((point) => point.length === 2)) context.addIssue({ code: "custom", path: [index], message: "Invalid signature point." });
+          });
+          if (points > 2000) context.addIssue({ code: "custom", message: "Signature has too many points." });
+        })
+        .safeParse(JSON.parse(raw));
+      if (!parsedSignature.success) redirect(reportReturn(String(formData.get("day") ?? ""), bookingId, "report"));
+      const normalized: SignatureStrokes = parsedSignature.data.map((stroke) =>
+        stroke.map((point) => [point[0]!, point[1]!] as [number, number]),
+      );
+      return normalized.some((stroke) => stroke.length > 0) ? normalized : null;
+    } catch {
+      redirect(reportReturn(String(formData.get("day") ?? ""), bookingId, "report"));
+    }
+  };
+  const startOdometer = mileageSchema.safeParse(formData.get("startOdometerKm"));
+  const endOdometer = mileageSchema.safeParse(formData.get("endOdometerKm"));
+  if (!startOdometer.success || !endOdometer.success || endOdometer.data < startOdometer.data) {
+    redirect(reportReturn(String(formData.get("day") ?? ""), bookingId, "report"));
+  }
+  const studentSignature = signatures("studentSignature");
+  const instructorSignature = signatures("instructorSignature");
   const rubricScores: Record<string, number> = {};
   for (const item of TUTOR_REPORT_ITEMS) {
     const rawScore = String(formData.get(`score_${item.key}`) ?? "").trim();
@@ -68,6 +107,10 @@ export async function saveTutorLessonReportAction(formData: FormData): Promise<v
       hazard_awareness: legacyScore(["traffic_rules", "other", "appropriate_pedal"]),
       rubric_scores: rubricScores,
       section_comments: sectionComments,
+      start_odometer_km: startOdometer.data,
+      end_odometer_km: endOdometer.data,
+      student_signature: studentSignature,
+      instructor_signature: instructorSignature,
       notes: d.notes,
       road_test_date: d.roadTestDate,
       road_test_location: d.location,

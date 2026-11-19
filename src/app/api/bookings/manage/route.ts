@@ -103,6 +103,10 @@ async function safeStudentView(booking: BookingRecord, access: { isReadOnly: boo
         rubricScores: report.rubric_scores ?? {},
         sectionComments: report.section_comments ?? {},
         notes: report.notes,
+        startOdometerKm: report.start_odometer_km ?? null,
+        endOdometerKm: report.end_odometer_km ?? null,
+        studentSignature: report.student_signature ?? null,
+        instructorSignature: report.instructor_signature ?? null,
       },
     } : {}),
   };

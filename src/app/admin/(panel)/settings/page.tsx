@@ -8,6 +8,7 @@ import {
   saveRulesAction,
 } from "./actions";
 import { toVancouverDayKey } from "@/lib/booking/slots";
+import { DateSelect, TimeSelect } from "@/components/admin/date-time-select";
 
 export const metadata: Metadata = {
   title: "Settings — Wisdom Driving Academy Admin",
@@ -86,22 +87,10 @@ export default async function AdminSettingsPage({ searchParams }: SettingsPagePr
               >
                 <span className="text-[13.5px] font-extrabold text-ink">{DAY_NAMES[weekday]}</span>
 
-                <div className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    name={`open_${weekday}`}
-                    defaultValue={rule ? toTimeInput(rule.startMin) : "09:00"}
-                    aria-label={`${DAY_NAMES[weekday]} opening time`}
-                    className="h-9 rounded-[8px] border border-[#dce0e4] bg-white px-2 text-[13px] text-ink outline-none focus:border-gold"
-                  />
+                <div className="flex flex-wrap items-center gap-2">
+                  <TimeSelect name={`open_${weekday}`} value={rule ? toTimeInput(rule.startMin) : "09:00"} label={`${DAY_NAMES[weekday]} opening time`} />
                   <span className="text-[12px] text-soft">to</span>
-                  <input
-                    type="time"
-                    name={`close_${weekday}`}
-                    defaultValue={rule ? toTimeInput(rule.endMin) : "18:00"}
-                    aria-label={`${DAY_NAMES[weekday]} closing time`}
-                    className="h-9 rounded-[8px] border border-[#dce0e4] bg-white px-2 text-[13px] text-ink outline-none focus:border-gold"
-                  />
+                  <TimeSelect name={`close_${weekday}`} value={rule ? toTimeInput(rule.endMin) : "18:00"} label={`${DAY_NAMES[weekday]} closing time`} />
                 </div>
 
                 <label className="flex items-center gap-2 text-[12.5px] font-bold text-[#4b525e]">
@@ -134,18 +123,9 @@ export default async function AdminSettingsPage({ searchParams }: SettingsPagePr
           Change hours for one date without changing the weekly schedule. Special hours must fit within that weekday’s weekly hours; 90-minute lessons keep their two-hour start cadence. Use the section below to close a date completely.
         </p>
         <form action={saveDateOverrideAction} className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
-            Date
-            <input type="date" name="date" required min={todayKey} className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink" />
-          </label>
-          <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
-            Opens
-            <input type="time" name="open" required defaultValue="09:00" className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink" />
-          </label>
-          <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
-            Closes
-            <input type="time" name="close" required defaultValue="15:00" className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink" />
-          </label>
+          <DateSelect name="date" value={todayKey} min={todayKey} label="Date" />
+          <TimeSelect name="open" value="09:00" label="Opens" />
+          <TimeSelect name="close" value="15:00" label="Closes" />
           <button type="submit" className="btn-gold inline-flex h-10 items-center rounded-[10px] px-4 text-[13px] font-extrabold">Save special hours</button>
         </form>
         <div className="mt-5">
@@ -173,16 +153,7 @@ export default async function AdminSettingsPage({ searchParams }: SettingsPagePr
         </p>
 
         <form action={addBlackoutAction} className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
-            Date
-            <input
-              type="date"
-              name="date"
-              required
-              min={todayKey}
-              className="h-10 rounded-[10px] border border-[#dce0e4] bg-white px-3 text-sm text-ink outline-none focus:border-gold focus:ring-[3px] focus:ring-gold/25"
-            />
-          </label>
+          <DateSelect name="date" value={todayKey} min={todayKey} label="Date" />
           <label className="grid gap-1.5 text-[12px] font-bold text-[#282c33]">
             Reason (optional)
             <input

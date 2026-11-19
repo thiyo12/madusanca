@@ -8,6 +8,8 @@ import type { BookingStatus, PaymentStatus } from "@/lib/booking/types";
 import { saveTutorLessonReportAction } from "./actions";
 import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
 import type { TutorRubricScores, TutorSectionComments } from "@/lib/admin/tutor-report-rubric";
+import type { SignatureStrokes } from "@/lib/admin/report-signature";
+import { SignaturePad } from "@/components/admin/signature-pad";
 
 interface BookingItem {
   id: string;
@@ -25,7 +27,7 @@ interface BookingItem {
   sessionIndex: number;
   sessionCount: number;
   packagePriceCad: number;
-  report: { assessment_date: string; vehicle_control: number | null; observation: number | null; intersections: number | null; lane_changes: number | null; speed_space: number | null; parking: number | null; hazard_awareness: number | null; notes: string; road_test_date: string | null; road_test_location: string | null; road_test_outcome: string | null; rubric_scores?: TutorRubricScores | null; section_comments?: TutorSectionComments | null } | null;
+  report: { assessment_date: string; vehicle_control: number | null; observation: number | null; intersections: number | null; lane_changes: number | null; speed_space: number | null; parking: number | null; hazard_awareness: number | null; notes: string; road_test_date: string | null; road_test_location: string | null; road_test_outcome: string | null; rubric_scores?: TutorRubricScores | null; section_comments?: TutorSectionComments | null; start_odometer_km?: number | null; end_odometer_km?: number | null; student_signature?: SignatureStrokes | null; instructor_signature?: SignatureStrokes | null } | null;
 }
 
 interface PackagePlan {
@@ -128,12 +130,16 @@ export function DayBookingsAccordion({
                        <span><span className="block text-[12.5px] font-extrabold text-ink">Lesson report · Class {booking.sessionIndex} of {booking.sessionCount}</span><span className="mt-0.5 block text-[10.5px] text-soft">{booking.report?.rubric_scores ? "Saved" : "Not saved yet"}</span></span>
                        <span className="text-[11px] font-bold text-gold-deep">Open / close</span>
                      </summary>
-                     <div className="border-t border-line p-3 sm:p-4">
-                      <p className="mb-3 text-[11px] text-soft">Rate the skills practiced today from 1–10; leave unpracticed skills unrated. At least one score is required to save. Section comments and extra notes are optional. This is a school progress report, not an official road-test score.</p>
+                      <div className="border-t border-line p-3 sm:p-4">
+                       <p className="mb-3 text-[11px] text-soft">Rate the skills practiced today from 1–10; leave unpracticed skills unrated. At least one score is required to save. Section comments and extra notes are optional. This is a school progress report, not an official road-test score.</p>
                      {booking.report && !booking.report.rubric_scores && <p className="mb-3 rounded-lg bg-[#fff9e9] px-3 py-2 text-[11px] font-semibold text-[#735c1e]">This older report can be updated with skill ratings; its saved information will be kept.</p>}
-                     <form action={saveTutorLessonReportAction} className="grid gap-3">
-                     <input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="day" value={day} /><input type="hidden" name="view" value={view} />
-                     <label className="grid max-w-xs gap-1 text-[11px] font-semibold text-soft">Report date<input required type="date" name="reportDate" defaultValue={booking.report?.assessment_date ?? day} className="rounded border p-2 text-ink" /></label>
+                      <form action={saveTutorLessonReportAction} className="grid gap-3">
+                      <input type="hidden" name="bookingId" value={booking.id} /><input type="hidden" name="day" value={day} /><input type="hidden" name="view" value={view} />
+                      <label className="grid max-w-xs gap-1 text-[11px] font-semibold text-soft">Report date<input required type="date" name="reportDate" defaultValue={booking.report?.assessment_date ?? day} className="rounded border p-2 text-ink" /></label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="grid gap-1 text-[11px] font-semibold text-soft">Starting odometer (km)<input required type="number" name="startOdometerKm" min={0} max={2000000} step={1} defaultValue={booking.report?.start_odometer_km ?? ""} inputMode="numeric" placeholder="e.g. 42,150" className="min-h-10 rounded-lg border border-line px-3 text-ink" /></label>
+                        <label className="grid gap-1 text-[11px] font-semibold text-soft">Ending odometer (km)<input required type="number" name="endOdometerKm" min={0} max={2000000} step={1} defaultValue={booking.report?.end_odometer_km ?? ""} inputMode="numeric" placeholder="e.g. 42,180" className="min-h-10 rounded-lg border border-line px-3 text-ink" /></label>
+                      </div>
                       {TUTOR_REPORT_RUBRIC.map((section) => (
                         <details key={section.key} className="rounded-xl border border-line bg-white">
                           <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-extrabold text-ink">{section.title} <span className="ml-1 text-[10px] font-normal text-soft">{section.items.length} skills</span></summary>
@@ -149,8 +155,12 @@ export function DayBookingsAccordion({
                        <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test date<input type="date" name="roadTestDate" defaultValue={booking.report?.road_test_date ?? ""} className="rounded border p-2 text-ink" /></label>
                        <label className="grid gap-1 text-[11px] font-semibold text-soft">Test location<input name="location" maxLength={120} defaultValue={booking.report?.road_test_location ?? ""} className="rounded border p-2 text-ink" /></label>
                        <label className="grid gap-1 text-[11px] font-semibold text-soft">Road-test outcome<select name="outcome" defaultValue={booking.report?.road_test_outcome ?? ""} className="rounded border bg-white p-2 text-ink"><option value="">Not recorded</option><option value="passed">Passed</option><option value="not_passed">Not passed</option><option value="not_taken">Not taken</option></select></label>
-                     </div>
-                     <label className="grid gap-1 text-[11px] font-semibold text-soft">Additional tutor notes<textarea name="notes" maxLength={4000} rows={3} defaultValue={booking.report?.notes ?? ""} className="rounded border p-2 text-ink" /></label>
+                      </div>
+                      <label className="grid gap-1 text-[11px] font-semibold text-soft">Additional tutor notes<textarea name="notes" maxLength={4000} rows={3} defaultValue={booking.report?.notes ?? ""} className="rounded border p-2 text-ink" /></label>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        <SignaturePad name="studentSignature" label="Student" value={booking.report?.student_signature} />
+                        <SignaturePad name="instructorSignature" label="Instructor" value={booking.report?.instructor_signature} />
+                      </div>
                       <div className="flex flex-wrap items-center gap-2"><button formNoValidate className="btn-gold rounded-lg px-4 py-2 text-xs font-extrabold">{booking.report ? "Save report" : "Save lesson report"}</button>{booking.report?.rubric_scores && <span className="text-[11px] font-bold text-[#385a22]">Saved · ready to mark complete</span>}</div>
                     </form>
                      </div>
