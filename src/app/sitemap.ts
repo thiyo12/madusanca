@@ -10,6 +10,9 @@ const publicPaths = [
   "/privacy",
   "/terms",
   "/accessibility",
+  "/areas/burnaby",
+  "/areas/vancouver",
+  "/areas/richmond",
 ] as const;
 
 export default function sitemap(): MetadataRoute.Sitemap {

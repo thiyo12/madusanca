@@ -1,0 +1,24 @@
+# Wisdom Driving Academy
+
+> Wisdom Driving Academy provides private, one-on-one driving lessons and road-test preparation in Burnaby, Vancouver, and Richmond, British Columbia.
+
+## Official website
+
+- [Home](https://wisdomdrivingacademy.com/): Overview of the academy and its services.
+- [Lesson packages](https://wisdomdrivingacademy.com/lessons): Current lesson options and booking information.
+- [About](https://wisdomdrivingacademy.com/about): Instruction approach and what learners can expect.
+- [Contact](https://wisdomdrivingacademy.com/contact): Contact details and enquiries.
+- [Book a lesson](https://wisdomdrivingacademy.com/booking): Booking flow.
+
+## Service areas
+
+- [Burnaby driving lessons](https://wisdomdrivingacademy.com/areas/burnaby): One-on-one instruction and road-test preparation for learners in Burnaby.
+- [Vancouver driving lessons](https://wisdomdrivingacademy.com/areas/vancouver): One-on-one instruction and road-test preparation for learners in Vancouver.
+- [Richmond driving lessons](https://wisdomdrivingacademy.com/areas/richmond): One-on-one instruction and road-test preparation for learners in Richmond.
+
+## Contact
+
+- Phone: +1 236-234-3229
+- Email: info@wisdomdrivingacademy.com
+
+Service-area pages do not imply a physical office in each city. Ask the academy to confirm current scheduling and lesson-location arrangements.
