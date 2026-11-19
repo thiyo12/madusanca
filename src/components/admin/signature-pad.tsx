@@ -20,10 +20,11 @@ export function SignaturePad({
   value?: SignatureStrokes | null;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const drawing = useRef(false);
+  const pointCount = useRef((value ?? []).reduce((total, stroke) => total + stroke.length, 0));
   const [strokes, setStrokes] = useState<SignatureStrokes>(() =>
     (value ?? []).map((stroke) => stroke.map(([x, y]) => [x * 600, y * 180])),
   );
-  const [drawing, setDrawing] = useState(false);
   const points = useRef<Array<[number, number]>>([]);
 
   function point(event: React.PointerEvent<SVGSVGElement>): [number, number] {
@@ -36,34 +37,40 @@ export function SignaturePad({
 
   function begin(event: React.PointerEvent<SVGSVGElement>) {
     event.preventDefault();
+    if (pointCount.current >= 2000) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     points.current = [point(event)];
-    setDrawing(true);
+    pointCount.current += 1;
+    drawing.current = true;
+    setStrokes((current) => [...current, points.current]);
   }
 
   function move(event: React.PointerEvent<SVGSVGElement>) {
-    if (!drawing) return;
+    if (!drawing.current) return;
     event.preventDefault();
-    const existingPoints = strokes.reduce((total, stroke) => total + stroke.length, 0);
-    if (existingPoints >= 2000) return;
-    points.current = [...points.current, point(event)].slice(-2000);
+    if (pointCount.current >= 2000) return;
+    const nextPoints = [...points.current, point(event)].slice(-2000);
+    points.current = nextPoints;
+    pointCount.current += 1;
     setStrokes((current) => {
       const next = current.slice();
-      next[next.length - 1] = points.current;
+      if (next.length === 0) return [nextPoints];
+      next[next.length - 1] = nextPoints;
       return next;
     });
   }
 
   function end() {
-    if (!drawing) return;
-    setDrawing(false);
+    if (!drawing.current) return;
+    drawing.current = false;
     points.current = [];
   }
 
   function clear() {
     setStrokes([]);
     points.current = [];
-    setDrawing(false);
+    pointCount.current = 0;
+    drawing.current = false;
   }
 
   const serialized = JSON.stringify(normalize(strokes));

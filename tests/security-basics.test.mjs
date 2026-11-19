@@ -1097,6 +1097,8 @@ test("admin date and time selection is consistent across browsers and lesson rep
   assert.match(calendar, /<SignaturePad name="studentSignature"/);
   assert.match(calendar, /<SignaturePad name="instructorSignature"/);
   assert.match(signaturePad, /setPointerCapture/);
+  assert.match(signaturePad, /setStrokes\(\(current\) => \[\.\.\.current, points\.current\]\)/);
+  assert.match(signaturePad, /next\[next\.length - 1\] = nextPoints/);
   assert.match(action, /endOdometer\.data < startOdometer\.data/);
   assert.match(action, /student_signature: studentSignature/);
   assert.match(migration, /start_odometer_km integer/);
