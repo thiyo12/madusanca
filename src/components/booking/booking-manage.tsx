@@ -11,6 +11,8 @@ import { addMonthsToKey, dayKeyOf, formatSlotFull, todayKey } from "@/lib/bookin
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
 import type { Lesson } from "@/lib/data/lessons";
 import { TUTOR_REPORT_RUBRIC, type TutorRubricScores, type TutorSectionComments } from "@/lib/admin/tutor-report-rubric";
+import type { SignatureStrokes } from "@/lib/admin/report-signature";
+import { SignatureDisplay } from "@/components/admin/signature-pad";
 import { clearManageAddonSelection, consumeManageAddonSelection, consumeManageSessionStripeReturn, consumeManageSessionVerified, hasPendingManageSessionStripeReturn } from "@/lib/booking/manage-session-client";
 
 export interface BookingManageProps {
@@ -52,6 +54,10 @@ interface BookingView {
     rubricScores: TutorRubricScores;
     sectionComments: TutorSectionComments;
     notes: string;
+    startOdometerKm: number | null;
+    endOdometerKm: number | null;
+    studentSignature: SignatureStrokes | null;
+    instructorSignature: SignatureStrokes | null;
   };
 }
 
@@ -808,6 +814,15 @@ function StudentLessonReport({ report }: { report: NonNullable<BookingView["repo
         })}
       </div>
       {report.notes.trim() && <p className="mt-3 whitespace-pre-wrap border-t border-line pt-3 text-xs text-soft">{report.notes}</p>}
+      {(report.startOdometerKm !== null || report.endOdometerKm !== null) && (
+        <p className="mt-3 border-t border-line pt-3 text-xs text-soft">
+          <strong className="text-ink">Odometer:</strong> Start {report.startOdometerKm ?? "Not recorded"} km · End {report.endOdometerKm ?? "Not recorded"} km
+        </p>
+      )}
+      <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
+        <SignatureDisplay strokes={report.studentSignature} label="Student" />
+        <SignatureDisplay strokes={report.instructorSignature} label="Instructor" />
+      </div>
     </details>
   );
 }

@@ -34,7 +34,8 @@ const sections: { heading: string; body: React.ReactNode }[] = [
             name, email address, phone number, licence class, pickup street
             address, date of birth, gender, driver&rsquo;s licence number, lesson
             notes you choose to share, and booking history (lesson type, date
-            and time).
+            and time). Lesson reports may include odometer readings and drawn
+            student and instructor signatures.
           </li>
           <li>
             <strong>Contact messages:</strong> anything you send through our

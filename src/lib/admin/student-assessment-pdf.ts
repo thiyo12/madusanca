@@ -116,11 +116,12 @@ export function createStudentAssessmentPdf(
 
 interface DocumentLine {
   text?: string;
-  kind?: "section" | "subheading" | "body" | "score" | "muted" | "tableHeader" | "tableRow" | "spacer" | "pageBreak" | "finalScore";
+  kind?: "section" | "subheading" | "body" | "score" | "muted" | "tableHeader" | "tableRow" | "spacer" | "pageBreak" | "finalScore" | "signature";
   indent?: number;
   cells?: string[];
   table?: "details" | "scores";
   gap?: number;
+  strokes?: StudentAssessment["student_signature"];
 }
 
 function bookingStatusLabel(status: string): string {
@@ -256,6 +257,15 @@ function latestReportsByBooking(assessments: StudentAssessment[]): Map<string, S
 }
 
 function appendReportLines(lines: DocumentLine[], report: StudentAssessment): void {
+  if (report.start_odometer_km != null || report.end_odometer_km != null) {
+    lines.push({
+      kind: "tableRow",
+      table: "details",
+      cells: ["Odometer readings", `Start ${report.start_odometer_km ?? "Not recorded"} km · End ${report.end_odometer_km ?? "Not recorded"} km`],
+    });
+  }
+  if (report.student_signature?.length) lines.push({ kind: "signature", text: "Student signature", strokes: report.student_signature });
+  if (report.instructor_signature?.length) lines.push({ kind: "signature", text: "Instructor signature", strokes: report.instructor_signature });
   const hasDetailedRatings = Object.values(report.rubric_scores ?? {}).some((score) => typeof score === "number");
   let foundDetail = false;
   for (const section of TUTOR_REPORT_RUBRIC) {
@@ -319,6 +329,27 @@ function renderDocumentPdf(title: string, studentName: string, generatedAt: Date
       if (pages.at(-1)!.commands.length) pages.push({ commands: [] });
       y = 645;
       afterTable = false;
+      continue;
+    }
+    if (kind === "signature") {
+      if (y - 56 < 78) {
+        pages.push({ commands: [] });
+        y = 645;
+      }
+      const page = pages.at(-1)!;
+      page.commands.push(`BT /F2 7.5 Tf ${rgb(INK)} rg 1 0 0 1 58 ${(y - 9).toFixed(2)} Tm (${esc(line.text ?? "Signature")}) Tj ET`);
+      const top = y - 15;
+      for (const stroke of line.strokes ?? []) {
+        if (!stroke.length) continue;
+        const [[firstX, firstY], ...remaining] = stroke;
+        let path = `${(58 + firstX * 250).toFixed(2)} ${(top - firstY * 34).toFixed(2)} m`;
+        for (const [x, pointY] of remaining) {
+          path += ` ${(58 + x * 250).toFixed(2)} ${(top - pointY * 34).toFixed(2)} l`;
+        }
+        page.commands.push(`q 0.12 0.16 0.19 RG 1.05 w 1 J 1 j ${path} S Q`);
+      }
+      page.commands.push(`q 0.82 0.85 0.86 RG 0.45 w 58 ${(top - 38).toFixed(2)} m 308 ${(top - 38).toFixed(2)} l S Q`);
+      y -= 56;
       continue;
     }
     if (kind === "tableHeader" || kind === "tableRow") {

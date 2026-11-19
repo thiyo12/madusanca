@@ -1074,6 +1074,39 @@ test("tutor lesson reports use the requested detailed 1–10 rubric and retain c
   assert.match(csv, /Skill ratings|rubricHeaders/);
 });
 
+test("admin date and time selection is consistent across browsers and lesson reports capture km and optional signatures", () => {
+  const settings = readFileSync(new URL("../src/app/admin/(panel)/settings/page.tsx", import.meta.url), "utf8");
+  const reschedule = readFileSync(new URL("../src/app/admin/(panel)/bookings/booking-actions.tsx", import.meta.url), "utf8");
+  const dateTimeSelect = readFileSync(new URL("../src/components/admin/date-time-select.tsx", import.meta.url), "utf8");
+  const calendar = readFileSync(new URL("../src/app/admin/(panel)/calendar/day-bookings-accordion.tsx", import.meta.url), "utf8");
+  const signaturePad = readFileSync(new URL("../src/components/admin/signature-pad.tsx", import.meta.url), "utf8");
+  const action = readFileSync(new URL("../src/app/admin/(panel)/calendar/actions.ts", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../supabase/migrations/0067_lesson_odometer_and_signatures.sql", import.meta.url), "utf8");
+  const reportStore = readFileSync(new URL("../src/lib/admin/student-profiles.ts", import.meta.url), "utf8");
+  const pdf = readFileSync(new URL("../src/lib/admin/student-assessment-pdf.ts", import.meta.url), "utf8");
+  assert.match(settings, /<DateSelect/);
+  assert.match(settings, /<TimeSelect/);
+  assert.match(reschedule, /<DateSelect/);
+  assert.match(reschedule, /<TimeSelect/);
+  assert.doesNotMatch(settings, /type="date"|type="time"/);
+  assert.doesNotMatch(reschedule, /type="date"|type="time"/);
+  assert.match(dateTimeSelect, /name=\{name\} value=\{date\}/);
+  assert.match(dateTimeSelect, /name=\{name\} value=\{value24\}/);
+  assert.match(calendar, /name="startOdometerKm"/);
+  assert.match(calendar, /name="endOdometerKm"/);
+  assert.match(calendar, /<SignaturePad name="studentSignature"/);
+  assert.match(calendar, /<SignaturePad name="instructorSignature"/);
+  assert.match(signaturePad, /setPointerCapture/);
+  assert.match(action, /endOdometer\.data < startOdometer\.data/);
+  assert.match(action, /student_signature: studentSignature/);
+  assert.match(migration, /start_odometer_km integer/);
+  assert.match(migration, /end_odometer_km integer/);
+  assert.match(migration, /admin_save_booking_assessment_with_vehicle/);
+  assert.match(reportStore, /admin_save_booking_assessment_with_vehicle/);
+  assert.match(pdf, /Odometer readings/);
+  assert.match(pdf, /kind: "signature"/);
+});
+
 test("course add-ons stay together, rebookings stay separate, and completed courses are report-only for 45 days", () => {
   const migration = readFileSync(new URL("../supabase/migrations/0065_course_report_access_and_addon_groups.sql", import.meta.url), "utf8");
   const grouping = readFileSync(new URL("../src/lib/admin/course-groups.ts", import.meta.url), "utf8");

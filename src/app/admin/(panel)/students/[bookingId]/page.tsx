@@ -10,6 +10,7 @@ import { finishStudentCourseAction, saveStudentDetailsAction } from "../actions"
 import type { BookingRecord } from "@/lib/booking/types";
 import { TUTOR_REPORT_RUBRIC } from "@/lib/admin/tutor-report-rubric";
 import { bookingsByCourse } from "@/lib/admin/course-groups";
+import { SignatureDisplay } from "@/components/admin/signature-pad";
 
 export const metadata: Metadata = {
   title: "Student bookings — Wisdom Driving Academy Admin",
@@ -89,6 +90,8 @@ export default async function AdminStudentDetailPage({
               return <section key={section.key} className="rounded-lg border border-line bg-white p-3"><h4 className="text-xs font-extrabold text-ink">{section.title}</h4>{markedItems.length > 0 && <ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">{markedItems.map((item) => <li key={item.key} className="text-soft">{item.label}: <strong className="text-ink">{report.rubric_scores?.[item.key]}/10</strong></li>)}</ul>}{comment && <p className="mt-2 whitespace-pre-wrap text-xs text-soft">{comment}</p>}</section>;
             })}</div> : legacyRatings.length ? <section className="mt-3 rounded-lg border border-line bg-white p-3"><h4 className="text-xs font-extrabold text-ink">Previously recorded category ratings · 1–5</h4><ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">{legacyRatings.map(([label, score]) => <li key={label} className="text-soft">{label}: <strong className="text-ink">{score}/5</strong></li>)}</ul></section> : <p className="mt-2 text-xs text-soft">No skill ratings were recorded in this report.</p>}
             {report.notes && <p className="mt-3 whitespace-pre-wrap border-t border-line pt-2 text-xs text-soft">{report.notes}</p>}
+            {(report.start_odometer_km != null || report.end_odometer_km != null) && <p className="mt-3 border-t border-line pt-2 text-xs text-soft"><strong className="text-ink">Odometer:</strong> Start {report.start_odometer_km ?? "Not recorded"} km · End {report.end_odometer_km ?? "Not recorded"} km</p>}
+            <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-2"><SignatureDisplay strokes={report.student_signature} label="Student" /><SignatureDisplay strokes={report.instructor_signature} label="Instructor" /></div>
             {(report.road_test_date || report.road_test_location || report.road_test_outcome) && <p className="mt-3 border-t border-line pt-2 text-xs text-soft"><strong className="text-ink">Road test:</strong> {report.road_test_outcome?.replaceAll("_", " ") ?? "Not recorded"}{report.road_test_date ? ` · ${report.road_test_date}` : ""}{report.road_test_location ? ` · ${report.road_test_location}` : ""}</p>}
           </details>
         ) : booking.status === "completed" || (Date.parse(booking.startsAt) + booking.durationMin * 60_000 <= nowMs && ["confirmed", "rescheduled", "pending_payment"].includes(booking.status)) ? <p className="mt-3 text-xs text-soft">No report saved for this lesson yet.</p> : null}

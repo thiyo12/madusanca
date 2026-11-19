@@ -10,6 +10,7 @@ import {
   setBookingStatusAction,
   type RescheduleState,
 } from "./actions";
+import { DateSelect, TimeSelect } from "@/components/admin/date-time-select";
 
 export interface BookingActionsProps {
   bookingId: string;
@@ -153,8 +154,19 @@ export function BookingActions({ bookingId, status, startsAt, durationMin, nowMs
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1.5 text-[12px] font-bold text-ink">New date<input type="date" value={pendingLocal.slice(0, 10)} min={dayKeyOf(new Date(currentNowMs).toISOString())} onChange={(event) => updatePending(event.target.value, pendingLocal.slice(11, 16), setPendingLocal, setPendingStart)} className="h-10 rounded-lg border border-line bg-white px-3 text-sm" /></label>
-              <label className="grid gap-1.5 text-[12px] font-bold text-ink">New start time<input type="time" step={60} min={pendingLocal.slice(0, 10) === dayKeyOf(new Date(currentNowMs).toISOString()) ? minutesAsTime(toVancouverParts(new Date(currentNowMs + 60_000)).minutesOfDay) : undefined} value={pendingLocal.slice(11, 16)} onChange={(event) => updatePending(pendingLocal.slice(0, 10), event.target.value, setPendingLocal, setPendingStart)} className="h-10 rounded-lg border border-line bg-white px-3 text-sm" /></label>
+              <DateSelect
+                name={`reschedule-date-${bookingId}`}
+                label="New date"
+                value={pendingLocal.slice(0, 10)}
+                min={dayKeyOf(new Date(currentNowMs).toISOString())}
+                onChange={(day) => updatePending(day, pendingLocal.slice(11, 16), setPendingLocal, setPendingStart)}
+              />
+              <TimeSelect
+                name={`reschedule-time-${bookingId}`}
+                label="New start time"
+                value={pendingLocal.slice(11, 16)}
+                onChange={(time) => updatePending(pendingLocal.slice(0, 10), time, setPendingLocal, setPendingStart)}
+              />
             </div>
             <p className="mt-2 text-[11px] text-soft">Choose a future date and time. Past times are unavailable; we’ll check for conflicts before saving.</p>
 

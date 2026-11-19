@@ -38,7 +38,7 @@ export async function GET(request: Request): Promise<Response> {
     const purchaseColumns = ["Purchase reference", "Purchase student name", "Purchase email", "Purchase phone", "Purchase lesson", "Purchase lesson ID", "Purchase ID", "Purchased at", "Credits purchased", "Credits remaining", "Amount CAD", "Payment status", "Stripe subtotal CAD", "Stripe tax CAD", "Stripe total CAD", "Currency", "Stripe payment intent ID", "Stripe invoice ID", "Valid until", "Purchase source", "Purchase notes"];
     const rubricColumns = TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => `${section.title}: ${item.label} (1–10)`));
     const commentColumns = TUTOR_REPORT_RUBRIC.map((section) => `${section.title} instructor comment`);
-    const headersRow = ["Record type", ...profileColumns, ...bookingColumns, "Report date", "Road test date", "Road test location", "Road test outcome", ...rubricColumns, ...commentColumns, "Tutor notes", ...purchaseColumns];
+    const headersRow = ["Record type", ...profileColumns, ...bookingColumns, "Report date", "Starting odometer (km)", "Ending odometer (km)", "Student signed", "Instructor signed", "Road test date", "Road test location", "Road test outcome", ...rubricColumns, ...commentColumns, "Tutor notes", ...purchaseColumns];
     const rows: unknown[][] = [headersRow];
 
     for (const listedProfile of profiles) {
@@ -57,7 +57,7 @@ export async function GET(request: Request): Promise<Response> {
         profile.province, profile.postal_code];
       const bookingIds = new Set(bookings.map((booking) => booking.id));
       const assessments = (await assessmentsForStudent(profile.id)).filter((assessment) => assessment.booking_id && bookingIds.has(assessment.booking_id));
-      rows.push(["Student", ...details, ...Array(bookingColumns.length + 5 + rubricColumns.length + commentColumns.length + purchaseColumns.length).fill("")]);
+      rows.push(["Student", ...details, ...Array(bookingColumns.length + 9 + rubricColumns.length + commentColumns.length + purchaseColumns.length).fill("")]);
       for (const booking of bookings) {
         const bookingData = [booking.reference, booking.lessonName, booking.lessonId, booking.startsAt, booking.endsAt,
           booking.durationMin, booking.status, ["pending_payment", "confirmed", "rescheduled"].includes(booking.status) ? "yes" : "no",
@@ -65,7 +65,7 @@ export async function GET(request: Request): Promise<Response> {
           booking.stripeTaxCad ?? "", booking.stripeTotalCad ?? "", booking.stripeCurrency ?? "",
           booking.stripePaymentIntentId ?? "", booking.stripeInvoiceId ?? "",
           booking.sessionIndex, booking.sessionCount, booking.notes];
-        rows.push(["Lesson", ...details, ...bookingData, ...Array(5 + rubricColumns.length + commentColumns.length + purchaseColumns.length).fill("")]);
+        rows.push(["Lesson", ...details, ...bookingData, ...Array(9 + rubricColumns.length + commentColumns.length + purchaseColumns.length).fill("")]);
       }
       for (const assessment of assessments) {
         const booking = bookings.find((item) => item.id === assessment.booking_id);
@@ -75,7 +75,10 @@ export async function GET(request: Request): Promise<Response> {
           booking.stripeTaxCad ?? "", booking.stripeTotalCad ?? "", booking.stripeCurrency ?? "",
           booking.stripePaymentIntentId ?? "", booking.stripeInvoiceId ?? "",
           booking.sessionIndex, booking.sessionCount, booking.notes] : Array(bookingColumns.length).fill("");
-        rows.push(["Lesson report", ...details, ...bookingData, assessment.assessment_date, assessment.road_test_date,
+        rows.push(["Lesson report", ...details, ...bookingData, assessment.assessment_date,
+          assessment.start_odometer_km ?? "", assessment.end_odometer_km ?? "",
+          assessment.student_signature?.length ? "yes" : "no", assessment.instructor_signature?.length ? "yes" : "no",
+          assessment.road_test_date,
           assessment.road_test_location, assessment.road_test_outcome,
           ...TUTOR_REPORT_RUBRIC.flatMap((section) => section.items.map((item) => assessment.rubric_scores?.[item.key] ?? "")),
            ...TUTOR_REPORT_RUBRIC.map((section) => assessment.section_comments?.[section.key] ?? ""), assessment.notes,
@@ -93,8 +96,7 @@ export async function GET(request: Request): Promise<Response> {
         "Package purchase",
         ...Array(profileColumns.length).fill(""),
         ...Array(bookingColumns.length).fill(""),
-        ...Array(4 + rubricColumns.length + commentColumns.length).fill(""),
-        "",
+        ...Array(9 + rubricColumns.length + commentColumns.length).fill(""),
         purchase.reference, purchase.studentName, purchase.email, purchase.phone,
         purchase.lessonName, purchase.lessonId, purchase.id, purchase.purchasedAt ?? purchase.createdAt,
         purchase.creditsPurchased, purchase.creditsAvailable, purchase.amountCad, purchase.paymentStatus,
