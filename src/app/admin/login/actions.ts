@@ -75,11 +75,23 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
     await supabase.auth.signOut({ scope: "local" });
     return { error: "Admin session security is not configured. Contact the site administrator." };
   }
-  (await cookies()).set(ADMIN_SESSION_COOKIE_NAME, sessionValue, {
+  const cookieStore = await cookies();
+  // Remove the old path-scoped cookie so it cannot shadow the new root cookie
+  // when the browser sends both to /admin.
+  cookieStore.set(ADMIN_SESSION_COOKIE_NAME, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/admin",
+    maxAge: 0,
+  });
+  cookieStore.set(ADMIN_SESSION_COOKIE_NAME, sessionValue, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    // Calendar booking actions call /api/bookings/hold, which also validates
+    // this signed admin-session cookie.
+    path: "/",
     maxAge: ADMIN_SESSION_TTL_SECONDS,
   });
 
@@ -176,13 +188,16 @@ export async function updatePassword(
 }
 
 async function clearAdminSessionCookie(): Promise<void> {
-  (await cookies()).set(ADMIN_SESSION_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/admin",
-    maxAge: 0,
-  });
+  const cookieStore = await cookies();
+  for (const path of ["/", "/admin"]) {
+    cookieStore.set(ADMIN_SESSION_COOKIE_NAME, "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path,
+      maxAge: 0,
+    });
+  }
 }
 
 export async function signOut(): Promise<void> {

@@ -358,7 +358,7 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
       try {
         const response = await fetch("/api/bookings/hold", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(adminMode ? { "x-admin-calendar-booking": "true" } : {}) },
           body: JSON.stringify({ packageSchedules }),
         });
         const result = await response.json() as { ok?: boolean; error?: string; holdToken?: string; expiresAt?: string };
