@@ -1,11 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { logSafeError } from "@/lib/server/safe-log";
+import { ADMIN_SESSION_COOKIE_NAME, ADMIN_SESSION_TTL_SECONDS, createAdminSessionCookieValue } from "@/lib/auth/admin-session";
 
 export interface LoginState {
   error: string | null;
@@ -55,7 +56,7 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: parsed.data.email.trim().toLowerCase(),
     password: parsed.data.password,
   });
@@ -64,6 +65,23 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
     logSafeError("[admin/login] Supabase sign-in failed", error);
     return { error: "Invalid email or password." };
   }
+
+  if (!data.user?.id) {
+    await supabase.auth.signOut({ scope: "local" });
+    return { error: "Could not start a secure admin session. Please try again." };
+  }
+  const sessionValue = createAdminSessionCookieValue(data.user.id);
+  if (!sessionValue) {
+    await supabase.auth.signOut({ scope: "local" });
+    return { error: "Admin session security is not configured. Contact the site administrator." };
+  }
+  (await cookies()).set(ADMIN_SESSION_COOKIE_NAME, sessionValue, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/admin",
+    maxAge: ADMIN_SESSION_TTL_SECONDS,
+  });
 
   redirect(safeNext(parsed.data.next));
 }
@@ -147,16 +165,29 @@ export async function updatePassword(
   if (revokeError) {
     logSafeError("[admin/password-reset] global session revocation failed", revokeError);
     await supabase.auth.signOut({ scope: "local" });
+    await clearAdminSessionCookie();
     return {
       error: "Your password was updated, but Supabase could not confirm sign-out on other devices. Contact the site administrator to revoke existing sessions.",
     };
   }
 
+  await clearAdminSessionCookie();
   redirect("/admin/login?passwordUpdated=1");
+}
+
+async function clearAdminSessionCookie(): Promise<void> {
+  (await cookies()).set(ADMIN_SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/admin",
+    maxAge: 0,
+  });
 }
 
 export async function signOut(): Promise<void> {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
+  await clearAdminSessionCookie();
   redirect("/admin/login");
 }

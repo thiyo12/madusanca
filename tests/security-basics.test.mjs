@@ -34,6 +34,7 @@ import { calendarDropStartMin, generateSlots, HORIZON_DAYS, occupiedDurationMin,
 import { manageUrl } from "../src/lib/booking/urls.ts";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "../src/lib/booking/manage-policy.ts";
 import { isLocalAdminBypassEnabled } from "../src/lib/auth/local-admin-bypass.ts";
+import { ADMIN_SESSION_TTL_SECONDS, createAdminSessionCookieValue, isAdminSessionCookieValid } from "../src/lib/auth/admin-session.ts";
 import { supabaseOrigin } from "../src/lib/server/supabase-origin.ts";
 import { TUTOR_REPORT_ITEMS, TUTOR_REPORT_RUBRIC } from "../src/lib/admin/tutor-report-rubric.ts";
 import { studentSessionsComplete } from "../src/lib/admin/student-record-format.ts";
@@ -1241,6 +1242,27 @@ test("migration 0062 records admin cancellation reasons and refunds only unused 
   assert.match(migration, /-v_balance/i);
   assert.match(migration, /payment_status = 'refunded', refund_reason = v_reason/i);
   assert.match(migration, /revoke all on function public\.admin_mark_package_purchase_refunded\(uuid, text\) from public, anon, authenticated/i);
+});
+
+test("admin sessions are signed, user-bound, and expire absolutely after 12 hours", () => {
+  const previousSecret = process.env.OTP_HASH_SECRET;
+  const secret = "a".repeat(64);
+  const userId = "admin-user-id";
+  const issuedAt = Date.parse("2026-11-20T12:00:00.000Z");
+  try {
+    process.env.OTP_HASH_SECRET = secret;
+    const value = createAdminSessionCookieValue(userId, issuedAt);
+    assert.equal(ADMIN_SESSION_TTL_SECONDS, 12 * 60 * 60);
+    assert.ok(value);
+    assert.equal(isAdminSessionCookieValid(value, userId, issuedAt + ADMIN_SESSION_TTL_SECONDS * 1000 - 1), true);
+    assert.equal(isAdminSessionCookieValid(value, userId, issuedAt + ADMIN_SESSION_TTL_SECONDS * 1000), false);
+    assert.equal(isAdminSessionCookieValid(value, "different-user", issuedAt + 1), false);
+    assert.equal(isAdminSessionCookieValid(`${value}x`, userId, issuedAt + 1), false);
+    assert.equal(isAdminSessionCookieValid(value, userId, issuedAt - 60_001), false);
+  } finally {
+    if (previousSecret === undefined) delete process.env.OTP_HASH_SECRET;
+    else process.env.OTP_HASH_SECRET = previousSecret;
+  }
 });
 
 test("passwordless admin bypass is limited to loopback hosts in development", () => {

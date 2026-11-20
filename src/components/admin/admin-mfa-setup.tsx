@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { signOut as adminSignOut } from "@/app/admin/login/actions";
 
 interface Enrollment {
   factorId: string;
@@ -113,9 +114,7 @@ export function AdminMfaSetup({ next }: { next: string }) {
   }
 
   async function signOut() {
-    await supabase().auth.signOut({ scope: "local" });
-    router.replace("/admin/login");
-    router.refresh();
+    await adminSignOut();
   }
 
   return (

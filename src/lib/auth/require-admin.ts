@@ -1,9 +1,10 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isLocalAdminBypassEnabled } from "@/lib/auth/local-admin-bypass";
+import { ADMIN_SESSION_COOKIE_NAME, isAdminSessionCookieValid } from "@/lib/auth/admin-session";
 
 export interface AdminIdentity {
   userId: string;
@@ -68,6 +69,12 @@ export async function requireAdmin(nextPath = "/admin"): Promise<AdminIdentity> 
   if (!(await isAdmin(user.id, user.email))) {
     await supabase.auth.signOut();
     redirect("/admin/login?denied=1");
+  }
+
+  const adminSession = (await cookies()).get(ADMIN_SESSION_COOKIE_NAME)?.value;
+  if (!isAdminSessionCookieValid(adminSession, user.id)) {
+    await supabase.auth.signOut({ scope: "local" });
+    redirect("/admin/login?expired=1");
   }
 
   const mfaRequired = process.env.NODE_ENV === "production" || process.env.ADMIN_REQUIRE_MFA === "true";

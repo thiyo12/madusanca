@@ -17,6 +17,7 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
   const next = typeof params.next === "string" ? params.next : undefined;
   const denied = params.denied === "1";
+  const expired = params.expired === "1";
   const passwordUpdated = params.passwordUpdated === "1";
   const configured = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -43,6 +44,11 @@ export default async function AdminLoginPage({ searchParams }: LoginPageProps) {
           {passwordUpdated && (
             <p role="status" className="mt-5 rounded-lg bg-[#1f3527] px-4 py-3 text-[13px] font-semibold text-[#bce8c4]">
               Password updated. Sign in with your new password.
+            </p>
+          )}
+          {expired && (
+            <p role="status" className="mt-5 rounded-lg bg-[#1f3527] px-4 py-3 text-[13px] font-semibold text-[#bce8c4]">
+              Your 12-hour admin session expired. Sign in again to continue.
             </p>
           )}
           <div className="mt-6">
