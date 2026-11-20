@@ -6,7 +6,12 @@ import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { clientIp, isRateLimitedShared } from "@/lib/server/rate-limit";
 import { logSafeError } from "@/lib/server/safe-log";
-import { ADMIN_SESSION_COOKIE_NAME, ADMIN_SESSION_TTL_SECONDS, createAdminSessionCookieValue } from "@/lib/auth/admin-session";
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  ADMIN_SESSION_TTL_SECONDS,
+  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+  createAdminSessionCookieValue,
+} from "@/lib/auth/admin-session";
 
 export interface LoginState {
   error: string | null;
@@ -76,9 +81,8 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
     return { error: "Admin session security is not configured. Contact the site administrator." };
   }
   const cookieStore = await cookies();
-  // Remove the old path-scoped cookie so it cannot shadow the new root cookie
-  // when the browser sends both to /admin.
-  cookieStore.set(ADMIN_SESSION_COOKIE_NAME, "", {
+  // Remove the old session cookie by its previous, distinct name.
+  cookieStore.set(LEGACY_ADMIN_SESSION_COOKIE_NAME, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -189,15 +193,20 @@ export async function updatePassword(
 
 async function clearAdminSessionCookie(): Promise<void> {
   const cookieStore = await cookies();
-  for (const path of ["/", "/admin"]) {
-    cookieStore.set(ADMIN_SESSION_COOKIE_NAME, "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path,
-      maxAge: 0,
-    });
-  }
+  cookieStore.set(ADMIN_SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+  cookieStore.set(LEGACY_ADMIN_SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/admin",
+    maxAge: 0,
+  });
 }
 
 export async function signOut(): Promise<void> {

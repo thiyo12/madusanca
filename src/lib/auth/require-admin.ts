@@ -4,7 +4,11 @@ import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isLocalAdminBypassEnabled } from "@/lib/auth/local-admin-bypass";
-import { ADMIN_SESSION_COOKIE_NAME, isAdminSessionCookieValid } from "@/lib/auth/admin-session";
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  isAdminSessionCookieValid,
+  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+} from "@/lib/auth/admin-session";
 
 export interface AdminIdentity {
   userId: string;
@@ -71,8 +75,12 @@ export async function requireAdmin(nextPath = "/admin"): Promise<AdminIdentity> 
     redirect("/admin/login?denied=1");
   }
 
-  const adminSession = (await cookies()).get(ADMIN_SESSION_COOKIE_NAME)?.value;
-  if (!isAdminSessionCookieValid(adminSession, user.id)) {
+  const cookieStore = await cookies();
+  const hasValidAdminSession = [
+    cookieStore.get(ADMIN_SESSION_COOKIE_NAME)?.value,
+    cookieStore.get(LEGACY_ADMIN_SESSION_COOKIE_NAME)?.value,
+  ].some((value) => isAdminSessionCookieValid(value, user.id));
+  if (!hasValidAdminSession) {
     await supabase.auth.signOut({ scope: "local" });
     redirect("/admin/login?expired=1");
   }

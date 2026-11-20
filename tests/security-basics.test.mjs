@@ -1268,13 +1268,17 @@ test("admin sessions are signed, user-bound, and expire absolutely after 12 hour
 test("calendar API requests receive the admin session cookie and multi-lesson holds use admin rules", () => {
   const loginActions = readFileSync(new URL("../src/app/admin/login/actions.ts", import.meta.url), "utf8");
   const proxy = readFileSync(new URL("../src/proxy.ts", import.meta.url), "utf8");
+  const session = readFileSync(new URL("../src/lib/auth/admin-session.ts", import.meta.url), "utf8");
+  const requireAdmin = readFileSync(new URL("../src/lib/auth/require-admin.ts", import.meta.url), "utf8");
   const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
   assert.match(loginActions, /ADMIN_SESSION_COOKIE_NAME, sessionValue[\s\S]*?path: "\/"/);
-  assert.match(loginActions, /path: "\/admin",\s*maxAge: 0/);
-  assert.match(loginActions, /for \(const path of \["\/", "\/admin"\]\)/);
-  assert.match(proxy, /getAll\(ADMIN_SESSION_COOKIE_NAME\)/);
+  assert.match(session, /ADMIN_SESSION_COOKIE_NAME = "wda_admin_session_v2"/);
+  assert.match(session, /LEGACY_ADMIN_SESSION_COOKIE_NAME = "wda_admin_session"/);
+  assert.match(loginActions, /LEGACY_ADMIN_SESSION_COOKIE_NAME, ""[\s\S]*?path: "\/admin"[\s\S]*?maxAge: 0/);
+  assert.match(proxy, /getAll\(LEGACY_ADMIN_SESSION_COOKIE_NAME\)/);
   assert.match(proxy, /isAdminSessionCookieValid\(value, user\.id\)/);
-  assert.match(proxy, /path: "\/admin",[\s\S]*?maxAge: 0/);
+  assert.match(proxy, /LEGACY_ADMIN_SESSION_COOKIE_NAME, ""[\s\S]*?path: "\/admin"[\s\S]*?maxAge: 0/);
+  assert.match(requireAdmin, /cookieStore\.get\(LEGACY_ADMIN_SESSION_COOKIE_NAME\)/);
   assert.match(wizard, /headers: \{ "Content-Type": "application\/json", \.\.\.\(adminMode \? \{ "x-admin-calendar-booking": "true" \} : \{\}\) \}/);
 });
 
