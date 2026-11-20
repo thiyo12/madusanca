@@ -159,6 +159,7 @@ export function BookingActions({ bookingId, status, startsAt, durationMin, nowMs
                 label="New date"
                 value={pendingLocal.slice(0, 10)}
                 min={dayKeyOf(new Date(currentNowMs).toISOString())}
+                unboundedFuture
                 onChange={(day) => updatePending(day, pendingLocal.slice(11, 16), setPendingLocal, setPendingStart)}
               />
               <TimeSelect

@@ -20,6 +20,7 @@ export function DateSelect({
   value,
   min,
   max,
+  unboundedFuture = false,
   label,
   onChange,
 }: {
@@ -27,13 +28,15 @@ export function DateSelect({
   value: string;
   min?: string;
   max?: string;
+  unboundedFuture?: boolean;
   label: string;
   onChange?: (value: string) => void;
 }) {
   const [date, setDate] = useState(value);
   const [year, month, day] = date.split("-").map(Number);
+  const [yearInput, setYearInput] = useState(String(year));
   const [minYear] = (min ?? `${year}-01-01`).split("-").map(Number);
-  const [maxYear] = (max ?? `${year + 5}-12-31`).split("-").map(Number);
+  const [maxYear] = (max ?? (unboundedFuture ? "9999-12-31" : `${year + 5}-12-31`)).split("-").map(Number);
   const firstYear = Math.min(minYear, year);
   const lastYear = Math.max(maxYear, year);
 
@@ -41,6 +44,7 @@ export function DateSelect({
     const clampedDay = Math.min(nextDay, daysInMonth(nextYear, nextMonth));
     const next = `${String(nextYear).padStart(4, "0")}-${String(nextMonth).padStart(2, "0")}-${String(clampedDay).padStart(2, "0")}`;
     setDate(next);
+    setYearInput(String(nextYear));
     onChange?.(next);
   }
 
@@ -60,11 +64,30 @@ export function DateSelect({
       <span className="text-[12px] font-bold text-[#282c33]">{label}</span>
       <input type="hidden" name={name} value={date} />
       <div className="grid grid-cols-[1fr_1.2fr_.8fr] gap-1.5" role="group" aria-label={label}>
-        <select aria-label={`${label} year`} className={selectClass} value={year} onChange={(event) => update(Number(event.target.value), month, day)}>
-          {Array.from({ length: lastYear - firstYear + 1 }, (_, index) => firstYear + index).map((item) => (
-            <option key={item} value={item}>{item}</option>
-          ))}
-        </select>
+        {unboundedFuture ? (
+          <input
+            aria-label={`${label} year`}
+            className={selectClass}
+            type="number"
+            min={firstYear}
+            max={lastYear}
+            value={yearInput}
+            onChange={(event) => {
+              const rawYear = event.target.value;
+              setYearInput(rawYear);
+              const nextYear = Number(rawYear);
+              if (/^\d{4}$/.test(rawYear) && nextYear >= firstYear && nextYear <= lastYear) {
+                update(nextYear, month, day);
+              }
+            }}
+          />
+        ) : (
+          <select aria-label={`${label} year`} className={selectClass} value={year} onChange={(event) => update(Number(event.target.value), month, day)}>
+            {Array.from({ length: lastYear - firstYear + 1 }, (_, index) => firstYear + index).map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        )}
         <select aria-label={`${label} month`} className={selectClass} value={month} onChange={(event) => update(year, Number(event.target.value), day)}>
           {months.map((item) => <option key={item.value} value={item.value}>{item.name}</option>)}
         </select>
