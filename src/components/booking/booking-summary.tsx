@@ -6,8 +6,8 @@ export interface BookingSummaryData {
   durationMin: number;
   priceCad: number;
   startsAt: string;
-  studentName: string;
-  email: string;
+  studentName?: string;
+  email?: string;
 }
 
 export interface BookingSummaryProps {
@@ -42,14 +42,18 @@ export function BookingSummary({ data, reference, className = "" }: BookingSumma
           </span>
         </dd>
       </div>
-      <div className={rowClasses}>
-        <dt className={labelClasses}>Student</dt>
-        <dd className={valueClasses}>{data.studentName}</dd>
-      </div>
-      <div className={rowClasses}>
-        <dt className={labelClasses}>Contact</dt>
-        <dd className={valueClasses}>{maskEmail(data.email)}</dd>
-      </div>
+      {data.studentName && (
+        <div className={rowClasses}>
+          <dt className={labelClasses}>Student</dt>
+          <dd className={valueClasses}>{data.studentName}</dd>
+        </div>
+      )}
+      {data.email && (
+        <div className={rowClasses}>
+          <dt className={labelClasses}>Contact</dt>
+          <dd className={valueClasses}>{maskEmail(data.email)}</dd>
+        </div>
+      )}
       <div className={`${rowClasses} border-t border-line pt-3.5`}>
         <dt className="shrink-0 text-[13px] font-extrabold text-ink">Package price (pay at school)</dt>
         <dd className="text-right font-display text-[19px] font-extrabold text-ink">

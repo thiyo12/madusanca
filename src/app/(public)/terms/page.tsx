@@ -204,17 +204,6 @@ const sections: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
-    heading: "No guarantee of licensing",
-    body: (
-      <p>
-        We teach driving skills and prepare you for your road test, but we
-        cannot guarantee that you will pass any ICBC knowledge or road test, or
-        obtain a licence within a particular time frame. Test outcomes depend on
-        factors outside our control.
-      </p>
-    ),
-  },
-  {
     heading: "Independent school — no ICBC affiliation",
     body: (
       <p>

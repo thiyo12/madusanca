@@ -96,14 +96,30 @@ test("OTP expiration is exactly 10 minutes and resend is delayed until that expi
   assert.ok(otpRoute.indexOf("if (found.length === 0 && purchases.length === 0)") < otpRoute.indexOf("await store.putOtp(email, otpHash, expiresAt)"));
   assert.match(otpRoute, /sendLimitReason: "daily_limit"/);
   assert.match(bookingFind, /result\.sendLimitReason === "daily_limit"/);
-  assert.match(bookingFind, /expiry - Date\.now\(\) > OTP_TTL_MS/);
-  assert.match(bookingFind, /retryAfter > 0 && !readPendingOtp\(email\)/);
-  assert.match(bookingFind, /readPendingOtp\(email\) \? "Enter current code"/);
-  assert.match(bookingFind, /localStorage\.setItem\(PENDING_OTP_KEY, JSON\.stringify\(\{ email: email\.trim\(\)\.toLowerCase\(\), expiresAt:/);
+  assert.match(bookingFind, /disabled=\{pending \|\| retryAfter > 0\}/);
+  assert.doesNotMatch(bookingFind, /localStorage\.setItem|sessionStorage/);
+  assert.match(bookingFind, /localStorage\.removeItem\(LEGACY_PENDING_OTP_KEY\)/);
   assert.match(resendMigration, /last_sent_at \+ interval '10 minutes'/);
   assert.match(latestCooldownMigration, /last_sent_at \+ interval '10 minutes'/);
   assert.match(latestCooldownMigration, /pg_advisory_xact_lock/);
   assert.doesNotMatch(resendMigration, /interval '2 minutes'/);
+});
+
+test("booking browser storage excludes personal details, OTP email, and checkout manage tokens", () => {
+  const wizard = readFileSync(new URL("../src/components/booking/booking-wizard.tsx", import.meta.url), "utf8");
+  const reviewPersistence = wizard.slice(wizard.indexOf("function storedReviewSuccess"), wizard.indexOf("export function BookingWizard"));
+  assert.doesNotMatch(reviewPersistence, /manageToken|studentName|email|dateOfBirth|licenseNumber|holdToken|holdExpiresAt/);
+  assert.match(wizard, /Remove legacy values immediately/);
+  assert.match(wizard, /Clear old drafts before restoring only non-personal scheduling data/);
+  assert.match(wizard, /Continue in My Booking/);
+});
+
+test("public schema client grants are revoked for existing and future objects", () => {
+  const migration = readFileSync(new URL("../supabase/migrations/0068_revoke_public_client_schema_grants.sql", import.meta.url), "utf8");
+  assert.match(migration, /revoke all privileges on all tables in schema public from anon, authenticated/i);
+  assert.match(migration, /revoke all privileges on all sequences in schema public from anon, authenticated/i);
+  assert.match(migration, /revoke all privileges on all functions in schema public from anon, authenticated/i);
+  assert.match(migration, /alter default privileges for role postgres in schema public/i);
 });
 
 test("expired lessons do not offer online payment", () => {

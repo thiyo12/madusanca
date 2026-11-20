@@ -56,8 +56,7 @@ const STATUS_LABEL: Record<string, string> = {
   no_show: "No-show",
 };
 
-const PENDING_OTP_KEY = "wda_pending_booking_otp";
-const OTP_TTL_MS = 10 * 60 * 1000;
+const LEGACY_PENDING_OTP_KEY = "wda_pending_booking_otp";
 
 function orderBookingsForOverview(bookings: FoundBooking[], now: number): FoundBooking[] {
   const section = (booking: FoundBooking) => {
@@ -68,22 +67,6 @@ function orderBookingsForOverview(bookings: FoundBooking[], now: number): FoundB
   return [...bookings].sort((left, right) =>
     section(left) - section(right) || Date.parse(left.startsAt) - Date.parse(right.startsAt),
   );
-}
-
-function readPendingOtp(email: string): number | null {
-  if (typeof window === "undefined" || !email.trim()) return null;
-  try {
-    const pending = JSON.parse(window.localStorage.getItem(PENDING_OTP_KEY) ?? "null") as { email?: string; expiresAt?: string } | null;
-    if (pending?.email !== email.trim().toLowerCase() || !pending.expiresAt) return null;
-    const expiry = Date.parse(pending.expiresAt);
-    if (!Number.isFinite(expiry) || expiry <= Date.now() || expiry - Date.now() > OTP_TTL_MS) {
-      window.localStorage.removeItem(PENDING_OTP_KEY);
-      return null;
-    }
-    return expiry;
-  } catch {
-    return null;
-  }
 }
 
 export type BookingAction = "details" | "reschedule" | "payment" | "addons";
@@ -119,6 +102,14 @@ export function BookingFind({
   const visibleStep = forceVerifiedHistory && (bookings.length > 0 || purchases.length > 0) ? "list" : step;
 
   useEffect(() => {
+    try {
+      window.localStorage.removeItem(LEGACY_PENDING_OTP_KEY);
+    } catch {
+      // Storage may be unavailable; no new personal data is written there.
+    }
+  }, []);
+
+  useEffect(() => {
     if (!restoredHistory) return;
     // The parent publishes this only after the manage-cookie history request resolves.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -146,7 +137,6 @@ export function BookingFind({
       setRetryAfter(requestRemaining);
       if (otpExpiresAt !== null && codeRemaining === 0) {
         setOtpExpiresAt(null);
-        try { window.localStorage.removeItem(PENDING_OTP_KEY); } catch { /* storage may be unavailable */ }
       }
       if (requestAvailableAt !== null && requestRemaining === 0) setRequestAvailableAt(null);
     };
@@ -182,15 +172,6 @@ export function BookingFind({
 
   async function requestCode(event?: React.FormEvent) {
     event?.preventDefault();
-    const existingExpiry = readPendingOtp(email);
-    if (existingExpiry) {
-      setOtpExpiresAt(existingExpiry);
-      setRequestAvailableAt(existingExpiry);
-      setMessage("Use the code already sent to this email. It remains valid until the countdown reaches zero.");
-      setError(null);
-      setStep("code");
-      return;
-    }
     setPending(true);
     setError(null);
     setMessage(null);
@@ -205,7 +186,6 @@ export function BookingFind({
         setRequestAvailableAt(Date.now() + result.retryAfterSeconds * 1000);
         setCode("");
         setStep("email");
-        try { window.localStorage.removeItem(PENDING_OTP_KEY); } catch { /* storage may be unavailable */ }
         setMessage("The daily email request limit has been reached. No new code was sent; the button below shows when you can request another.");
         return;
       }
@@ -215,7 +195,6 @@ export function BookingFind({
       if (Number.isFinite(expiry) && expiry > Date.now()) {
         setOtpExpiresAt(expiry);
         setRequestAvailableAt(expiry);
-        try { window.localStorage.setItem(PENDING_OTP_KEY, JSON.stringify({ email: email.trim().toLowerCase(), expiresAt: new Date(expiry).toISOString() })); } catch { /* countdown still works for this visit */ }
       }
       setStep("code");
     } catch {
@@ -307,10 +286,9 @@ export function BookingFind({
               value={email}
               onChange={(event) => {
                 setEmail(event.target.value);
-                const expiry = readPendingOtp(event.target.value);
-                setOtpExpiresAt(expiry);
-                setRequestAvailableAt(expiry);
-                setMessage(expiry ? "A code is already active for this email. Enter the email and continue to use it." : null);
+                setOtpExpiresAt(null);
+                setRequestAvailableAt(null);
+                setMessage(null);
               }}
               placeholder="you@example.com"
               className="h-11 w-full rounded-[12px] border border-[#d7dfdc] bg-white px-3 text-[14px] text-ink outline-none focus:border-[#83b657]"
@@ -319,10 +297,10 @@ export function BookingFind({
           <div>
             <button
               type="submit"
-              disabled={pending || (retryAfter > 0 && !readPendingOtp(email))}
+              disabled={pending || retryAfter > 0}
               className="btn-gold inline-flex h-11 items-center rounded-full px-6 text-[13px] font-extrabold disabled:opacity-60"
             >
-              {pending ? "Sending…" : readPendingOtp(email) ? "Enter current code" : retryAfter > 0 ? `New code available in ${formatRemaining(retryAfter)}` : "Send my code"}
+              {pending ? "Sending…" : retryAfter > 0 ? `New code available in ${formatRemaining(retryAfter)}` : "Send my code"}
             </button>
           </div>
         </form>

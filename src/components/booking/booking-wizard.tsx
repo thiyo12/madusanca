@@ -45,19 +45,16 @@ interface StoredBookingDraft {
   scheduledStarts: Record<string, string>;
   showAddOns: boolean;
   appointmentIndex: number;
-  details: DetailsValue;
-  holdToken?: string | null;
-  holdExpiresAt?: string | null;
 }
 
 interface SuccessData {
   reference: string;
-  manageToken: string;
+  manageToken?: string;
   lessonName: string;
   durationMin: number;
   startsAt: string;
-  studentName: string;
-  email: string;
+  studentName?: string;
+  email?: string;
   priceCad: number;
   emailSent?: boolean;
   addOnPackages: PackageQuantitySelection[];
@@ -67,7 +64,7 @@ interface SuccessData {
 
 interface StoredBookingReview {
   savedAt: number;
-  success: SuccessData;
+  success: Omit<SuccessData, "manageToken" | "studentName" | "email" | "emailSent">;
 }
 
 function isSuccessData(value: unknown): value is SuccessData {
@@ -81,6 +78,32 @@ function isSuccessData(value: unknown): value is SuccessData {
     item.addOnPackages.every((entry) => entry && typeof entry.lessonId === "string" && typeof entry.quantity === "number") &&
     Array.isArray(item.addOns) && item.addOns.every((entry) => entry && typeof entry.id === "string" && typeof entry.name === "string" && typeof entry.priceCad === "number" && typeof entry.sessionCount === "number" && typeof entry.quantity === "number") &&
     Array.isArray(item.sessions) && item.sessions.every((entry) => entry && typeof entry.lessonName === "string" && typeof entry.startsAt === "string");
+}
+
+function isStoredBookingReview(value: unknown): value is StoredBookingReview {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<StoredBookingReview>;
+  if (typeof item.savedAt !== "number" || !item.success || typeof item.success !== "object") return false;
+  return isSuccessData({
+    ...item.success,
+    manageToken: "",
+    studentName: "",
+    email: "",
+    emailSent: undefined,
+  });
+}
+
+function storedReviewSuccess(success: SuccessData): StoredBookingReview["success"] {
+  return {
+    reference: success.reference,
+    lessonName: success.lessonName,
+    durationMin: success.durationMin,
+    startsAt: success.startsAt,
+    priceCad: success.priceCad,
+    addOnPackages: success.addOnPackages,
+    addOns: success.addOns,
+    sessions: success.sessions,
+  };
 }
 
 export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymentCancelled = false, adminMode = false, onAdminDone }: BookingWizardProps) {
@@ -158,19 +181,28 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
     const restore = window.setTimeout(() => {
       try {
         const savedReview = window.sessionStorage.getItem(BOOKING_REVIEW_KEY);
+        // Remove legacy values immediately; previous versions stored a manage
+        // token and customer contact details in this browser tab.
+        window.sessionStorage.removeItem(BOOKING_REVIEW_KEY);
         if (savedReview) {
-          const review = JSON.parse(savedReview) as Partial<StoredBookingReview>;
-          const age = Date.now() - (typeof review.savedAt === "number" ? review.savedAt : 0);
-          if (isSuccessData(review.success) && age >= 0 && age < BOOKING_REVIEW_TTL_MS) {
-            setSuccess(review.success);
-            setDetails({ ...emptyDetails, email: review.success.email });
+          const review: unknown = JSON.parse(savedReview);
+          const age = isStoredBookingReview(review) ? Date.now() - review.savedAt : -1;
+          if (isStoredBookingReview(review) && age >= 0 && age < BOOKING_REVIEW_TTL_MS) {
+            setSuccess({
+              ...review.success,
+              manageToken: undefined,
+              studentName: "",
+              email: "",
+              emailSent: undefined,
+            });
             setDraftReady(true);
             return;
           }
-          window.sessionStorage.removeItem(BOOKING_REVIEW_KEY);
         }
         const raw = window.sessionStorage.getItem(BOOKING_DRAFT_KEY);
         if (raw) {
+        // Clear old drafts before restoring only non-personal scheduling data.
+        window.sessionStorage.removeItem(BOOKING_DRAFT_KEY);
         const saved = JSON.parse(raw) as Partial<StoredBookingDraft>;
         const age = Date.now() - (typeof saved.savedAt === "number" ? saved.savedAt : 0);
         if (saved.version === 1 && age >= 0 && age < BOOKING_DRAFT_TTL_MS) {
@@ -181,22 +213,13 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
           const starts = Object.fromEntries(Object.entries(saved.scheduledStarts ?? {}).filter(([, startsAt]) =>
             typeof startsAt === "string" && Number.isFinite(Date.parse(startsAt)),
           ));
-          const restoredDetails = { ...emptyDetails };
-          if (saved.details && typeof saved.details === "object") {
-            for (const key of Object.keys(restoredDetails) as Array<keyof DetailsValue>) {
-              const value = saved.details[key];
-              if (typeof value === "string") restoredDetails[key] = value as never;
-              else if (key === "consent" && typeof value === "boolean") restoredDetails.consent = value;
-            }
-          }
           setLesson(restoredLesson);
           setPackageQuantities(quantities);
           setScheduledStarts(starts);
-          setHoldToken(typeof saved.holdToken === "string" ? saved.holdToken : null);
-          setHoldExpiresAt(typeof saved.holdExpiresAt === "string" ? saved.holdExpiresAt : null);
+          setHoldToken(null);
+          setHoldExpiresAt(null);
           setShowAddOns(saved.showAddOns === true);
           setAppointmentIndex(Number.isSafeInteger(saved.appointmentIndex) && (saved.appointmentIndex ?? -1) >= 0 ? saved.appointmentIndex! : 0);
-          setDetails(restoredDetails);
           const maxStep = Math.max(0, Math.min(STEPS.length - 1, Number.isSafeInteger(saved.stepIndex) ? saved.stepIndex! : 0));
           setStepIndex(maxStep >= 2 && Object.keys(starts).length === 0 ? 1 : maxStep);
         } else {
@@ -217,8 +240,7 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
 
   useEffect(() => {
     if (adminMode || !draftReady || success) return;
-    const hasDraft = Boolean(lesson || Object.keys(packageQuantities).length || Object.keys(scheduledStarts).length ||
-      details.firstName || details.lastName || details.studentName || details.dateOfBirth || details.gender || details.licenseNumber || details.email);
+    const hasDraft = Boolean(lesson || Object.keys(packageQuantities).length || Object.keys(scheduledStarts).length);
     if (!hasDraft) return;
 
     const draft: StoredBookingDraft = {
@@ -230,9 +252,6 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
       scheduledStarts,
       showAddOns,
       appointmentIndex,
-      details,
-      holdToken,
-      holdExpiresAt,
     };
     try {
       window.sessionStorage.setItem(BOOKING_DRAFT_KEY, JSON.stringify(draft));
@@ -556,7 +575,10 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
       };
       try {
         window.sessionStorage.removeItem(BOOKING_DRAFT_KEY);
-        window.sessionStorage.setItem(BOOKING_REVIEW_KEY, JSON.stringify({ savedAt: Date.now(), success: successData } satisfies StoredBookingReview));
+      window.sessionStorage.setItem(BOOKING_REVIEW_KEY, JSON.stringify({
+        savedAt: Date.now(),
+        success: storedReviewSuccess(successData),
+      } satisfies StoredBookingReview));
       } catch {
         // Successful booking should not depend on browser storage access.
       }
@@ -586,7 +608,11 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
             Payment wasn&rsquo;t completed. Your saved booking details are still here; you can return to secure checkout when ready.
           </p>
         )}
-        {!adminMode && success.emailSent === true ? (
+            {!adminMode && !success.manageToken ? (
+              <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
+                For privacy, contact details and checkout access aren&rsquo;t saved in this browser. Open My Booking and verify your email to view or pay for this booking.
+              </p>
+            ) : !adminMode && success.emailSent === true ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
             Booking and payment details were sent to <strong>{details.email.trim()}</strong>. Payment is required to confirm the booking. Your selected time is held for 20 minutes.
           </p>
@@ -637,7 +663,11 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
             </>
           ) : (
             <>
-              <StripeCheckoutButton manageToken={success.manageToken} addOnPackages={success.addOnPackages} />
+              {success.manageToken ? (
+                <StripeCheckoutButton manageToken={success.manageToken} addOnPackages={success.addOnPackages} />
+              ) : (
+                <Button href="/booking/manage" variant="outline">Continue in My Booking</Button>
+              )}
               <Button href="/lessons" variant="outline" onClick={() => {
                 try { window.sessionStorage.removeItem(BOOKING_REVIEW_KEY); } catch { /* Ignore disabled storage. */ }
               }}>
