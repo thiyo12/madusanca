@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export const ADMIN_SESSION_COOKIE_NAME = "wda_admin_session";
+export const ADMIN_SESSION_COOKIE_NAME = "wda_admin_session_v2";
+export const LEGACY_ADMIN_SESSION_COOKIE_NAME = "wda_admin_session";
 export const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ADMIN_SESSION_TTL_MS = ADMIN_SESSION_TTL_SECONDS * 1000;
 const MAX_FUTURE_SKEW_MS = 60_000;
