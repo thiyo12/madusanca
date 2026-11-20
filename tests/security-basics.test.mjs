@@ -192,6 +192,14 @@ test("My Booking adds packages inline and reuses the booking calendar for eligib
   assert.match(manage, /setShowExitConfirmation\(true\)/);
 });
 
+test("students without an active booking can rebook with the same email and verify My Booking by email OTP", () => {
+  const finder = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
+  const otpRoute = readFileSync(new URL("../src/app/api/bookings/otp/route.ts", import.meta.url), "utf8");
+  assert.match(finder, /href="\/booking"/);
+  assert.match(finder, /Use the same email to find your lessons and reports in My Booking/);
+  assert.match(otpRoute, /sendBookingOtpEmail\(\{[\s\S]*?studentEmail: target\?\.email \?\? purchaseTarget\?\.email \?\? email/);
+});
+
 test("each scheduled lesson has exactly one student reschedule", () => {
   assert.equal(MAX_STUDENT_RESCHEDULES_PER_SESSION, 1);
   const migration = readFileSync(new URL("../supabase/migrations/0039_mybooking_addon_eligibility_and_reschedule_limit.sql", import.meta.url), "utf8");

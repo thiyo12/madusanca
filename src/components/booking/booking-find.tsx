@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatSlotFull } from "@/lib/booking/format";
 import { isInsideSelfServiceWindow, MAX_STUDENT_RESCHEDULES_PER_SESSION } from "@/lib/booking/manage-policy";
@@ -460,19 +461,31 @@ export function BookingFind({
             return (
               <section className="mt-1 rounded-[17px] border border-line bg-[#fbfcf9] p-4">
                 <h4 className="text-[13px] font-extrabold text-ink">Add a lesson</h4>
-                <p className="mt-1 text-[12px] leading-relaxed text-soft">Choose a lesson and time, then pay securely. Your existing bookings stay unchanged.</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (addOnSource) void openBooking(addOnSource.reference, "addons", addOnSource.id);
-                    else if (prepaidPurchase) void openBooking(prepaidPurchase.reference, "addons");
-                  }}
-                  disabled={pending || (!addOnSource && !prepaidPurchase)}
-                  className="mt-3 inline-flex min-h-10 items-center rounded-full bg-[#c2ee84] px-5 text-[12px] font-extrabold text-[#10212e] disabled:cursor-not-allowed disabled:opacity-55"
-                >
-                  {pending ? "Opening…" : prepaidPurchase && !addOnSource ? "Schedule prepaid lessons" : "Choose a lesson"}
-                </button>
-                {!addOnSource && !prepaidPurchase && <p className="mt-2 text-[11px] text-soft">Add-on lessons are available after you have an active paid booking.</p>}
+                <p className="mt-1 text-[12px] leading-relaxed text-soft">
+                  {addOnSource || prepaidPurchase
+                    ? "Choose a lesson and time, then pay securely. Your existing bookings stay unchanged."
+                    : "You can book and pay for another lesson here, even if you don’t currently have an active booking. Use the same email to find your lessons and reports in My Booking."}
+                </p>
+                {addOnSource || prepaidPurchase ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (addOnSource) void openBooking(addOnSource.reference, "addons", addOnSource.id);
+                      else if (prepaidPurchase) void openBooking(prepaidPurchase.reference, "addons");
+                    }}
+                    disabled={pending}
+                    className="mt-3 inline-flex min-h-10 items-center rounded-full bg-[#c2ee84] px-5 text-[12px] font-extrabold text-[#10212e] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    {pending ? "Opening…" : prepaidPurchase && !addOnSource ? "Schedule prepaid lessons" : "Choose a lesson"}
+                  </button>
+                ) : (
+                  <Link
+                    href="/booking"
+                    className="mt-3 inline-flex min-h-10 items-center rounded-full bg-[#c2ee84] px-5 text-[12px] font-extrabold text-[#10212e]"
+                  >
+                    Book and pay for a lesson
+                  </Link>
+                )}
               </section>
             );
           })()}
