@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomBytes } from "node:crypto";
 import { isLocalAdminBypassEnabled } from "@/lib/auth/local-admin-bypass";
+import { ADMIN_SESSION_COOKIE_NAME, ADMIN_SESSION_TTL_SECONDS, isAdminSessionCookieValid } from "@/lib/auth/admin-session";
 import { supabaseOrigin } from "@/lib/server/supabase-origin";
 
 function withCsp(response: NextResponse, policy: string): NextResponse {
@@ -95,6 +96,30 @@ export async function proxy(request: NextRequest) {
 
   if (user && isLoginPath) {
     return withCsp(NextResponse.redirect(new URL("/admin", request.url)), csp);
+  }
+
+  // Migrate sessions created before this cookie was widened from /admin to /.
+  // The calendar hold API lives under /api and cannot receive /admin cookies.
+  if (user) {
+    const validAdminSession = request.cookies
+      .getAll(ADMIN_SESSION_COOKIE_NAME)
+      .find(({ value }) => isAdminSessionCookieValid(value, user.id));
+    if (validAdminSession) {
+      supabaseResponse.cookies.set(ADMIN_SESSION_COOKIE_NAME, validAdminSession.value, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: ADMIN_SESSION_TTL_SECONDS,
+      });
+      supabaseResponse.cookies.set(ADMIN_SESSION_COOKIE_NAME, "", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/admin",
+        maxAge: 0,
+      });
+    }
   }
 
   return supabaseResponse;
