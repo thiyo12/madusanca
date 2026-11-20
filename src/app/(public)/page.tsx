@@ -27,6 +27,7 @@ export default async function Home() {
     <>
       <BusinessJsonLd />
       <Hero />
+      <LessonsPreview lessons={packages} />
       <section aria-labelledby="service-areas-title" className="bg-[#f7f8f5] py-14 sm:py-18">
         <div className="mx-auto max-w-7xl px-5 sm:px-6">
           <h2 id="service-areas-title" className="font-display text-3xl font-extrabold text-ink">
@@ -50,7 +51,6 @@ export default async function Home() {
           </ul>
         </div>
       </section>
-      <LessonsPreview lessons={packages} />
       <HowItWorks />
       <WhyUs />
       <Faq />
