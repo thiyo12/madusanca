@@ -122,6 +122,14 @@ test("public schema client grants are revoked for existing and future objects", 
   assert.match(migration, /alter default privileges for role postgres in schema public/i);
 });
 
+test("health endpoint is cheap, cache-disabled, and returns no details", () => {
+  const route = readFileSync(new URL("../src/app/api/health/route.ts", import.meta.url), "utf8");
+  assert.match(route, /export function GET\(\)/);
+  assert.match(route, /status: 200/);
+  assert.match(route, /"Cache-Control": "no-store"/);
+  assert.doesNotMatch(route, /process\.env|database|supabase|secret|token/i);
+});
+
 test("expired lessons do not offer online payment", () => {
   const bookingFind = readFileSync(new URL("../src/components/booking/booking-find.tsx", import.meta.url), "utf8");
   assert.match(bookingFind, /booking\.canOpen && !booking\.readOnly && booking\.paymentStatus === "due" && isUpcoming/);
