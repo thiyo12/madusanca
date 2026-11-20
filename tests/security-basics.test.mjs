@@ -638,7 +638,7 @@ test("production live Checkout requires live credentials and explicit opt-in", (
   assert.equal(isStripePaymentsEnabled({ ...liveConfig, nodeEnv: "development" }), false);
 });
 
-test("production test Checkout requires explicit staging or prelaunch opt-in and a matching HTTPS origin", () => {
+test("production test Checkout is restricted to explicit staging on a separate HTTPS origin", () => {
   const stagingConfig = {
     nodeEnv: "production",
     secretKey: "sk_test_1234567890",
@@ -650,24 +650,13 @@ test("production test Checkout requires explicit staging or prelaunch opt-in and
   };
   assert.equal(isStripePaymentsEnabled(stagingConfig), true);
   assert.equal(isStripePaymentsEnabled({ ...stagingConfig, deploymentEnvironment: "production" }), false);
+  assert.equal(isStripePaymentsEnabled({ ...stagingConfig, deploymentEnvironment: undefined }), false);
   assert.equal(isStripePaymentsEnabled({ ...stagingConfig, testPaymentsEnabled: "false" }), false);
   assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "https://wisdomdrivingacademy.com" }), false);
   assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "https://staging.wisdomdrivingacademy.com" }), false);
   assert.equal(isStripePaymentsEnabled({ ...stagingConfig, siteUrl: "http://wda-staging.example.net" }), false);
   assert.equal(isStripePaymentsEnabled({ ...stagingConfig, webhookSecret: undefined }), false);
   assert.equal(isStripePaymentsEnabled({ ...stagingConfig, secretKey: "sk_live_1234567890" }), false);
-
-  const prelaunchConfig = {
-    ...stagingConfig,
-    deploymentEnvironment: "production",
-    siteUrl: "https://wisdomdrivingacademy.com",
-  };
-  assert.equal(isStripePaymentsEnabled(prelaunchConfig), true);
-  assert.equal(isStripePaymentsEnabled({ ...prelaunchConfig, testPaymentsEnabled: "false" }), false);
-  assert.equal(isStripePaymentsEnabled({ ...prelaunchConfig, livePaymentsEnabled: "true" }), false);
-  assert.equal(isStripePaymentsEnabled({ ...prelaunchConfig, siteUrl: "https://staging.wisdomdrivingacademy.com" }), false);
-  assert.equal(isStripePaymentsEnabled({ ...prelaunchConfig, siteUrl: "http://wisdomdrivingacademy.com" }), false);
-  assert.equal(isStripePaymentsEnabled({ ...prelaunchConfig, webhookSecret: undefined }), false);
 });
 
 test("Stripe event livemode must match the configured API key mode", () => {
