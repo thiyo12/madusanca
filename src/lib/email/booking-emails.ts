@@ -49,6 +49,45 @@ export async function sendBookingConfirmedEmail(args: BookingArgs): Promise<bool
   return sent;
 }
 
+export async function sendBookingRequestReceivedEmail(args: {
+  reference: string;
+  lessonName: string;
+  durationMin: number;
+  startsAt: string;
+  studentName: string;
+  studentEmail: string;
+  sessionStartsAt?: string[];
+}): Promise<boolean> {
+  const manageUrl = new URL(
+    "/booking/manage",
+    process.env.NEXT_PUBLIC_SITE_URL || "https://wisdomdrivingacademy.com",
+  ).toString();
+  const sessions = args.sessionStartsAt ?? [args.startsAt];
+  const additionalSessions = sessions.length > 1
+    ? `<p style="font-size:13px;color:#4b525e;margin:16px 0 0">This request includes ${sessions.length} lesson sessions. View your booking on My Booking after verifying your email.</p>
+       <ul>${sessions.map((startsAt) => `<li>${escapeHtml(formatSlotFull(startsAt))} (Pacific Time)</li>`).join("")}</ul>`
+    : "";
+  const html = bookingShell(
+    "We received your booking request",
+    `<p>Hi ${escapeHtml(args.studentName)}, your booking request has been saved.</p>
+     ${bookingDetailsTable(args)}
+     ${additionalSessions}
+     <p style="font-size:13px;color:#4b525e;margin:16px 0 0">Payment is still due. Your selected time is held for 20 minutes; complete secure checkout to confirm the lesson.</p>
+     <p style="margin:20px 0 0"><a href="${escapeHtml(manageUrl)}" style="display:inline-block;background:#e3a721;color:#111315;font-weight:800;text-decoration:none;padding:11px 20px;border-radius:10px;font-size:14px">Open My Booking</a></p>
+     <p style="font-size:12px;color:#6b7280;margin:12px 0 0">For privacy, verify your email with a one-time code before viewing or managing this booking.</p>`,
+  );
+  const sent = await sendEmail({
+    to: args.studentEmail,
+    subject: `Booking request received — ${args.reference}`,
+    html,
+  });
+  await notifySchool(
+    `New booking request — ${args.reference}`,
+    bookingShell("New unpaid booking request", `${bookingDetailsTable(args)}<p>Payment is still due.</p>`),
+  );
+  return sent;
+}
+
 export async function sendBookingPaymentReceivedEmail(args: BookingArgs & { invoiceUrl?: string }): Promise<boolean> {
   const invoice = args.invoiceUrl
     ? `<p><a href="${escapeHtml(args.invoiceUrl)}" style="color:#31543a;font-weight:800">View your paid invoice</a></p>`

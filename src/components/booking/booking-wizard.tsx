@@ -623,7 +623,7 @@ export function BookingWizard({ lessons, initialLessonId, initialStartAt, paymen
           </p>
         ) : !adminMode ? (
           <p className="mt-2 text-[15px] leading-relaxed text-[#4b525e]">
-            Your booking request is saved. We’ll email you when payment confirms your lesson; no email is sent for an unconfirmed request.
+            Your booking request is saved. Check your inbox for the request summary. Payment is required to confirm the lesson; if the email doesn&rsquo;t arrive, use My Booking and verify your email to view the booking.
           </p>
         ) : null}
         <BookingSummary

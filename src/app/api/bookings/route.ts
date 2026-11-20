@@ -9,6 +9,7 @@ import { readBoundedBody } from "@/lib/server/read-bounded-body";
 import { logSafeError } from "@/lib/server/safe-log";
 import { MANAGE_COOKIE_NAME } from "@/lib/booking/manage-cookie";
 import { hasTrustedRequestOrigin } from "@/lib/server/request-origin";
+import { sendBookingRequestReceivedEmail } from "@/lib/email/booking-emails";
 import type { Lesson } from "@/lib/data/lessons";
 
 export const dynamic = "force-dynamic";
@@ -193,6 +194,20 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const booking = result.value[0];
+    let emailSent = false;
+    try {
+      emailSent = await sendBookingRequestReceivedEmail({
+        reference: booking.reference,
+        lessonName: booking.lessonName,
+        durationMin: booking.durationMin,
+        startsAt: booking.startsAt,
+        studentName,
+        studentEmail: email,
+        sessionStartsAt: result.value.map(({ startsAt }) => startsAt),
+      });
+    } catch (error) {
+      logSafeError("[bookings] request email failed", error);
+    }
     const response = NextResponse.json({
       ok: true,
       booking: {
@@ -206,6 +221,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         sessions: result.value.map(({ startsAt: sessionStart }) => ({ startsAt: sessionStart })),
         sessionCount: result.value.length,
       },
+      emailSent,
       manageToken: token,
       addOns: addOns.map(({ lesson: item, quantity }) => ({
         id: item!.id,

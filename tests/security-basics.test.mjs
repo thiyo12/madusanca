@@ -970,10 +970,14 @@ test("verified customers can view completed booking history but cannot modify it
   assert.match(manageUi, /This lesson has expired\. Please contact your tutor for help\./);
 });
 
-test("unconfirmed booking requests do not trigger email; payment events have confirmation mail handlers", () => {
+test("unpaid booking requests send a token-free request email; payment events have confirmation mail handlers", () => {
   const bookingRoute = readFileSync(new URL("../src/app/api/bookings/route.ts", import.meta.url), "utf8");
+  const bookingEmails = readFileSync(new URL("../src/lib/email/booking-emails.ts", import.meta.url), "utf8");
   const fulfillment = readFileSync(new URL("../src/lib/stripe/fulfill.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(bookingRoute, /sendBookingPaymentPendingEmail/);
+  assert.match(bookingRoute, /sendBookingRequestReceivedEmail/);
+  assert.match(bookingEmails, /Payment is still due/);
+  assert.match(bookingEmails, /\/booking\/manage/);
+  assert.doesNotMatch(bookingEmails.match(/sendBookingRequestReceivedEmail[\s\S]*?\n}\n/)?.[0] ?? "", /manageToken|privateToken/);
   assert.match(fulfillment, /sendBookingPaymentReceivedEmail/);
   assert.match(fulfillment, /sendPackagePurchasePaidEmail/);
 });
